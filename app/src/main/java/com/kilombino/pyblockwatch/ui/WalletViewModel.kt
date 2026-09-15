@@ -38,6 +38,9 @@ data class SendDraft(
     val change: Long,
     val inputs: List<com.kilombino.pyblockwatch.data.Scanner.SpendableUtxo>,
     val outputs: List<com.kilombino.pyblockwatch.crypto.TxBuilder.Output>,
+    // The chain this draft was prepared against. Fixed at prepare time so a chain switch during
+    // review cannot change which hash the spend is signed under (see confirmSend).
+    val chain: Chain,
     // Set for a silent payment: the recipient's keys. Output 0's real scriptPubKey depends on
     // the input private keys, so it is only computed at signing time and replaces the placeholder.
     val silentRecipient: com.kilombino.pyblockwatch.crypto.SilentPayment.Recipient? = null,
@@ -84,6 +87,9 @@ data class UiState(
     val setupMode: Boolean = false,
     val utxos: List<com.kilombino.pyblockwatch.data.Scanner.SpendableUtxo>? = null, // null = not loaded
     val utxosLoading: Boolean = false,
+    // The chain the cached [utxos] were gathered for; null when none. Guards against a stale
+    // in-flight fetch repopulating the picker with another chain's coins.
+    val utxosChain: Chain? = null,
 ) {
     val current: ChainState get() = chains[selected] ?: ChainState()
     val hasWallet: Boolean get() = !xpub.isNullOrBlank()
@@ -254,8 +260,10 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun endSetup() = _state.update { it.copy(setupMode = false) }
 
     fun select(chain: Chain) {
+        val changed = chain != _state.value.selected
         store.lastChain = chain
         _state.update { it.copy(selected = chain) }
+        if (changed) resetSend()   // a real switch must not leave a stale review draft on screen
         refresh(chain)          // fresh figures the moment you switch to a chain
         startRefreshLoop()      // restart the timer so it tracks the newly selected chain
     }
@@ -377,7 +385,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------------ hot wallet: send
 
-    fun resetSend() = _state.update { it.copy(sendPhase = SendPhase.Editing, utxos = null) }
+    fun resetSend() = _state.update {
+        it.copy(sendPhase = SendPhase.Editing, utxos = null, utxosChain = null)
+    }
 
     /** Load the wallet's spendable UTXOs for the coin-control picker. */
     fun loadUtxos() {
@@ -392,9 +402,22 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     scanner.gatherUtxos(cs.rows.filter { it.isUsed }, endpoint, pin)
                 }
-            }.onSuccess { u -> _state.update { it.copy(utxos = u.sortedByDescending { x -> x.value }, utxosLoading = false) } }
-             .onFailure { _state.update { it.copy(utxos = emptyList(), utxosLoading = false) } }
+            }.onSuccess { u -> applyUtxos(chain, u.sortedByDescending { x -> x.value }) }
+             .onFailure { applyUtxos(chain, emptyList()) }
         }
+    }
+
+    /**
+     * Record a fetch result, dropping it if the selected chain moved while the fetch was in
+     * flight. The reload a chain switch triggers is swallowed by the [utxosLoading] guard while a
+     * fetch is outstanding, so re-run it here once the guard has cleared.
+     */
+    private fun applyUtxos(chain: Chain, coins: List<com.kilombino.pyblockwatch.data.Scanner.SpendableUtxo>) {
+        _state.update {
+            if (it.selected == chain) it.copy(utxos = coins, utxosChain = chain, utxosLoading = false)
+            else it.copy(utxosLoading = false)
+        }
+        if (_state.value.selected != chain) loadUtxos()
     }
 
     /**
@@ -413,6 +436,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(sendPhase = SendPhase.Preparing) }
         viewModelScope.launch {
             runCatching {
+                require(selected.isEmpty() || _state.value.utxosChain == chain) {
+                    "The chosen coins are not from the current chain."
+                }
                 // A human-readable handle (user@domain, BIP-353) resolves via DNS to the real
                 // address — which may itself be a silent payment.
                 val effectiveTo = if (toAddress.contains("@")) resolveBip353(toAddress) else toAddress
@@ -466,7 +492,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     fee = sum - amountSats // dust change folded into the fee
                     change = 0
                 }
-                val draft = SendDraft(toAddress, amountSats, fee, change, chosen, outputs, silentRecipient)
+                val draft = SendDraft(toAddress, amountSats, fee, change, chosen, outputs, chain, silentRecipient)
                 _state.update { it.copy(sendPhase = SendPhase.Review(draft)) }
             }.onFailure { e ->
                 _state.update { it.copy(sendPhase = SendPhase.Failed(e.message ?: "Could not prepare the send.")) }
@@ -545,7 +571,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun confirmSend(decryptCipher: javax.crypto.Cipher) {
         val draft = (_state.value.sendPhase as? SendPhase.Review)?.draft ?: return
-        val chain = _state.value.selected
+        // Use the chain the draft was prepared against, not whatever is selected now: switching
+        // chains during review must not change which hash this spend is signed under.
+        val chain = draft.chain
         _state.update { it.copy(sendPhase = SendPhase.Broadcasting) }
         viewModelScope.launch {
             runCatching {
@@ -572,7 +600,15 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                             if (i == 0) com.kilombino.pyblockwatch.crypto.TxBuilder.Output(spScript, o.value) else o
                         }
                     } ?: draft.outputs
-                    com.kilombino.pyblockwatch.crypto.TxBuilder.build(inputs, outputs)
+                    // Sign opted-in on the BLAKE2b chain so the spend cannot be replayed
+                    // onto the SHA256d chain; the SHA256d side needs the legacy sighash.
+                    val hashType = if (chain == Chain.BLAKE2B) {
+                        com.kilombino.pyblockwatch.crypto.TxBuilder.SIGHASH_ALL or
+                            com.kilombino.pyblockwatch.crypto.TxBuilder.SIGHASH_UNIFIED
+                    } else {
+                        com.kilombino.pyblockwatch.crypto.TxBuilder.SIGHASH_ALL
+                    }
+                    com.kilombino.pyblockwatch.crypto.TxBuilder.build(inputs, outputs, hashType = hashType)
                 }
                 val endpoint = store.endpoint(chain)
                 val pin = store.pinnedFingerprint(endpoint)
