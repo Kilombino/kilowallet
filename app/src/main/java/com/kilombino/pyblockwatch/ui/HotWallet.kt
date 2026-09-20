@@ -296,7 +296,7 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
     val cameraPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted -> if (granted) showScanner = true }
-    LaunchedEffect(Unit) { vm.loadUtxos() }
+    LaunchedEffect(state.selected) { vm.loadUtxos() }
     if (showScanner) {
         QrScannerDialog(
             onResult = { raw ->

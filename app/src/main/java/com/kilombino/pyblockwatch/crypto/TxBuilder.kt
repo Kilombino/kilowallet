@@ -92,8 +92,7 @@ object TxBuilder {
 
         val inp = inputs[index]
         // scriptCode for P2WPKH is the P2PKH script of the same key hash.
-        val scriptCode = byteArrayOf(0x76, 0xa9.toByte(), 0x14) +
-            Hashes.hash160(inp.pubkey) + byteArrayOf(0x88.toByte(), 0xac.toByte())
+        val scriptCode = Address.scriptPubKey(inp.pubkey, ScriptType.P2PKH)
 
         val pre = ByteArrayOutputStream()
         pre.write(u32le(version))
@@ -113,10 +112,6 @@ object TxBuilder {
 
     /** Locktime as five little-endian bytes, zero-extended: the unified message widens the field. */
     private fun u40le(v: Long): ByteArray = ByteArray(5) { ((v ushr (8 * it)) and 0xFF).toByte() }
-
-    /** The scriptPubKey of a P2WPKH output being spent: OP_0 PUSH20 hash160(pubkey). */
-    private fun p2wpkhSpk(pubkey: ByteArray): ByteArray =
-        byteArrayOf(0x00, 0x14) + Hashes.hash160(pubkey)
 
     /**
      * The unified opt-in message for a bare/P2SH (script type 0) or segwit-v0 (script type 1)
@@ -186,16 +181,15 @@ object TxBuilder {
      * supplying the P2WPKH spent scriptPubKey (OP_0 hash160) and BIP-143 implied-P2PKH scriptCode.
      */
     fun unifiedSighash(version: Long, inputs: List<Input>, outputs: List<Output>, index: Int, locktime: Long): ByteArray {
-        val scriptCode = byteArrayOf(0x76, 0xa9.toByte(), 0x14) +
-            Hashes.hash160(inputs[index].pubkey) + byteArrayOf(0x88.toByte(), 0xac.toByte())
         return unifiedMessage(
             version = version, locktime = locktime,
             hashType = SIGHASH_UNIFIED or SIGHASH_ALL, scriptType = 1,
             prevouts = inputs.map { outpoint(it.txid, it.vout) },
             amounts = inputs.map { it.value },
-            spentScripts = inputs.map { p2wpkhSpk(it.pubkey) },
+            spentScripts = inputs.map { Address.scriptPubKey(it.pubkey, ScriptType.P2WPKH) },
             sequences = inputs.map { it.sequence },
-            outputs = outputs, index = index, scriptCode = scriptCode,
+            outputs = outputs, index = index,
+            scriptCode = Address.scriptPubKey(inputs[index].pubkey, ScriptType.P2PKH),
         )
     }
 

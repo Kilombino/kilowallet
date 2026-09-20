@@ -38,6 +38,10 @@ data class SendDraft(
     val change: Long,
     val inputs: List<com.kilombino.pyblockwatch.data.Scanner.SpendableUtxo>,
     val outputs: List<com.kilombino.pyblockwatch.crypto.TxBuilder.Output>,
+    // The chain this draft was prepared against, fixed at prepare time. confirmSend signs and
+    // broadcasts under it, so switching chain during review cannot change which sighash (unified
+    // on BLAKE2b, legacy on SHA-256) a reviewed spend is signed with.
+    val chain: Chain,
     // Set for a silent payment: the recipient's keys. Output 0's real scriptPubKey depends on
     // the input private keys, so it is only computed at signing time and replaces the placeholder.
     val silentRecipient: com.kilombino.pyblockwatch.crypto.SilentPayment.Recipient? = null,
@@ -84,6 +88,9 @@ data class UiState(
     val setupMode: Boolean = false,
     val utxos: List<com.kilombino.pyblockwatch.data.Scanner.SpendableUtxo>? = null, // null = not loaded
     val utxosLoading: Boolean = false,
+    // The chain the cached [utxos] were gathered for; null when none. Guards against a stale
+    // in-flight fetch repopulating the coin picker with another chain's coins.
+    val utxosChain: Chain? = null,
 ) {
     val current: ChainState get() = chains[selected] ?: ChainState()
     val hasWallet: Boolean get() = !xpub.isNullOrBlank()
@@ -254,8 +261,10 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun endSetup() = _state.update { it.copy(setupMode = false) }
 
     fun select(chain: Chain) {
+        val changed = chain != _state.value.selected
         store.lastChain = chain
         _state.update { it.copy(selected = chain) }
+        if (changed) resetSend() // a real switch must not leave a stale review draft or coins on screen
         refresh(chain)          // fresh figures the moment you switch to a chain
         startRefreshLoop()      // restart the timer so it tracks the newly selected chain
     }
@@ -377,7 +386,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------------ hot wallet: send
 
-    fun resetSend() = _state.update { it.copy(sendPhase = SendPhase.Editing, utxos = null) }
+    fun resetSend() = _state.update { it.copy(sendPhase = SendPhase.Editing, utxos = null, utxosChain = null) }
 
     /** Load the wallet's spendable UTXOs for the coin-control picker. */
     fun loadUtxos() {
@@ -392,9 +401,22 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     scanner.gatherUtxos(cs.rows.filter { it.isUsed }, endpoint, pin)
                 }
-            }.onSuccess { u -> _state.update { it.copy(utxos = u.sortedByDescending { x -> x.value }, utxosLoading = false) } }
-             .onFailure { _state.update { it.copy(utxos = emptyList(), utxosLoading = false) } }
+            }.onSuccess { u -> applyUtxos(chain, u.sortedByDescending { x -> x.value }) }
+             .onFailure { applyUtxos(chain, emptyList()) }
         }
+    }
+
+    /**
+     * Record a coin fetch, but drop it if the selected chain moved while it was in flight, and
+     * re-run for the chain now selected. The reload a chain switch triggers is otherwise swallowed
+     * by the [UiState.utxosLoading] guard while a fetch is still outstanding.
+     */
+    private fun applyUtxos(chain: Chain, coins: List<com.kilombino.pyblockwatch.data.Scanner.SpendableUtxo>) {
+        _state.update {
+            if (it.selected == chain) it.copy(utxos = coins, utxosChain = chain, utxosLoading = false)
+            else it.copy(utxosLoading = false)
+        }
+        if (_state.value.selected != chain) loadUtxos()
     }
 
     /**
@@ -413,6 +435,11 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(sendPhase = SendPhase.Preparing) }
         viewModelScope.launch {
             runCatching {
+                // Coin control only: the picked coins must belong to the chain being spent on, or a
+                // chain switch mid-flow could carry another chain's coins into this draft.
+                require(selected.isEmpty() || _state.value.utxosChain == chain) {
+                    "The chosen coins are not from the current chain."
+                }
                 // A human-readable handle (user@domain, BIP-353) resolves via DNS to the real
                 // address — which may itself be a silent payment.
                 val effectiveTo = if (toAddress.contains("@")) resolveBip353(toAddress) else toAddress
@@ -466,7 +493,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     fee = sum - amountSats // dust change folded into the fee
                     change = 0
                 }
-                val draft = SendDraft(toAddress, amountSats, fee, change, chosen, outputs, silentRecipient)
+                val draft = SendDraft(toAddress, amountSats, fee, change, chosen, outputs, chain, silentRecipient)
                 _state.update { it.copy(sendPhase = SendPhase.Review(draft)) }
             }.onFailure { e ->
                 _state.update { it.copy(sendPhase = SendPhase.Failed(e.message ?: "Could not prepare the send.")) }
@@ -545,7 +572,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun confirmSend(decryptCipher: javax.crypto.Cipher) {
         val draft = (_state.value.sendPhase as? SendPhase.Review)?.draft ?: return
-        val chain = _state.value.selected
+        val chain = draft.chain // the chain the draft was reviewed under, not whatever is selected now
         _state.update { it.copy(sendPhase = SendPhase.Broadcasting) }
         viewModelScope.launch {
             runCatching {

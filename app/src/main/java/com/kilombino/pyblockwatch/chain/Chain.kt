@@ -9,9 +9,10 @@ package com.kilombino.pyblockwatch.chain
  * each side of the fork?".
  *
  * A wallet is watch-only unless it holds a seed; a seed-backed (hot) wallet can sign and
- * spend. Spends go to the BLAKE2b chain, where the fork validates the unified opt-in sighash
- * that protects them from replay; SHA-256 is a read-only lookup, reached over its own server.
- * The distinction the user cares about is which chain answers, and which one their keys can move.
+ * spend on either chain. A spend on BLAKE2b signs with the unified opt-in sighash, so it
+ * cannot be replayed onto the SHA-256 chain; a spend on SHA-256 uses the legacy sighash that
+ * chain requires and is not replay-protected. The distinction the user cares about is which
+ * chain answers, and how a spend there is protected.
  */
 enum class Chain(
     val id: String,
@@ -38,7 +39,7 @@ enum class Chain(
         defaultHost = "nobip110fulcrum.kilombino.com",
         defaultPort = 50002,
         accent = 0xFFF7931A,
-        blurb = "The classic SHA-256 chain. Read-only: find your coins with the xpub.",
+        blurb = "The classic SHA-256 chain. Spends here sign legacy, so they are not replay-protected.",
     );
 
     /** Only BLAKE2b offers pointing at your own node; SHA-256 is a lookup service. */
