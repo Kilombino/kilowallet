@@ -572,7 +572,12 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                             if (i == 0) com.kilombino.pyblockwatch.crypto.TxBuilder.Output(spScript, o.value) else o
                         }
                     } ?: draft.outputs
-                    com.kilombino.pyblockwatch.crypto.TxBuilder.build(inputs, outputs)
+                    // Opt into the unified sighash on the BLAKE2b chain, where the fork makes it
+                    // valid, so the spend cannot be replayed onto the shared-history SHA-256 chain.
+                    // A SHA-256 spend has no fork to validate it, so it stays legacy SIGHASH_ALL.
+                    com.kilombino.pyblockwatch.crypto.TxBuilder.build(
+                        inputs, outputs, unified = chain == com.kilombino.pyblockwatch.chain.Chain.BLAKE2B,
+                    )
                 }
                 val endpoint = store.endpoint(chain)
                 val pin = store.pinnedFingerprint(endpoint)

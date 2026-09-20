@@ -8,9 +8,10 @@ package com.kilombino.pyblockwatch.chain
  * sides, and the interesting question the app answers is "what does this key hold on
  * each side of the fork?".
  *
- * Both are WATCH-ONLY by construction. There is no signing code anywhere in this
- * app, so neither chain can spend; the distinction the user cares about is which
- * server answers, not which one is trusted with keys.
+ * A wallet is watch-only unless it holds a seed; a seed-backed (hot) wallet can sign and
+ * spend. Spends go to the BLAKE2b chain, where the fork validates the unified opt-in sighash
+ * that protects them from replay; SHA-256 is a read-only lookup, reached over its own server.
+ * The distinction the user cares about is which chain answers, and which one their keys can move.
  */
 enum class Chain(
     val id: String,
