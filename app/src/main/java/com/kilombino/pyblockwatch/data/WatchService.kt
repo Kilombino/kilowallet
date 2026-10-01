@@ -74,7 +74,10 @@ class WatchService : Service() {
             // to open the app at least once a month.
             if (com.kilombino.pyblockwatch.ark.Ark.available &&
                 java.io.File(filesDir, "ark/db.sqlite").exists()) {
-                runCatching { com.kilombino.pyblockwatch.ark.Ark.ensureStarted(this@WatchService) }
+                runCatching {
+                    com.kilombino.pyblockwatch.ark.Ark.ensureStarted(this@WatchService)
+                    ArkWatch.evaluate(this@WatchService, notifier)
+                }
             }
             // Home-screen widget: piggy-backs on this loop instead of pulling in WorkManager.
             // MarketFeed only calls the server when its own schedule allows it.

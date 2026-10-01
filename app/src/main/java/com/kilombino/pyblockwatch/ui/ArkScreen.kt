@@ -117,6 +117,8 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color) {
     var busy by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var sheet by remember { mutableStateOf<String?>(null) }   // "receive" | "send" | "board"
+    // The renewal quote, shown in a confirmation dialog before anything happens.
+    var renew by remember { mutableStateOf<Ark.Estimate?>(null) }
     // New Ark words, shown once right after activation so they get written down.
     var newWords by remember { mutableStateOf<List<String>?>(null) }
 
@@ -141,12 +143,19 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color) {
         view = try {
             withContext(Dispatchers.IO) {
                 Ark.ensureStarted(ctx)
-                if (Ark.hasWallet()) ArkView.Ready else ArkView.NoWallet
+                if (Ark.hasWallet()) { Ark.syncOnchain(); ArkView.Ready } else ArkView.NoWallet
             }
         } catch (e: Exception) { ArkView.Failed(e.message ?: e.toString()) }
         if (view == ArkView.Ready) reload()
         // Keep the figures live while the tab is open; boards and rounds settle on their own.
-        while (true) { delay(30_000); if (view == ArkView.Ready) runCatching { reload() } }
+        var tick = 0
+        while (true) {
+            delay(30_000)
+            if (view != ArkView.Ready) continue
+            // A deposit should show up within a couple of minutes even between blocks.
+            if (++tick % 4 == 0) withContext(Dispatchers.IO) { Ark.syncOnchain() }
+            runCatching { reload() }
+        }
     }
 
     val fresh = newWords
@@ -176,9 +185,22 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color) {
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ArkButton("MOVE INTO ARK", sheet == "board", accent, Modifier.weight(1f)) { sheet = if (sheet == "board") null else "board" }
-                ArkButton("RENEW", false, accent, Modifier.weight(1f)) {
-                    run("Renewing coins…") { withContext(Dispatchers.IO) { Ark.refreshAll() }; "Renewal requested; it completes in the next round." }
+                ArkButton("RENEW", renew != null, accent, Modifier.weight(1f)) {
+                    scope.launch {
+                        busy = "Calculating the renewal cost…"
+                        renew = withContext(Dispatchers.IO) { Ark.estimateRenew() }
+                            ?: Ark.Estimate(0, 0, 0, false, "", "Could not calculate the cost. Try again in a moment.")
+                        busy = null
+                    }
                 }
+            }
+            renew?.let { e ->
+                ArkRenewDialog(e, accent,
+                    onConfirm = {
+                        renew = null
+                        run("Renewing coins…") { withContext(Dispatchers.IO) { Ark.refreshAll() }; "Renewal requested; it completes in the next round." }
+                    },
+                    onDismiss = { renew = null })
             }
             when (sheet) {
                 "receive" -> ArkReceiveSheet(accent, busy) { action, done ->
@@ -480,6 +502,31 @@ private fun ArkMovementDialog(m: Ark.Movement, accent: Color, explorer: String, 
             } else TextButton(onClick = onClose) { Text("CLOSE", color = accent) }
         },
         dismissButton = { if (m.onchainTxid != null) TextButton(onClick = onClose) { Text("CLOSE", color = TextSoft) } },
+        containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
+    )
+}
+
+/** RENEW asks first: what a renewal does, what it costs now, and what is left. */
+@Composable
+private fun ArkRenewDialog(e: Ark.Estimate, accent: Color, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Renew your Ark coins?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Renewing takes your coins into the next round: they get a new expiry, about " +
+                    "30 days from now, and are joined into one coin, which makes later payments " +
+                    "cheaper. The wallet also renews by itself before coins expire, so you only " +
+                    "need this to join coins or to renew early.", style = MaterialTheme.typography.bodySmall)
+                if (e.problem != null) Text(e.problem, style = MaterialTheme.typography.bodySmall, color = Warn)
+                else CostBreakdown(Ark.Estimate(e.amount, e.fee, e.total, true, e.note),
+                    "Your coins after", "Renewed now", accent)
+            }
+        },
+        confirmButton = {
+            if (e.problem == null) TextButton(onClick = onConfirm) { Text("RENEW", color = accent) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("CANCEL", color = TextSoft) } },
         containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
     )
 }

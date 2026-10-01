@@ -138,12 +138,12 @@ Zapstore.
 
 ```
 git clone https://github.com/Kilombino/paperclip-wallet-app && cd paperclip-wallet-app
-git checkout 7fadbef
+git checkout 0769c94
 ANDROID_NDK_HOME=/path/to/ndk/27.1.12297006 ./kilombino-ark/build-android.sh
-# → 29eb7ec38aef01563c581f94204c3bd5020f0a52245f679320b58a537d7692d9
+# → a3b019ef6b782084f6b59797dee7ea5167b61bd1cb5ec8a13242bb0342202a44
 ```
 
 The script remaps the source and toolchain paths, so the result does not depend on where
-anything lives: two clean clones in different directories produced that identical hash.
+anything lives: two clean clones in different directories produced that identical hash. (0.10.0–0.10.2 shipped `29eb7ec38aef01563c581f94204c3bd5020f0a52245f679320b58a537d7692d9`, commit 7fadbef.)
 `./gradlew assembleRelease` runs `verifyArkEngine` first and fails if the library in
 `jniLibs` differs from the pin, or if any other ABI directory is present.

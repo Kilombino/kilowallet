@@ -379,6 +379,21 @@ object Ark {
         return r.optString("invoice", r.toString())
     }
 
+    /** What renewing every coin costs now: the round fee, and what the new coin holds. */
+    fun estimateRenew(): Estimate? = runCatching {
+        val r = JSONObject(call("GET", "/fees/refresh-all"))
+        val coins = r.optJSONArray("vtxos_spent")?.length() ?: 0
+        Estimate(r.optLong("net_amount_sat"), r.optLong("fee_sat"), r.optLong("gross_amount_sat"), true,
+            "$coins coin" + (if (coins == 1) "" else "s") + " renewed into one")
+    }.getOrElse { e ->
+        if (e !is ArkError) null
+        else Estimate(0, 0, 0, false, "",
+            if (e.message.orEmpty().contains("No VTXOs")) "You have no Ark coins to renew." else e.message)
+    }
+
+    /** Ask the engine to look at the chain now instead of at its next minute or block. */
+    fun syncOnchain() { runCatching { call("POST", "/onchain/sync", JSONObject(), 60_000) } }
+
     /** Renews every coin close to expiry. The engine also does this by itself while running. */
     fun refreshAll() { call("POST", "/wallet/refresh/all", JSONObject(), 180_000) }
 

@@ -99,6 +99,28 @@ class Notifier(private val context: Context) {
         post(idFor(chain, "sent", ""), "Sent",
              "${chain.display} · ${sats(amount)} sats · confirmed")
 
+    // ---------------------------------------------------------------- Ark
+
+    private fun arkId(event: String, key: String): Int = ("ark:$event:$key").hashCode()
+
+    fun arkReceived(kind: String, amount: Long, key: String) =
+        post(arkId("in", key), "Ark: ${kind.lowercase()}", "+${sats(amount)} sats, spendable in Ark")
+
+    fun arkBoarded(amount: Long, key: String) =
+        post(arkId("board", key), "Ark: funds moved in", "+${sats(amount)} sats are now spendable in Ark")
+
+    fun arkWithdrawn(amount: Long, key: String) =
+        post(arkId("out", key), "Ark: withdrawal done", "${sats(kotlin.math.abs(amount))} sats left Ark on-chain")
+
+    fun arkDeposit(amount: Long) =
+        post(arkId("deposit", amount.toString()), "Ark: deposit detected",
+             "+${sats(amount)} sats on-chain, not in Ark yet. Open the Ark tab and tap MOVE INTO ARK.")
+
+    fun arkExpiring(blocks: Int) =
+        post(arkId("expiry", ""), "Ark: a coin expires soon",
+             "In about ${blocks * 10 / 1440} days ($blocks blocks). Open the Ark tab and tap RENEW, " +
+                 "or the coin has to be withdrawn on-chain.")
+
     private fun idFor(chain: Chain, phase: String, txid: String): Int =
         (chain.id + phase + txid).hashCode()
 
