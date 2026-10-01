@@ -323,7 +323,7 @@ private fun ArkSendSheet(accent: Color, onSend: (String, Long?, Long?) -> Unit) 
             label = { Text("Ark address, Lightning invoice or XBT address") }, modifier = Modifier.fillMaxWidth())
         TextButton(onClick = { clip.getText()?.text?.let { dest = it.trim(); review = null } }) { Text("PASTE", color = accent) }
         OutlinedTextField(value = amount, onValueChange = { amount = it.filter(Char::isDigit); review = null },
-            label = { Text("sats (empty if the invoice has the amount)") }, singleLine = true,
+            label = { Text("sats (empty: the invoice's amount, or everything to an XBT address)") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
         val r = review

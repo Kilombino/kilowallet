@@ -257,6 +257,17 @@ object Ark {
         val req = JSONObject().put("destination", destination.trim())
         if (sats != null) req.put("amount_sat", sats)
         if (maxTotal != null && destination.trim().startsWith("ark1", ignoreCase = true)) req.put("max_total_sat", maxTotal)
+        val d = destination.trim()
+        if (!d.startsWith("ark1", ignoreCase = true) && !d.startsWith("ln", ignoreCase = true)) {
+            // An XBT address leaves Ark on-chain: an amount, or everything when there is none.
+            return if (sats == null) {
+                call("POST", "/wallet/offboard/all", JSONObject().put("address", d), 180_000)
+                "Withdrawal requested: everything leaves Ark in the next round."
+            } else {
+                call("POST", "/wallet/send-onchain", JSONObject().put("destination", d).put("amount_sat", sats), 180_000)
+                "Withdrawal requested: it leaves Ark in the next round."
+            }
+        }
         return JSONObject(call("POST", "/wallet/send", req, 180_000)).optString("message")
     }
 
@@ -318,8 +329,14 @@ object Ark {
                 }
             }
             else -> {
-                val amt = sats ?: return null
-                feeQuery("/fees/send-onchain?amount_sat=$amt&address=${java.net.URLEncoder.encode(d, "UTF-8")}")
+                val addr = java.net.URLEncoder.encode(d, "UTF-8")
+                if (sats == null) {
+                    // Empty amount to an XBT address: everything in Ark leaves to it.
+                    feeQuery("/fees/offboard-all?address=$addr")?.let {
+                        Estimate(it.amount, it.fee, it.total, true,
+                            "Everything in Ark leaves to this address in the next round, minus the on-chain fee.")
+                    }
+                } else feeQuery("/fees/send-onchain?amount_sat=$sats&address=$addr")
                     ?.copy(note = "Leaves Ark through the next round and pays the on-chain fee.")
             }
         }
