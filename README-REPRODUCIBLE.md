@@ -4,23 +4,25 @@ Rebuild the published APK yourself and confirm it matches, byte for byte.
 
 ## 1. What is and is not compiled here
 
-This project is **pure JVM/Kotlin + Android Gradle Plugin**. There is no Rust, no
-NDK, no `Cargo.toml`, and no `.so` of ours anywhere.
+The XBT wallet is **pure JVM/Kotlin + Android Gradle Plugin**. secp256k1 arithmetic,
+RIPEMD-160, Base58Check, Bech32 and BIP-32 derivation are all Kotlin in
+`app/src/main/java/com/kilombino/pyblockwatch/crypto/`, compiled from this repo; the
+spending wallet's signatures are RFC 6979 and pinned to the published secp256k1 vectors
+in `SigningTest`.
 
-That is the substantive difference from a typical Bitcoin wallet. Wallets usually
-depend on prebuilt native libraries from Maven — `libbdkffi.so`, `libsecp256k1-jni.so`
-— which are pinned by hash but **not rebuilt**, so the code that touches your keys
-stays outside the reproducible surface. Here there is nothing to leave out: secp256k1
-arithmetic, RIPEMD-160, Base58Check, Bech32 and BIP-32 derivation are all Kotlin in
-`app/src/main/java/com/kilombino/pyblockwatch/crypto/`, compiled from this repo.
+Since 0.10.0 the APK carries **one native library of ours**: the **Ark engine**,
+`lib/arm64-v8a/libkilombino_ark.so` — the Paperclip/bark wallet (Rust, MIT) that runs
+Ark inside the app. It is not a prebuilt blob: it is rebuilt from a pinned commit of
+[Kilombino/paperclip-wallet-app](https://github.com/Kilombino/paperclip-wallet-app),
+reproducibly, and the release build refuses any library whose SHA-256 differs from the
+pin in `ark-engine/ENGINE` (§8). It holds the Ark wallet's keys; the XBT spending
+wallet's keys never reach it except as the shared words, when the user chooses one set
+of words for both. It ships for arm64-v8a only; on other ABIs the wallet runs without Ark.
 
-The only native code in the APK is prebuilt helpers with **no cryptographic role**,
+The other native code in the APK is prebuilt helpers with **no cryptographic role**,
 pulled transitively and pinned by hash like every other dependency:
-`libandroidx.graphics.path.so` (a Compose path parser), and — since 0.2.0 added the
-QR scanner — `libimage_processing_util_jni.so` and `libsurface_util_jni.so` from
-CameraX (camera frame/surface helpers). The key-handling path stays pure Kotlin from
-this repo; none of these `.so` touch it. Drop Compose and the QR scanner for a build
-with literally zero `.so`.
+`libandroidx.graphics.path.so` (a Compose path parser), and
+`libimage_processing_util_jni.so` and `libsurface_util_jni.so` from CameraX.
 
 ## 2. Toolchain pins
 
@@ -33,7 +35,8 @@ with literally zero `.so`.
 | compileSdk / targetSdk | **35** / **35** · build-tools **35.0.0** |
 | Jetpack Compose | BOM **2024.12.01** |
 | R8 / minify | **off** — no obfuscation variance |
-| Packaged ABIs | all (no `abiFilters`; nothing native of ours to filter) |
+| Packaged ABIs | all for the Kotlin app; the Ark engine is arm64-v8a only |
+| Ark engine | rustc **1.98.0**, cargo-ndk **4.1.2**, NDK **27.1.12297006**, API **26** |
 
 ## 3. Dependency pinning
 
@@ -46,6 +49,9 @@ producing a quietly different APK. Inspect or regenerate with:
 ```
 
 ## 4. Build
+
+First rebuild the Ark engine (§8) and place it at
+`app/src/main/jniLibs/arm64-v8a/libkilombino_ark.so`. Then:
 
 ```
 ./gradlew clean assembleRelease
@@ -125,3 +131,19 @@ unchanged from 0.1.0 — the v3 lineage means the key is the same across version
 Distributed via
 [GitHub Releases](https://github.com/Kilombino/pyblock-watch/releases/tag/v0.9.1) and
 Zapstore.
+
+## 8. The Ark engine
+
+`ark-engine/ENGINE` pins the library: fork, commit, toolchain and SHA-256. Rebuild it:
+
+```
+git clone https://github.com/Kilombino/paperclip-wallet-app && cd paperclip-wallet-app
+git checkout 7fadbef
+ANDROID_NDK_HOME=/path/to/ndk/27.1.12297006 ./kilombino-ark/build-android.sh
+# → 29eb7ec38aef01563c581f94204c3bd5020f0a52245f679320b58a537d7692d9
+```
+
+The script remaps the source and toolchain paths, so the result does not depend on where
+anything lives: two clean clones in different directories produced that identical hash.
+`./gradlew assembleRelease` runs `verifyArkEngine` first and fails if the library in
+`jniLibs` differs from the pin, or if any other ABI directory is present.

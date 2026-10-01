@@ -94,6 +94,31 @@ class SigningTest {
         assertFalse(Ecdsa.verify(pub, other, a))                     // not under a different message
     }
 
+    /**
+     * The widely published secp256k1 RFC 6979 (HMAC-SHA256, low-S) vectors. libsecp256k1
+     * produces these exact signatures, as does embit, the library inside SeedSigner — the
+     * same check https://newtonick.github.io/deterministic-nonce-check/ runs on a signer:
+     * a deterministic nonce leaves no room to hide anything in the signature.
+     */
+    @Test
+    fun `ecdsa nonces and signatures match the RFC 6979 secp256k1 vectors`() {
+        val n1 = Secp256k1.N.subtract(BigInteger.ONE)
+        listOf(
+            Triple(BigInteger.ONE, "Satoshi Nakamoto",
+                "3045022100934b1ea10a4b3c1757e2b0c017d0b6143ce3c9a7e6a4a49860d7a6ab210ee3d8" +
+                    "02202442ce9d2b916064108014783e923ec36b49743e2ffa1c4496f01a512aafd9e5"),
+            Triple(BigInteger.ONE, "All those moments will be lost in time, like tears in rain. Time to die...",
+                "30450221008600dbd41e348fe5c9465ab92d23e3db8b98b873beecd930736488696438cb6b" +
+                    "0220547fe64427496db33bf66019dacbf0039c04199abb0122918601db38a72cfc21"),
+            Triple(n1, "Satoshi Nakamoto",
+                "3045022100fd567d121db66e382991534ada77a6bd3106f0a1098c231e47993447cd6af2d0" +
+                    "02206b39cd0eb1bc8603e159ef5c20a5c8ad685a45b06ce9bebed3f153d10d93bed5"),
+        ).forEach { (d, msg, expected) ->
+            val sig = Ecdsa.sign(d, Hashes.sha256(msg.toByteArray()))
+            assertEquals(msg, expected, Ecdsa.der(sig).joinToString("") { "%02x".format(it) })
+        }
+    }
+
     @Test
     fun `bip84 account zpub and first address match the published vector`() {
         val mnemonic = ("abandon abandon abandon abandon abandon abandon " +

@@ -87,7 +87,8 @@ fun ModeChooser(vm: WalletViewModel) {
             lines = listOf(
                 "Your XBT balance, with its value in dollars or euros",
                 "Send and Receive, nothing else in the way",
-                "Ark (instant payments and Lightning) — coming soon",
+                if (com.kilombino.pyblockwatch.ark.Ark.available) "Ark (instant payments and Lightning), beta"
+                else "Ark (instant payments and Lightning) — coming soon",
             ),
             accent = Purple,
         ) { vm.select(Chain.BLAKE2B); vm.setUiMode("simple") }
@@ -147,7 +148,7 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
         }
 
         if (tab == 1) {
-            ArkComingSoon(accent)
+            if (com.kilombino.pyblockwatch.ark.Ark.available) ArkScreen(vm, accent) else ArkComingSoon(accent)
             return@Column
         }
 

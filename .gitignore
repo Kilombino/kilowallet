@@ -12,3 +12,6 @@ local.properties
 keystore.properties
 *.jks
 *.keystore
+
+# Ark engine builds (Rust); not committed until the build is reproducible
+app/src/main/jniLibs/

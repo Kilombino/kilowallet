@@ -23,10 +23,11 @@ android {
         applicationId = "com.kilombino.pyblockwatch"
         minSdk = 26
         targetSdk = 35
-        versionCode = 21
-        versionName = "0.9.1"
-        // No ndk{} block and no abiFilters: this app ships ZERO native libraries,
-        // so one APK runs on every ABI. See README-REPRODUCIBLE.md §1.
+        versionCode = 22
+        versionName = "0.10.0"
+        // One native library of ours: the Ark engine, arm64-v8a only, rebuilt from a pinned
+        // commit and checked against ark-engine/ENGINE before every release build. On other
+        // ABIs the wallet runs without Ark. See README-REPRODUCIBLE.md §1.
     }
 
     signingConfigs {
@@ -77,8 +78,31 @@ android {
 
     packaging {
         resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
+        // The Ark engine is a large native library: store it compressed in the APK (Android
+        // extracts it at install) instead of uncompressed and page-aligned, which would make
+        // the download several times bigger.
+        jniLibs.useLegacyPackaging = true
     }
 }
+
+// A release must carry exactly the Ark engine pinned in ark-engine/ENGINE: anyone can
+// rebuild it from that commit and get the same SHA-256 (README-REPRODUCIBLE.md §8).
+val verifyArkEngine by tasks.registering {
+    val pin = rootProject.file("ark-engine/ENGINE")
+    val so = file("src/main/jniLibs/arm64-v8a/libkilombino_ark.so")
+    inputs.files(pin)
+    doLast {
+        val expected = pin.readLines().first { it.startsWith("sha256=") }.substringAfter("=").trim()
+        check(so.exists()) { "Missing $so — build it as README-REPRODUCIBLE.md §8 describes." }
+        val actual = java.security.MessageDigest.getInstance("SHA-256").digest(so.readBytes())
+            .joinToString("") { "%02x".format(it) }
+        check(actual == expected) { "Ark engine hash $actual does not match the pinned $expected" }
+        // Only arm64 ships; a stray emulator build must not reach a release.
+        val others = file("src/main/jniLibs").listFiles()?.filter { it.isDirectory && it.name != "arm64-v8a" }.orEmpty()
+        check(others.isEmpty()) { "Only arm64-v8a may ship; remove ${others.joinToString { it.name }}" }
+    }
+}
+tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(verifyArkEngine) }
 
 kotlin {
     compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }

@@ -69,6 +69,13 @@ class WatchService : Service() {
                     )
                 }
             }
+            // Ark: while this watcher runs, keep the Ark engine up. Its own daemon renews coins
+            // before they expire (4,320 blocks); without it the user would have to remember
+            // to open the app at least once a month.
+            if (com.kilombino.pyblockwatch.ark.Ark.available &&
+                java.io.File(filesDir, "ark/db.sqlite").exists()) {
+                runCatching { com.kilombino.pyblockwatch.ark.Ark.ensureStarted(this@WatchService) }
+            }
             // Home-screen widget: piggy-backs on this loop instead of pulling in WorkManager.
             // MarketFeed only calls the server when its own schedule allows it.
             if (com.kilombino.pyblockwatch.widget.XbtWidget.hasWidgets(this@WatchService)) {

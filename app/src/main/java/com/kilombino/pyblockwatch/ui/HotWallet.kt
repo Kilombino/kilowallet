@@ -88,6 +88,28 @@ fun DiceScreen(vm: WalletViewModel, onBack: () -> Unit) {
                     "can verify this offline. Nothing leaves the phone.")
             }
 
+            val arkCtx = LocalContext.current.applicationContext
+            if (com.kilombino.pyblockwatch.ark.Ark.hasWords(arkCtx)) {
+                Panel(accent = Good) {
+                    SectionLabel("You already have Ark words", Good)
+                    Spacer(Modifier.height(6.dp))
+                    Explain("Use the same words for this spending wallet, so one set of words backs up both.")
+                    Spacer(Modifier.height(10.dp))
+                    Button(
+                        onClick = {
+                            Biometric.confirm(activity, "Use your Ark words", "Confirm it is you",
+                                onSuccess = {
+                                    runCatching { com.kilombino.pyblockwatch.ark.Ark.words(arkCtx) }
+                                        .onSuccess { mnemonic = it }.onFailure { error = it.message }
+                                },
+                                onError = { error = it })
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Good, contentColor = Ink),
+                        shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
+                    ) { Text("USE MY ARK WORDS", style = MaterialTheme.typography.titleMedium) }
+                }
+            }
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 WordCountChip("12 words", strength == 128, Modifier.weight(1f)) { strength = 128; rolls = "" }
                 WordCountChip("24 words", strength == 256, Modifier.weight(1f)) { strength = 256; rolls = "" }
