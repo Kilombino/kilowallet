@@ -34,12 +34,16 @@ object Ark {
     @Synchronized
     fun ensureStarted(ctx: Context) {
         if (token != null || !available) return
-        val dir = datadir(ctx).absolutePath
+        val datadir = datadir(ctx)
+        val seed = ArkSeed(ctx)
+        seed.migrateFrom(datadir)
+        val words = seed.load()?.joinToString(" ")
+        val dir = datadir.absolutePath
         var lastErr = "no port"
         repeat(5) {
             // A random high port; the token, not the port, is what keeps other apps out.
             val p = Random.nextInt(20_000, 60_000)
-            val r = ArkNative.start(dir, p)
+            val r = ArkNative.start(dir, p, words)
             if (!r.startsWith("ERR:")) { port = p; token = r; return }
             lastErr = r.removePrefix("ERR:")
             if (!lastErr.contains("bind", ignoreCase = true)) throw IllegalStateException(lastErr)
@@ -89,13 +93,90 @@ object Ark {
     fun hasWallet(): Boolean = runCatching { call("GET", "/wallet/balance"); true }
         .getOrElse { e -> if (e is ArkError && e.status == 422) false else throw e }
 
-    /** Creates the Ark wallet (its own seed, kept by the engine in the app's private storage). */
-    fun createWallet() {
+    /**
+     * Creates the Ark wallet from [words]: new ones, or the same words as the XBT spending
+     * wallet. Words that already held Ark coins get them back from the server's recovery
+     * mailbox. The words go to the Keystore first and to the engine in memory only.
+     */
+    fun createWallet(ctx: Context, words: List<String>) {
+        val seed = ArkSeed(ctx)
+        seed.save(words)
         val req = JSONObject()
             .put("ark_server", SERVER)
             .put("chain_source", JSONObject().put("esplora", JSONObject().put("url", ESPLORA)))
             .put("network", "mainnet")
-        call("POST", "/wallet/create", req, timeoutMs = 120_000)
+            .put("mnemonic", words.joinToString(" "))
+        try {
+            call("POST", "/wallet/create", req, timeoutMs = 300_000)
+        } catch (e: Exception) {
+            seed.clear()
+            throw e
+        }
+    }
+
+    /** The Ark wallet's words, or null when there is no Ark wallet. */
+    fun words(ctx: Context): List<String>? = ArkSeed(ctx).load()
+
+    fun hasWords(ctx: Context): Boolean = ArkSeed(ctx).has()
+
+    // ---------------------------------------------------------------- backup file
+
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences("kilombino_ark", Context.MODE_PRIVATE)
+
+    /** Movements in the wallet when the last backup file was saved; -1 if never. */
+    fun backupMovements(ctx: Context): Int = prefs(ctx).getInt("backup_movements", -1)
+
+    /**
+     * Reads a consistent copy of the wallet: the engine stops so SQLite is closed cleanly,
+     * the files are copied, and the engine starts again.
+     */
+    @Synchronized
+    fun snapshot(ctx: Context): ArkBackup.Snapshot {
+        val words = ArkSeed(ctx).load() ?: error("There is no Ark wallet to back up.")
+        val movements = runCatching { history().size }.getOrDefault(0)
+        stop()
+        try {
+            val dir = datadir(ctx)
+            return ArkBackup.Snapshot(
+                words = words,
+                config = File(dir, "config.toml").readText(),
+                db = File(dir, "db.sqlite").readBytes(),
+                dbWal = File(dir, "db.sqlite-wal").takeIf { it.exists() && it.length() > 0 }?.readBytes(),
+                movements = movements,
+                created = System.currentTimeMillis(),
+            )
+        } finally {
+            ensureStarted(ctx)
+        }
+    }
+
+    /** True when the Ark words are also the XBT spending wallet's words. */
+    fun wordsShared(ctx: Context): Boolean = prefs(ctx).getBoolean("words_shared", false)
+
+    fun setWordsShared(ctx: Context, shared: Boolean) {
+        prefs(ctx).edit().putBoolean("words_shared", shared).apply()
+    }
+
+    fun markBackedUp(ctx: Context, movements: Int) {
+        prefs(ctx).edit().putInt("backup_movements", movements).apply()
+    }
+
+    /** Replaces this phone's Ark wallet with the one in [s] and starts it. */
+    @Synchronized
+    fun restore(ctx: Context, s: ArkBackup.Snapshot) {
+        stop()
+        val dir = datadir(ctx)
+        // Keep the engine's own lock files; everything else belongs to the old wallet.
+        dir.listFiles()?.forEach { f ->
+            if (f.name != "LOCK" && f.name != "barkd.lock") f.deleteRecursively()
+        }
+        dir.mkdirs()
+        File(dir, "config.toml").writeText(s.config)
+        File(dir, "db.sqlite").writeBytes(s.db)
+        s.dbWal?.let { File(dir, "db.sqlite-wal").writeBytes(it) }
+        ArkSeed(ctx).save(s.words)
+        markBackedUp(ctx, s.movements)
+        ensureStarted(ctx)
     }
 
     data class Balance(
@@ -227,6 +308,18 @@ object Ark {
 
     data class Movement(val id: String, val status: String, val kind: String, val amount: Long, val time: String)
 
+    /** Plain names for the engine's movement subsystems. */
+    private fun kindLabel(subsystem: String): String = when (subsystem) {
+        "bark.board" -> "move into Ark"
+        "bark.arkoor" -> "Ark payment"
+        "bark.round" -> "renewal"
+        "bark.offboard" -> "withdrawal"
+        "bark.lightning_send" -> "Lightning payment"
+        "bark.lightning_receive" -> "Lightning received"
+        "bark.exit" -> "emergency exit"
+        else -> subsystem.removePrefix("bark.")
+    }
+
     fun history(): List<Movement> {
         val arr = runCatching { JSONArray(call("GET", "/history")) }.getOrElse { JSONArray() }
         return (0 until arr.length()).map { i ->
@@ -234,7 +327,7 @@ object Ark {
             Movement(
                 id = m.optString("id"),
                 status = m.optString("status"),
-                kind = m.optJSONObject("subsystem")?.let { "${it.optString("name")} ${it.optString("kind")}".trim() } ?: "",
+                kind = kindLabel(m.optJSONObject("subsystem")?.optString("name").orEmpty()),
                 amount = m.optLong("effective_balance_sat", m.optLong("intended_balance_sat")),
                 time = m.optJSONObject("time")?.optString("created_at") ?: "",
             )

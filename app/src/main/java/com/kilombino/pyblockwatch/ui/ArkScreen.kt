@@ -83,7 +83,7 @@ private sealed interface ArkView {
 }
 
 @Composable
-fun ArkScreen(accent: Color) {
+fun ArkScreen(vm: WalletViewModel, accent: Color) {
     val ctx = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     var view by remember { mutableStateOf<ArkView>(ArkView.Starting) }
@@ -93,6 +93,8 @@ fun ArkScreen(accent: Color) {
     var busy by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var sheet by remember { mutableStateOf<String?>(null) }   // "receive" | "send" | "board"
+    // New Ark words, shown once right after activation so they get written down.
+    var newWords by remember { mutableStateOf<List<String>?>(null) }
 
     suspend fun reload() {
         val b = withContext(Dispatchers.IO) { runCatching { Ark.balance() }.getOrNull() }
@@ -122,7 +124,9 @@ fun ArkScreen(accent: Color) {
         while (true) { delay(30_000); if (view == ArkView.Ready) runCatching { reload() } }
     }
 
-    when (val v = view) {
+    val fresh = newWords
+    if (fresh != null) ArkNewWords(fresh, accent) { newWords = null }
+    else when (val v = view) {
         ArkView.Starting -> Panel(accent = accent) {
             SectionLabel("Ark", accent); Spacer(Modifier.height(8.dp))
             Text("Starting the Ark engine…", style = MaterialTheme.typography.bodyMedium, color = TextSoft)
@@ -133,31 +137,10 @@ fun ArkScreen(accent: Color) {
         }
         ArkView.NoWallet -> {
             ArkWarnings()
-            var understood by remember { mutableStateOf(false) }
-            Panel(accent = accent) {
-                Row(verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { understood = !understood }) {
-                    Text(if (understood) "☑" else "☐", style = MaterialTheme.typography.titleLarge, color = accent)
-                    Spacer(Modifier.width(10.dp))
-                    Text("I have read the warnings above. Ark is beta software and I will start with a small amount.",
-                         style = MaterialTheme.typography.bodySmall, color = TextSoft)
-                }
-                Spacer(Modifier.height(12.dp))
-                Button(
-                    enabled = understood && busy == null,
-                    onClick = {
-                        scope.launch {
-                            busy = "Creating your Ark wallet…"; message = null
-                            try {
-                                withContext(Dispatchers.IO) { Ark.createWallet() }
-                                view = ArkView.Ready; reload()
-                            } catch (e: Exception) { message = "Error: " + (e.message ?: e.toString()) }
-                            busy = null
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
-                    shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
-                ) { Text("ACTIVATE ARK", style = MaterialTheme.typography.titleMedium) }
+            ArkActivate(vm, accent) { words ->
+                newWords = words
+                view = ArkView.Ready
+                scope.launch { reload() }
             }
         }
         ArkView.Ready -> {
@@ -190,6 +173,7 @@ fun ArkScreen(accent: Color) {
                 else -> {}
             }
             if (history.isNotEmpty()) ArkHistory(history, accent)
+            ArkBackupPanel(history.size, accent) { message = it }
             ArkWarnings()
         }
     }

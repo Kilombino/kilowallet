@@ -9,8 +9,11 @@ internal object ArkNative {
     /** False when this build or this CPU has no Ark engine; the wallet then hides Ark. */
     val available: Boolean = runCatching { System.loadLibrary("kilombino_ark") }.isSuccess
 
-    /** Starts the engine; returns the bearer token, or "ERR:<message>". */
-    external fun start(datadir: String, port: Int): String
+    /**
+     * Starts the engine; returns the bearer token, or "ERR:<message>". [mnemonic] is null
+     * while there is no Ark wallet yet; the engine keeps it in memory only.
+     */
+    external fun start(datadir: String, port: Int, mnemonic: String?): String
 
     external fun stop()
 }

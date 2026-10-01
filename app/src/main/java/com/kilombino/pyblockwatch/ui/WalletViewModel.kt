@@ -119,6 +119,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     /** A Keystore cipher to decrypt the seed; authorise it with BiometricPrompt first. */
     fun seedDecryptCipher() = seedVault.decryptCipher()
 
+    /** The spending wallet's words, with a [seedDecryptCipher] the user has authorised. */
+    fun revealSeed(decryptCipher: javax.crypto.Cipher): List<String> = seedVault.reveal(decryptCipher)
+
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
@@ -396,6 +399,12 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             runCatching {
                 seedVault.store(encryptCipher, mnemonic)
+                // Remember whether this spending wallet and the Ark wallet share their words.
+                runCatching {
+                    val ark = com.kilombino.pyblockwatch.ark.Ark
+                    val ctx = getApplication<Application>()
+                    if (ark.hasWords(ctx)) ark.setWordsShared(ctx, ark.words(ctx) == mnemonic)
+                }
                 val zpub = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                     val master = com.kilombino.pyblockwatch.crypto.Bip32Priv
                         .fromSeed(com.kilombino.pyblockwatch.crypto.Bip39.toSeed(mnemonic))
