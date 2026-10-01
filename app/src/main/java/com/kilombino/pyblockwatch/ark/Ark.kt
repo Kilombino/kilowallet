@@ -365,7 +365,17 @@ object Ark {
     /** Renews every coin close to expiry. The engine also does this by itself while running. */
     fun refreshAll() { call("POST", "/wallet/refresh/all", JSONObject(), 180_000) }
 
-    data class Movement(val id: String, val status: String, val kind: String, val amount: Long, val time: String)
+    data class Movement(
+        val id: String, val status: String, val kind: String, val amount: Long, val time: String,
+        val fee: Long = 0,
+        val destinations: List<String> = emptyList(),
+        /** The on-chain transaction behind this movement, when there is one. */
+        val onchainTxid: String? = null,
+        /** Ark coins (virtual outputs) this movement created, or spent when it created none. */
+        val vtxos: List<String> = emptyList(),
+        val paymentHash: String? = null,
+        val preimage: String? = null,
+    )
 
     /** Plain names for the engine's movement subsystems. */
     private fun kindLabel(subsystem: String): String = when (subsystem) {
@@ -391,8 +401,36 @@ object Ark {
                 },
                 amount = m.optLong("effective_balance_sat", m.optLong("intended_balance_sat")),
                 time = m.optJSONObject("time")?.optString("created_at") ?: "",
+                fee = m.optLong("offchain_fee_sat") + (m.optJSONObject("metadata")?.optLong("onchain_fee_sat") ?: 0),
+                destinations = m.optJSONArray("sent_to")?.let { a ->
+                    (0 until a.length()).mapNotNull { a.getJSONObject(it).optJSONObject("destination")?.optString("value") }
+                }.orEmpty(),
+                onchainTxid = onchainTxid(m),
+                vtxos = (strings(m.optJSONArray("output_vtxos")).ifEmpty { strings(m.optJSONArray("input_vtxos")) }),
+                paymentHash = m.optJSONObject("metadata")?.optString("payment_hash")?.takeIf { it.isNotEmpty() },
+                preimage = m.optJSONObject("metadata")?.optString("payment_preimage")?.takeIf { it.isNotEmpty() },
             )
         }
+    }
+
+    private fun strings(a: JSONArray?): List<String> =
+        if (a == null) emptyList() else (0 until a.length()).map { a.optString(it) }.filter { it.isNotEmpty() }
+
+    /**
+     * The blockchain transaction behind a movement: the deposit moved into Ark, the round of
+     * a renewal or withdrawal, or the coin's own transaction for an emergency exit. Ark and
+     * Lightning payments have none: they stay off-chain until the coin is renewed or withdrawn.
+     */
+    private fun onchainTxid(m: JSONObject): String? {
+        val meta = m.optJSONObject("metadata")
+        meta?.optString("chain_anchor")?.takeIf { it.isNotEmpty() }?.let { return it.substringBefore(':') }
+        for (k in listOf("funding_txid", "offboard_txid", "txid")) {
+            meta?.optString(k)?.takeIf { it.length == 64 }?.let { return it }
+        }
+        if (m.optJSONObject("subsystem")?.optString("name") == "bark.exit") {
+            return strings(m.optJSONArray("input_vtxos")).firstOrNull()?.substringBefore(':')
+        }
+        return null
     }
 
     /** Blocks until the next Ark coin expires, from the server's tip; null if unknown. */

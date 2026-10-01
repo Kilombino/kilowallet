@@ -82,8 +82,31 @@ private sealed interface ArkView {
     data object Ready : ArkView
 }
 
+/** The user's fiat choice and the latest price, for "≈ $" lines across the Ark tab. */
+private data class FiatCtx(val market: com.kilombino.pyblockwatch.data.MarketData?, val code: String)
+private val LocalFiat = androidx.compose.runtime.compositionLocalOf { FiatCtx(null, "USD") }
+
+/** "≈ €1.23" for [sats] in the currency chosen in Settings, or null without a price. */
+@Composable
+private fun fiatOf(sats: Long): String? {
+    val f = LocalFiat.current
+    val v = f.market?.fiatValue(sats, f.code) ?: return null
+    val sym = if (f.code == "EUR") "€" else "$"
+    // Ark amounts are often cents: keep a third decimal below one unit.
+    val abs = kotlin.math.abs(v)
+    return (if (v < 0) "≈ −$sym" else "≈ $sym") + String.format(Locale.US, if (abs < 1) "%.3f" else "%,.2f", abs)
+}
+
 @Composable
 fun ArkScreen(vm: WalletViewModel, accent: Color) {
+    val ui by vm.state.collectAsState()
+    androidx.compose.runtime.CompositionLocalProvider(LocalFiat provides FiatCtx(ui.market, ui.fiat)) {
+        ArkScreenBody(vm, accent)
+    }
+}
+
+@Composable
+private fun ArkScreenBody(vm: WalletViewModel, accent: Color) {
     val ctx = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     var view by remember { mutableStateOf<ArkView>(ArkView.Starting) }
@@ -174,7 +197,7 @@ fun ArkScreen(vm: WalletViewModel, accent: Color) {
                 }
                 else -> {}
             }
-            if (history.isNotEmpty()) ArkHistory(history, accent)
+            if (history.isNotEmpty()) ArkHistory(history, accent, vm.explorerFor(com.kilombino.pyblockwatch.chain.Chain.BLAKE2B))
             ArkBackupPanel(fingerprint, accent) { message = it }
             ArkWarnings()
         }
@@ -203,6 +226,7 @@ private fun ArkBalancePanel(b: Ark.Balance?, expiry: Int?, accent: Color) {
             Spacer(Modifier.width(8.dp))
             Text("sats", style = MaterialTheme.typography.titleLarge, color = accent.copy(alpha = 0.7f))
         }
+        fiatOf(b?.spendable ?: 0)?.let { Text(it, style = MaterialTheme.typography.headlineSmall, color = TextMain) }
         if (b == null) { Text("Loading…", style = MaterialTheme.typography.bodySmall, color = TextFaint); return@Panel }
         if (b.pendingBoard > 0) Text("entering Ark: ${groupSats(b.pendingBoard)} sats (needs 3 confirmations)",
                                      style = MaterialTheme.typography.bodySmall, color = Warn)
@@ -346,6 +370,10 @@ private fun CostBreakdown(e: Ark.Estimate, amountLabel: String, totalLabel: Stri
                    color = if (share >= 20) Warn else TextMain) }
         Row { Text(totalLabel, style = MaterialTheme.typography.bodySmall, color = TextSoft, modifier = Modifier.weight(1f))
               Text(groupSats(e.total) + " sats", style = MaterialTheme.typography.titleSmall, color = accent) }
+        fiatOf(e.total)?.let { f ->
+            Row { Spacer(Modifier.weight(1f))
+                  Text("$f  (cost ${fiatOf(e.fee) ?: ""})", style = MaterialTheme.typography.bodySmall, color = TextFaint) }
+        }
         if (e.note.isNotBlank()) Text(e.note, style = MaterialTheme.typography.bodySmall, color = TextFaint)
     }
 }
@@ -380,12 +408,16 @@ private fun ArkBoardSheet(b: Ark.Balance?, accent: Color, onBoard: (Long?) -> Un
 }
 
 @Composable
-private fun ArkHistory(items: List<Ark.Movement>, accent: Color) {
+private fun ArkHistory(items: List<Ark.Movement>, accent: Color, explorer: String) {
+    var open by remember { mutableStateOf<Ark.Movement?>(null) }
+    open?.let { m -> ArkMovementDialog(m, accent, explorer) { open = null } }
     Panel(accent = accent) {
         SectionLabel("Ark activity", accent)
+        Spacer(Modifier.height(4.dp))
+        Text("tap a movement for its details", style = MaterialTheme.typography.bodySmall, color = TextFaint)
         Spacer(Modifier.height(6.dp))
         items.take(20).forEach { m ->
-            Row {
+            Row(Modifier.fillMaxWidth().clickable { open = m }.padding(vertical = 2.dp)) {
                 Text((if (m.amount >= 0) "+" else "") + groupSats(m.amount) + " sats",
                      style = MaterialTheme.typography.bodySmall,
                      color = if (m.amount >= 0) Good else TextMain, modifier = Modifier.weight(1f))
@@ -396,7 +428,62 @@ private fun ArkHistory(items: List<Ark.Movement>, accent: Color) {
     }
 }
 
-/** The real limits of the Paperclip Ark server, shown before any money goes in. */
+/** One movement in full, and its blockchain transaction when it has one. */
+@Composable
+private fun ArkMovementDialog(m: Ark.Movement, accent: Color, explorer: String, onClose: () -> Unit) {
+    val uri = androidx.compose.ui.platform.LocalUriHandler.current
+    val site = explorer.removePrefix("https://").removePrefix("http://")
+    val clip = LocalClipboardManager.current
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text(m.kind.replaceFirstChar { it.uppercase() }) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                fun line(k: String, v: String) = "$k: $v"
+                Text(line("Amount", (if (m.amount >= 0) "+" else "") + groupSats(m.amount) + " sats") +
+                    (fiatOf(m.amount)?.let { "  $it" } ?: ""))
+                if (m.fee > 0) Text(line("Cost", groupSats(m.fee) + " sats") + (fiatOf(m.fee)?.let { "  $it" } ?: ""))
+                Text(line("Status", m.status))
+                if (m.time.isNotEmpty()) Text(line("Date", m.time.substringBefore('.').replace('T', ' ') + " UTC"))
+                m.destinations.forEach { d ->
+                    Text(line("To", d.take(24) + "…" + d.takeLast(8)), style = MaterialTheme.typography.bodySmall)
+                }
+                if (m.onchainTxid != null) {
+                    Text("On the blockchain: ${m.onchainTxid.take(12)}…${m.onchainTxid.takeLast(8)}",
+                         style = MaterialTheme.typography.bodySmall)
+                    Text("Opening it shows $site which transaction you look up.",
+                         style = MaterialTheme.typography.bodySmall, color = TextFaint)
+                } else {
+                    Text("This movement is off-chain: an Ark coin signed with the server, with no " +
+                        "blockchain transaction until the coin is renewed or withdrawn.",
+                        style = MaterialTheme.typography.bodySmall, color = TextFaint)
+                }
+                m.vtxos.take(3).forEach { v ->
+                    Text("Ark coin: ${v.take(12)}…${v.takeLast(10)}", style = MaterialTheme.typography.bodySmall,
+                         color = TextSoft, modifier = Modifier.clickable { clip.setText(AnnotatedString(v)) })
+                }
+                m.paymentHash?.let { h ->
+                    Text("Payment hash: ${h.take(16)}…", style = MaterialTheme.typography.bodySmall, color = TextSoft,
+                         modifier = Modifier.clickable { clip.setText(AnnotatedString(h)) })
+                }
+                m.preimage?.let { p ->
+                    Text("Preimage (proof of payment): ${p.take(16)}…", style = MaterialTheme.typography.bodySmall,
+                         color = TextSoft, modifier = Modifier.clickable { clip.setText(AnnotatedString(p)) })
+                }
+                if (m.vtxos.isNotEmpty() || m.paymentHash != null)
+                    Text("Tap an identifier to copy it.", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+            }
+        },
+        confirmButton = {
+            if (m.onchainTxid != null) TextButton(onClick = { onClose(); runCatching { uri.openUri("$explorer/tx/${m.onchainTxid}") } }) {
+                Text("OPEN ON ${site.uppercase()}", color = accent)
+            } else TextButton(onClick = onClose) { Text("CLOSE", color = accent) }
+        },
+        dismissButton = { if (m.onchainTxid != null) TextButton(onClick = onClose) { Text("CLOSE", color = TextSoft) } },
+        containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
+    )
+}
+
 @Composable
 fun ArkWarnings() {
     Panel(accent = Warn) {

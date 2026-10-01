@@ -24,8 +24,8 @@ android {
         applicationId = "com.kilombino.pyblockwatch"
         minSdk = 26
         targetSdk = 35
-        versionCode = 22
-        versionName = "0.10.0"
+        versionCode = 23
+        versionName = "0.10.1"
         // One native library of ours: the Ark engine, arm64-v8a only, rebuilt from a pinned
         // commit and checked against ark-engine/ENGINE before every release build. On other
         // ABIs the wallet runs without Ark. See README-REPRODUCIBLE.md §1.
