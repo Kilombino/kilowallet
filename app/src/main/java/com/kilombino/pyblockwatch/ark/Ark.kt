@@ -145,6 +145,75 @@ object Ark {
         return JSONObject(call("POST", "/wallet/send", req, 180_000)).optString("message")
     }
 
+    /**
+     * What an operation will really cost, shown BEFORE the user confirms. Paperclip runs a
+     * "funded recovery profile": each Ark transfer reserves sats to pre-pay its on-chain
+     * emergency exit (about 6,000 with change, 4,000 without), and they are not refunded.
+     * In fiat it is cents; in sats it can be most of a small payment, so it must be shown.
+     */
+    data class Estimate(val amount: Long, val fee: Long, val total: Long, val exact: Boolean, val note: String)
+
+    /** Sats encoded in a BOLT11 invoice's human-readable part (lnbc2500u…), or null. */
+    fun invoiceSats(invoice: String): Long? {
+        val m = Regex("^ln(?:bc|tb|bcrt)(\\d+)([munp]?)1", RegexOption.IGNORE_CASE).find(invoice.trim()) ?: return null
+        val n = m.groupValues[1].toLongOrNull() ?: return null
+        // BTC amount × multiplier, in sats: m = 1e-3, u = 1e-6, n = 1e-9, p = 1e-12 BTC.
+        return when (m.groupValues[2].lowercase()) {
+            "" -> n * 100_000_000
+            "m" -> n * 100_000
+            "u" -> n * 100
+            "n" -> n / 10
+            "p" -> n / 10_000
+            else -> null
+        }
+    }
+
+    private fun feeQuery(path: String): Estimate? = runCatching {
+        val r = JSONObject(call("GET", path))
+        Estimate(r.optLong("net_amount_sat"), r.optLong("fee_sat"), r.optLong("gross_amount_sat"), true, "")
+    }.getOrNull()
+
+    fun estimateSend(destination: String, sats: Long?): Estimate? {
+        val d = destination.trim()
+        return when {
+            d.startsWith("ln", ignoreCase = true) -> {
+                val amt = sats ?: invoiceSats(d) ?: return null
+                feeQuery("/fees/lightning/pay?amount_sat=$amt")?.copy(
+                    note = "Lightning: the server's fee plus the recovery reserve of the transfer.")
+            }
+            d.startsWith("ark1", ignoreCase = true) -> {
+                val amt = sats ?: return null
+                // No server estimate for Ark-to-Ark; Paperclip documents the reserves.
+                val spendable = runCatching { balance().spendable }.getOrDefault(0L)
+                val reserve = if (amt >= spendable - 4_000) 4_000L else 6_000L
+                Estimate(amt, reserve, amt + reserve, false,
+                    "Recovery reserve pre-paid for the emergency exit; not refunded. " +
+                        "${if (reserve == 6_000L) "6,000 when there is change" else "4,000 without change"}, " +
+                        "more if several coins are combined.")
+            }
+            else -> {
+                val amt = sats ?: return null
+                feeQuery("/fees/send-onchain?amount_sat=$amt&address=${java.net.URLEncoder.encode(d, "UTF-8")}")
+                    ?.copy(note = "Leaves Ark through the next round and pays the on-chain fee.")
+            }
+        }
+    }
+
+    /** What arrives from a Lightning invoice of [sats] (receive fee + reserve deducted). */
+    fun estimateLightningReceive(sats: Long): Estimate? =
+        feeQuery("/fees/lightning/receive?amount_sat=$sats")?.copy(
+            note = "The server's receive fee plus the recovery reserve are taken from what arrives.")
+
+    /**
+     * Moving [sats] into Ark. The server quote leaves out what Paperclip documents: boarding
+     * costs the greater of the quote or 1,000 sats (the anchor) plus a separate 1,000-sat
+     * miner fee. Measured: 40,000 in → 38,000 spendable.
+     */
+    fun estimateBoard(sats: Long): Estimate? = feeQuery("/fees/board?amount_sat=$sats")?.let {
+        val fee = maxOf(it.fee, 1_000L) + 1_000L
+        Estimate(sats - fee, fee, sats, false, "Anchor and miner fee of the recovery transaction.")
+    }
+
     /** A Lightning invoice paid into this Ark wallet. */
     fun lightningInvoice(sats: Long, description: String?): String {
         val req = JSONObject().put("amount_sat", sats)

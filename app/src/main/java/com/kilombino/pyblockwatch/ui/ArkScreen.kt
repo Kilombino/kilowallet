@@ -275,6 +275,16 @@ private fun ArkReceiveSheet(
         }
         Text("Lightning: up to ${groupSats(Ark.MAX_LIGHTNING_SAT)} sats per payment. Deposits become Ark funds with MOVE INTO ARK (minimum ${groupSats(Ark.MIN_BOARD_SAT)} sats).",
              style = MaterialTheme.typography.bodySmall, color = TextFaint)
+        // Before creating a Lightning invoice, show what will actually arrive.
+        val lnSats = amount.toLongOrNull()
+        var lnEst by remember { mutableStateOf<Ark.Estimate?>(null) }
+        LaunchedEffect(lnSats) {
+            lnEst = if (lnSats != null && lnSats > 0) withContext(Dispatchers.IO) { runCatching { Ark.estimateLightningReceive(lnSats) }.getOrNull() } else null
+        }
+        lnEst?.let { e ->
+            Spacer(Modifier.height(6.dp))
+            CostBreakdown(Ark.Estimate(e.amount, e.fee, e.total, e.exact, e.note), "You receive", "Invoice amount", accent)
+        }
         shown?.let { (label, text) ->
             Spacer(Modifier.height(10.dp))
             Text(label, style = MaterialTheme.typography.bodySmall, color = accent)
@@ -291,25 +301,65 @@ private fun ArkReceiveSheet(
 private fun ArkSendSheet(accent: Color, onSend: (String, Long?) -> Unit) {
     var dest by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
+    var review by remember { mutableStateOf<Ark.Estimate?>(null) }
+    var reviewing by remember { mutableStateOf(false) }
+    var reviewError by remember { mutableStateOf<String?>(null) }
     val clip = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
     Panel(accent = accent) {
         SectionLabel("Send from Ark", accent)
         Spacer(Modifier.height(8.dp))
-        OutlinedTextField(value = dest, onValueChange = { dest = it.trim() },
+        OutlinedTextField(value = dest, onValueChange = { dest = it.trim(); review = null },
             label = { Text("Ark address, Lightning invoice or XBT address") }, modifier = Modifier.fillMaxWidth())
-        TextButton(onClick = { clip.getText()?.text?.let { dest = it.trim() } }) { Text("PASTE", color = accent) }
-        OutlinedTextField(value = amount, onValueChange = { amount = it.filter(Char::isDigit) },
+        TextButton(onClick = { clip.getText()?.text?.let { dest = it.trim(); review = null } }) { Text("PASTE", color = accent) }
+        OutlinedTextField(value = amount, onValueChange = { amount = it.filter(Char::isDigit); review = null },
             label = { Text("sats (empty if the invoice has the amount)") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
-        Button(
-            enabled = dest.isNotBlank(),
-            onClick = { onSend(dest, amount.toLongOrNull()) },
-            colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
-            shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
-        ) { Text("SEND", style = MaterialTheme.typography.titleMedium) }
-        Text("Sending to an XBT address leaves Ark through the next round and pays on-chain fees.",
-             style = MaterialTheme.typography.bodySmall, color = TextFaint)
+        val r = review
+        if (r == null) {
+            // Step 1: always show the real cost before anything is signed.
+            Button(
+                enabled = dest.isNotBlank() && !reviewing,
+                onClick = {
+                    reviewing = true; reviewError = null
+                    scope.launch {
+                        val e = withContext(Dispatchers.IO) { runCatching { Ark.estimateSend(dest, amount.toLongOrNull()) }.getOrNull() }
+                        reviewing = false
+                        if (e == null) reviewError = "Could not estimate the cost. Check the destination and the amount."
+                        review = e
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
+                shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (reviewing) "CALCULATING…" else "REVIEW COST", style = MaterialTheme.typography.titleMedium) }
+            reviewError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Bad) }
+        } else {
+            CostBreakdown(r, "They receive", "You pay in total", accent)
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = { onSend(dest, amount.toLongOrNull()) },
+                colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
+                shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
+            ) { Text("CONFIRM AND SEND", style = MaterialTheme.typography.titleMedium) }
+            TextButton(onClick = { review = null }) { Text("change", color = TextSoft) }
+        }
+    }
+}
+
+/** Amount / cost / total, with the cost in warning colour when it is a big share. */
+@Composable
+private fun CostBreakdown(e: Ark.Estimate, amountLabel: String, totalLabel: String, accent: Color) {
+    val share = if (e.amount > 0) e.fee * 100 / e.amount else 0
+    Column(Modifier.fillMaxWidth().border(1.dp, Line, RoundedCornerShape(10.dp)).padding(10.dp)) {
+        Row { Text(amountLabel, style = MaterialTheme.typography.bodySmall, color = TextSoft, modifier = Modifier.weight(1f))
+              Text(groupSats(e.amount) + " sats", style = MaterialTheme.typography.bodySmall, color = TextMain) }
+        Row { Text((if (e.exact) "Cost" else "Cost (approx.)"), style = MaterialTheme.typography.bodySmall, color = TextSoft, modifier = Modifier.weight(1f))
+              Text(groupSats(e.fee) + " sats" + (if (share > 0) "  ($share%)" else ""), style = MaterialTheme.typography.bodySmall,
+                   color = if (share >= 20) Warn else TextMain) }
+        Row { Text(totalLabel, style = MaterialTheme.typography.bodySmall, color = TextSoft, modifier = Modifier.weight(1f))
+              Text(groupSats(e.total) + " sats", style = MaterialTheme.typography.titleSmall, color = accent) }
+        if (e.note.isNotBlank()) Text(e.note, style = MaterialTheme.typography.bodySmall, color = TextFaint)
     }
 }
 
@@ -327,6 +377,12 @@ private fun ArkBoardSheet(b: Ark.Balance?, accent: Color, onBoard: (Long?) -> Un
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
         val sats = amount.toLongOrNull()
+        var est by remember { mutableStateOf<Ark.Estimate?>(null) }
+        LaunchedEffect(sats, available) {
+            val target = sats ?: available
+            est = if (target >= Ark.MIN_BOARD_SAT) withContext(Dispatchers.IO) { runCatching { Ark.estimateBoard(target) }.getOrNull() } else null
+        }
+        est?.let { CostBreakdown(it, "Spendable in Ark", "Moved in", accent); Spacer(Modifier.height(8.dp)) }
         Button(
             enabled = available >= Ark.MIN_BOARD_SAT && (sats == null || sats >= Ark.MIN_BOARD_SAT),
             onClick = { onBoard(sats) },
