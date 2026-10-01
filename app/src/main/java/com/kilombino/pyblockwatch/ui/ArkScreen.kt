@@ -350,6 +350,8 @@ private fun ArkReceiveSheet(
                     "in the background. If the phone is off, the payer sees the payment fail and " +
                     "nothing is lost. Each payment pays the Lightning receive cost (about 4 100 sats: " +
                     "recovery reserve plus the server's fee). " +
+                    "Save a backup file after creating it: the file brings this same offer back on a new " +
+                    "phone; the words alone give you a new one. " +
                     "Type an amount first to fix it, or leave it empty so payers choose.",
                 style = MaterialTheme.typography.bodySmall, color = TextFaint)
         }
