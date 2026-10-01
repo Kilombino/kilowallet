@@ -1,3 +1,4 @@
+import java.security.MessageDigest
 import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -94,7 +95,7 @@ val verifyArkEngine by tasks.registering {
     doLast {
         val expected = pin.readLines().first { it.startsWith("sha256=") }.substringAfter("=").trim()
         check(so.exists()) { "Missing $so — build it as README-REPRODUCIBLE.md §8 describes." }
-        val actual = java.security.MessageDigest.getInstance("SHA-256").digest(so.readBytes())
+        val actual = MessageDigest.getInstance("SHA-256").digest(so.readBytes())
             .joinToString("") { "%02x".format(it) }
         check(actual == expected) { "Ark engine hash $actual does not match the pinned $expected" }
         // Only arm64 ships; a stray emulator build must not reach a release.
