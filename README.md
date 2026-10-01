@@ -23,9 +23,27 @@ account. Apache-2.0, reproducible, and every line of cryptography is in this rep
 - **Your own node.** The BLAKE2b side can point at any Electrum server you run.
 - **Balance-change notifications** without a push server: the phone asks the Electrum
   server itself, on a visible foreground service you opt into.
+- **Simple or Advanced.** On first open you choose. *Simple* is one screen: your XBT
+  balance with its value in USD or EUR, and Send / Receive. *Advanced* is everything
+  below. Switch at any time from the top of the wallet.
+- **XBT price widget.** A home-screen widget (formerly the separate XBT Widget app) with
+  the XBT price, the ratio in Poolsats, the 24h range and the block height; at four rows
+  tall it adds what 1 TH/s earns and costs to rent, kWh per XBT, YSH and chain size.
+- **Ark (coming).** The Simple screen already has an Ark tab with the real limits of the
+  Paperclip Ark server, so they are read before any money goes in.
 - **It explains itself.** The scan is narrated — derivation paths tick past, and the
   gap limit is drawn as a ring that fills and resets — so you can watch how a wallet
   actually finds your coins instead of staring at a spinner.
+
+## Prices
+
+Prices and mining figures come from one public endpoint,
+`https://mempool.kilombino.com/api/v1/blake2b/widget`, which only uses public sources
+(the node, Neoxa, MiningRigRentals, Kraken). The wallet asks at most every 15 minutes,
+obeys the server's `pollMinutes` and `Retry-After`, and backs off on errors. Without it
+the wallet works exactly the same, just without fiat values. No WorkManager or other new
+dependency was added: the widget refreshes from Android's own widget updates and the
+existing balance watcher.
 
 ## Default servers
 

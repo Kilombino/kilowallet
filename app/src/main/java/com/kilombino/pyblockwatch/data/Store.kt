@@ -114,6 +114,19 @@ class Store(context: Context) {
         prefs.edit().putString(keyPending(chain), obj.toString()).apply()
     }
 
+    /**
+     * Which home screen to show: "simple" (balance, Send, Receive, fiat) or "advanced"
+     * (everything else). Null until the user has chosen once.
+     */
+    var uiMode: String?
+        get() = prefs.getString("ui_mode", null)
+        set(v) = prefs.edit().putString("ui_mode", v).apply()
+
+    /** Fiat currency for conversions: "USD" or "EUR". */
+    var fiat: String
+        get() = prefs.getString("fiat", "USD") ?: "USD"
+        set(v) = prefs.edit().putString("fiat", v).apply()
+
     /** How many consecutive empty addresses end a branch scan. Configurable; sane bounds. */
     var gapLimit: Int
         get() = prefs.getInt(KEY_GAP, 20).coerceIn(5, 100)

@@ -91,6 +91,11 @@ data class UiState(
     // The chain the cached [utxos] were gathered for; null when none. Guards against a stale
     // in-flight fetch repopulating the coin picker with another chain's coins.
     val utxosChain: Chain? = null,
+    /** "simple", "advanced", or null when the user has not chosen yet. */
+    val uiMode: String? = null,
+    /** "USD" or "EUR". */
+    val fiat: String = "USD",
+    val market: com.kilombino.pyblockwatch.data.MarketData? = null,
 ) {
     val current: ChainState get() = chains[selected] ?: ChainState()
     val hasWallet: Boolean get() = !xpub.isNullOrBlank()
@@ -128,10 +133,14 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 notificationsEnabled = store.notificationsEnabled,
                 gapLimit = store.gapLimit,
                 isHot = seedVault.hasSeed(),
+                uiMode = store.uiMode,
+                fiat = store.fiat,
+                market = com.kilombino.pyblockwatch.data.MarketFeed.cached(app),
             )
         }
         if (xpub != null) Chain.entries.forEach { scan(it) }
         startRefreshLoop()
+        refreshMarket()
     }
 
     /**
@@ -151,6 +160,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 remaining--
                 if (remaining <= 0) {
                     refresh(_state.value.selected)
+                    refreshMarket() // cheap: MarketFeed only calls out when the server allows it
                     remaining = REFRESH_SECONDS
                 }
                 _state.update { it.copy(secondsUntilRefresh = remaining.coerceAtLeast(0)) }
@@ -256,6 +266,27 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun clearError() = _state.update { it.copy(inputError = null) }
 
     /** Open the wallet chooser (dice / restore / watch-only) even when a wallet already exists. */
+    /** Remember which home screen to show. */
+    fun setUiMode(mode: String) {
+        store.uiMode = mode
+        _state.update { it.copy(uiMode = mode) }
+    }
+
+    fun setFiat(fiat: String) {
+        store.fiat = fiat
+        _state.update { it.copy(fiat = fiat) }
+    }
+
+    /** Price and mining figures; [force] is the user tapping refresh (still rate-limited). */
+    fun refreshMarket(force: Boolean = false) {
+        val app = getApplication<Application>()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val m = com.kilombino.pyblockwatch.data.MarketFeed.refresh(app, force)
+            if (m != null) _state.update { it.copy(market = m) }
+            com.kilombino.pyblockwatch.widget.XbtWidget.renderAll(app)
+        }
+    }
+
     fun startSetup() = _state.update { it.copy(setupMode = true, inputError = null) }
     /** Leave the chooser without changing anything, back to the existing wallet. */
     fun endSetup() = _state.update { it.copy(setupMode = false) }

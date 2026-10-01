@@ -69,6 +69,14 @@ class WatchService : Service() {
                     )
                 }
             }
+            // Home-screen widget: piggy-backs on this loop instead of pulling in WorkManager.
+            // MarketFeed only calls the server when its own schedule allows it.
+            if (com.kilombino.pyblockwatch.widget.XbtWidget.hasWidgets(this@WatchService)) {
+                runCatching {
+                    MarketFeed.refresh(this@WatchService)
+                    com.kilombino.pyblockwatch.widget.XbtWidget.renderAll(this@WatchService)
+                }
+            }
             delay(INTERVAL_MS)
         }
     }

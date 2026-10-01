@@ -1,0 +1,315 @@
+package com.kilombino.pyblockwatch.ui
+
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Bundle
+import androidx.fragment.app.FragmentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import com.kilombino.pyblockwatch.chain.Chain
+import com.kilombino.pyblockwatch.data.MarketData
+import com.kilombino.pyblockwatch.data.MarketFeed
+import java.util.Locale
+
+/*
+ * Simple mode: the "Wallet of Satoshi" face of the wallet. One chain (BLAKE2b / XBT),
+ * a big balance with its value in USD or EUR, and Send / Receive. Everything else lives
+ * in Advanced mode, which is the wallet exactly as it was. Ark will plug into Simple mode
+ * as a second tab once it is validated; until then the tab explains what to expect.
+ */
+
+/** Shown once, right after the wallet exists, until the user picks a mode. */
+@Composable
+fun ModeChooser(vm: WalletViewModel) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Spacer(Modifier.height(36.dp))
+        Text("KILOMBINO", style = MaterialTheme.typography.titleMedium, color = Purple)
+        Text("How do you want to use the wallet?",
+             style = MaterialTheme.typography.headlineSmall, color = TextMain)
+        Text("You can change this at any time from the top of the wallet.",
+             style = MaterialTheme.typography.bodySmall, color = TextFaint)
+        ModeCard(
+            title = "Simple",
+            lines = listOf(
+                "Your XBT balance, with its value in dollars or euros",
+                "Send and Receive, nothing else in the way",
+                "Ark (instant payments and Lightning) — coming soon",
+            ),
+            accent = Purple,
+        ) { vm.select(Chain.BLAKE2B); vm.setUiMode("simple") }
+        ModeCard(
+            title = "Advanced",
+            lines = listOf(
+                "Both chains: BLAKE2b and SHA-256",
+                "Coin control, fees, derivation paths, Silent Payments",
+                "Address list, server certificates, gap limit",
+            ),
+            accent = Orange,
+        ) { vm.setUiMode("advanced") }
+    }
+}
+
+@Composable
+private fun ModeCard(title: String, lines: List<String>, accent: Color, onClick: () -> Unit) {
+    Panel(accent = accent, modifier = Modifier.clickable(onClick = onClick)) {
+        Text(title.uppercase(), style = MaterialTheme.typography.titleLarge, color = accent)
+        Spacer(Modifier.height(8.dp))
+        lines.forEach {
+            Text("•  $it", style = MaterialTheme.typography.bodyMedium, color = TextSoft)
+            Spacer(Modifier.height(4.dp))
+        }
+    }
+}
+
+@Composable
+fun SimpleScreen(state: UiState, vm: WalletViewModel) {
+    val accent = Purple
+    val cs = state.chains[Chain.BLAKE2B] ?: ChainState()
+    var tab by remember { mutableStateOf(0) }            // 0 = XBT on-chain, 1 = Ark
+    var showSend by remember { mutableStateOf(false) }
+    var showReceive by remember { mutableStateOf(false) }
+
+    // Simple mode is BLAKE2b only; Send/Receive work on the selected chain.
+    LaunchedEffect(Unit) { if (state.selected != Chain.BLAKE2B) vm.select(Chain.BLAKE2B) }
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Spacer(Modifier.height(28.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("KILOMBINO", style = MaterialTheme.typography.titleMedium, color = accent)
+                Text("simple mode", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+            }
+            TextButton(onClick = { vm.setUiMode("advanced") }) {
+                Text("advanced", style = MaterialTheme.typography.bodySmall, color = TextSoft)
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TabChip("XBT", tab == 0, accent, Modifier.weight(1f)) { tab = 0 }
+            TabChip("ARK", tab == 1, accent, Modifier.weight(1f)) { tab = 1 }
+        }
+
+        if (tab == 1) {
+            ArkComingSoon(accent)
+            return@Column
+        }
+
+        SimpleBalance(cs, state.market, state.fiat, accent, onFiat = vm::setFiat)
+
+        when {
+            showSend -> SendSheet(vm, accent) { showSend = false }
+            showReceive -> ReceiveSheet(vm, accent) { showReceive = false }
+            else -> {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { showReceive = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = accent),
+                        shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f).height(64.dp),
+                    ) { Text("RECEIVE", style = MaterialTheme.typography.titleMedium) }
+                    if (state.isHot) {
+                        Button(
+                            onClick = { vm.resetSend(); showSend = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
+                            shape = RoundedCornerShape(14.dp), modifier = Modifier.weight(1f).height(64.dp),
+                        ) { Text("SEND", style = MaterialTheme.typography.titleMedium) }
+                    }
+                }
+                if (!state.isHot) {
+                    Button(
+                        onClick = { vm.startSetup() },
+                        colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = accent),
+                        shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
+                    ) { Text("＋  CREATE A SPENDING WALLET", style = MaterialTheme.typography.titleMedium) }
+                }
+            }
+        }
+
+        if (cs.phase !is ScanPhase.Complete) {
+            Text("Updating your balance…", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+        }
+        AddWidgetButton(accent)
+        Spacer(Modifier.height(30.dp))
+    }
+}
+
+@Composable
+private fun TabChip(label: String, selected: Boolean, accent: Color, modifier: Modifier, onClick: () -> Unit) {
+    Box(
+        modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) accent else PanelSoft)
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, style = MaterialTheme.typography.titleMedium, color = if (selected) Ink else TextSoft)
+    }
+}
+
+@Composable
+private fun SimpleBalance(
+    cs: ChainState, market: MarketData?, fiat: String, accent: Color, onFiat: (String) -> Unit,
+) {
+    Panel(accent = accent) {
+        SectionLabel("Your XBT", accent)
+        Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(groupSats(cs.total), style = MaterialTheme.typography.displayLarge, color = accent)
+            Spacer(Modifier.width(8.dp))
+            Text("sats", style = MaterialTheme.typography.titleLarge, color = accent.copy(alpha = 0.7f))
+        }
+        Text("%.8f XBT".format(Locale.US, cs.total / 100_000_000.0),
+             style = MaterialTheme.typography.bodySmall, color = TextFaint)
+
+        Spacer(Modifier.height(10.dp))
+        val value = market?.fiatValue(cs.total, fiat)
+        val sym = if (fiat == "EUR") "€" else "$"
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (value == null) "≈ $sym –" else "≈ $sym" + String.format(Locale.US, "%,.2f", value),
+                style = MaterialTheme.typography.headlineSmall, color = TextMain,
+                modifier = Modifier.weight(1f),
+            )
+            FiatChip("USD", fiat == "USD", accent) { onFiat("USD") }
+            Spacer(Modifier.width(6.dp))
+            FiatChip("EUR", fiat == "EUR", accent) { onFiat("EUR") }
+        }
+        if (cs.unconfirmed != 0L) {
+            Spacer(Modifier.height(4.dp))
+            Text("unconfirmed: ${groupSats(cs.unconfirmed)} sats",
+                 style = MaterialTheme.typography.bodySmall, color = Warn)
+        }
+        Spacer(Modifier.height(8.dp))
+        val px = if (fiat == "EUR") market?.xbtEur else market?.xbtUsd
+        val ch = market?.changePct
+        Text(
+            if (px == null) "Price not available yet"
+            else "1 XBT = $sym" + String.format(Locale.US, "%,.2f", px) +
+                (ch?.let { (if (it >= 0) "  ▲ " else "  ▼ ") + String.format(Locale.US, "%.2f%% 24h", kotlin.math.abs(it)) } ?: ""),
+            style = MaterialTheme.typography.bodySmall,
+            color = when { ch == null -> TextFaint; ch >= 0 -> Good; else -> Bad },
+        )
+        Text(
+            "Price: ${MarketFeed.SOURCE}" + (if (market != null && MarketFeed.isStale(market)) " · not recent" else ""),
+            style = MaterialTheme.typography.bodySmall, color = TextFaint,
+        )
+    }
+}
+
+@Composable
+private fun FiatChip(label: String, selected: Boolean, accent: Color, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (selected) accent.copy(alpha = 0.25f) else PanelSoft)
+            .border(1.dp, if (selected) accent else Line, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+    ) { Text(label, style = MaterialTheme.typography.bodySmall, color = if (selected) accent else TextSoft) }
+}
+
+/**
+ * Ark is not in the wallet yet. The real limits are the ones the Paperclip Ark server
+ * advertises (GetArkInfo, Oct 2026); they belong in front of the user before any money
+ * goes in, not in a footnote.
+ */
+@Composable
+private fun ArkComingSoon(accent: Color) {
+    Panel(accent = accent) {
+        SectionLabel("Ark — coming soon", accent)
+        Spacer(Modifier.height(8.dp))
+        Explain(
+            "Ark will let you send XBT instantly between wallets and pay Lightning invoices " +
+                "without opening channels, through the Paperclip Ark server " +
+                "(ark.paperclippool.xyz). It is not available in this version yet."
+        )
+    }
+    Panel(accent = Warn) {
+        SectionLabel("Before you use Ark", Warn)
+        Spacer(Modifier.height(8.dp))
+        listOf(
+            "Ark funds expire after 4,320 blocks (about 30 days). The wallet must go online before then to renew them, or they have to be withdrawn on-chain with fees and waiting times.",
+            "Minimum to move funds into Ark: 20,000 sats.",
+            "Maximum per Ark coin: 1,000,000 sats.",
+            "Lightning: up to 250,000 sats per payment, no channels needed.",
+            "Rounds every 60 seconds; moving funds in needs 3 confirmations.",
+            "Your seed alone cannot recover Ark funds: the full wallet backup is needed.",
+            "Ark is beta software. Start with small amounts.",
+        ).forEach {
+            Text("•  $it", style = MaterialTheme.typography.bodySmall, color = TextSoft)
+            Spacer(Modifier.height(6.dp))
+        }
+    }
+}
+
+/** Offers to pin the XBT price widget, when the launcher supports doing it from an app. */
+@Composable
+private fun AddWidgetButton(accent: Color) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val mgr = ctx.getSystemService(android.appwidget.AppWidgetManager::class.java)
+    if (mgr == null || !mgr.isRequestPinAppWidgetSupported) return
+    TextButton(onClick = {
+        mgr.requestPinAppWidget(
+            android.content.ComponentName(ctx, com.kilombino.pyblockwatch.widget.XbtWidget::class.java), null, null)
+    }) {
+        Text("＋ add the XBT price widget to your home screen",
+             style = MaterialTheme.typography.bodySmall, color = accent)
+    }
+}

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="xbtw_description">Live XBT price and mining data</string>
+    <string name="xbtw_refresh">Refresh</string>
+    <string name="xbtw_label_ratio">1 XBT</string>
+    <string name="xbtw_label_range">24h range</string>
+    <string name="xbtw_label_block">Block</string>
+    <string name="xbtw_label_earns">1 TH/s earns</string>
+    <string name="xbtw_label_rent">1 TH/s rent</string>
+    <string name="xbtw_label_kwh">1 XBT =</string>
+    <string name="xbtw_label_ysh">YSH 1 XBT =</string>
+    <string name="xbtw_label_chain">Blockchain</string>
+</resources>

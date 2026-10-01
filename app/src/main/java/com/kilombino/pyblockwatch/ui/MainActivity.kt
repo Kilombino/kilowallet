@@ -83,10 +83,15 @@ class MainActivity : FragmentActivity() {
                 }
                 Box(Modifier.fillMaxSize().background(Ink)) {
                     if (state.showWallet) {
-                        WalletScreen(
-                            state = state, vm = vm,
-                            onToggleNotifications = { on -> toggleNotifications(vm, on) },
-                        )
+                        // Simple / Advanced: chosen once, switchable from the top of either screen.
+                        when (state.uiMode) {
+                            null -> ModeChooser(vm)
+                            "simple" -> SimpleScreen(state, vm)
+                            else -> WalletScreen(
+                                state = state, vm = vm,
+                                onToggleNotifications = { on -> toggleNotifications(vm, on) },
+                            )
+                        }
                     } else {
                         OnboardingScreen(state, vm)
                     }
@@ -254,6 +259,9 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
                     state.label.ifBlank { if (state.isHot) "spending wallet" else "watch-only wallet" },
                     style = MaterialTheme.typography.bodySmall, color = TextFaint,
                 )
+            }
+            TextButton(onClick = { vm.setUiMode("simple") }) {
+                Text("simple", style = MaterialTheme.typography.bodySmall, color = TextSoft)
             }
             TextButton(onClick = { showSettings = !showSettings }) {
                 Text(if (showSettings) "close" else "settings",
