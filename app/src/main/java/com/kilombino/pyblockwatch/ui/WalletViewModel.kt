@@ -309,6 +309,10 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
 
     fun endpointFor(chain: Chain): NodeEndpoint = store.endpoint(chain)
 
+    fun explorerFor(chain: Chain): String = store.explorer(chain)
+    fun defaultExplorerFor(chain: Chain): String = store.defaultExplorer(chain)
+    fun setExplorer(chain: Chain, url: String?) = store.setExplorer(chain, url)
+
     fun setCustomNode(chain: Chain, host: String?, port: Int) {
         store.setCustomEndpoint(chain, host, port)
         scan(chain)

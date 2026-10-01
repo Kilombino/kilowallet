@@ -31,6 +31,9 @@ account. Apache-2.0, reproducible, and every line of cryptography is in this rep
   tall it adds what 1 TH/s earns and costs to rent, kWh per XBT, YSH and chain size.
 - **Ark (coming).** The Simple screen already has an Ark tab with the real limits of the
   Paperclip Ark server, so they are read before any money goes in.
+- **Open a movement in a block explorer.** In Advanced mode, tap a movement and the
+  wallet asks whether to open it on mempool.kilombino.com (or the SHA-256 twin). Each
+  chain's explorer is configurable in Settings, like its Electrum server.
 - **It explains itself.** The scan is narrated — derivation paths tick past, and the
   gap limit is drawn as a ring that fills and resets — so you can watch how a wallet
   actually finds your coins instead of staring at a spinner.
