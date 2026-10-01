@@ -22,6 +22,10 @@ object Ark {
     const val MIN_BOARD_SAT = 20_000L
     const val MAX_VTXO_SAT = 1_000_000L
     const val MAX_LIGHTNING_SAT = 250_000L
+    // Paperclip funded recovery profile 2: reserve per recovery transaction, and the
+    // smallest output (330 dust + 1,000 claim allowance). See FUNDED-EXITS.md.
+    const val RESERVE_SAT = 2_000L
+    const val MIN_OUTPUT_SAT = 1_330L
 
     @Volatile private var port = 0
     @Volatile private var token: String? = null
@@ -60,6 +64,15 @@ object Ark {
 
     class ArkError(val status: Int, message: String) : Exception(message)
 
+    /** The engine words amounts as "0.00009000 BTC"; the wallet speaks in sats. */
+    private fun inSats(msg: String): String {
+        val withSats = Regex("(\\d+\\.\\d{8}) BTC").replace(msg) { m ->
+            val sats = m.groupValues[1].replace(".", "").trimStart('0').ifEmpty { "0" }.toLong()
+            "%,d sats".format(java.util.Locale.US, sats).replace(',', ' ')
+        }
+        return withSats.trimEnd().let { if (it.endsWith(".")) it else "$it." }
+    }
+
     private fun call(method: String, path: String, body: JSONObject? = null, timeoutMs: Int = 60_000): String {
         val t = token ?: throw IllegalStateException("Ark engine not started")
         val conn = (URL("http://127.0.0.1:$port/api/v1$path").openConnection() as HttpURLConnection).apply {
@@ -80,7 +93,7 @@ object Ark {
                 ?.bufferedReader()?.use { it.readText() } ?: ""
             if (code !in 200..299) {
                 val msg = runCatching { JSONObject(text).optString("message", text) }.getOrDefault(text)
-                throw ArkError(code, msg.ifBlank { "HTTP $code" })
+                throw ArkError(code, inSats(msg).ifBlank { "HTTP $code" })
             }
             return text
         } finally {
@@ -123,8 +136,21 @@ object Ark {
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("kilombino_ark", Context.MODE_PRIVATE)
 
-    /** Movements in the wallet when the last backup file was saved; -1 if never. */
-    fun backupMovements(ctx: Context): Int = prefs(ctx).getInt("backup_movements", -1)
+    /**
+     * A digest of what a backup must capture: the wallet's coins and every movement with
+     * its status. A board that confirms, a renewal or a payment all change it.
+     */
+    fun stateFingerprint(): String? = runCatching {
+        val vtxos = JSONArray(call("GET", "/wallet/vtxos"))
+        val ids = (0 until vtxos.length()).map { vtxos.getJSONObject(it).optString("id") }.sorted()
+        val moves = history().map { "${it.id}:${it.status}" }.sorted()
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        md.digest((ids + "|" + moves).joinToString(",").toByteArray())
+            .joinToString("") { "%02x".format(it) }
+    }.getOrNull()
+
+    /** [stateFingerprint] when the last backup file was saved; null if never. */
+    fun backupFingerprint(ctx: Context): String? = prefs(ctx).getString("backup_state", null)
 
     /**
      * Reads a consistent copy of the wallet: the engine stops so SQLite is closed cleanly,
@@ -134,6 +160,7 @@ object Ark {
     fun snapshot(ctx: Context): ArkBackup.Snapshot {
         val words = ArkSeed(ctx).load() ?: error("There is no Ark wallet to back up.")
         val movements = runCatching { history().size }.getOrDefault(0)
+        lastSnapshotFingerprint = stateFingerprint()
         stop()
         try {
             val dir = datadir(ctx)
@@ -157,8 +184,12 @@ object Ark {
         prefs(ctx).edit().putBoolean("words_shared", shared).apply()
     }
 
-    fun markBackedUp(ctx: Context, movements: Int) {
-        prefs(ctx).edit().putInt("backup_movements", movements).apply()
+    /** The [stateFingerprint] captured by the latest [snapshot]. */
+    @Volatile var lastSnapshotFingerprint: String? = null
+        private set
+
+    fun markBackedUp(ctx: Context, fingerprint: String?) {
+        prefs(ctx).edit().putString("backup_state", fingerprint).apply()
     }
 
     /** Replaces this phone's Ark wallet with the one in [s] and starts it. */
@@ -175,8 +206,9 @@ object Ark {
         File(dir, "db.sqlite").writeBytes(s.db)
         s.dbWal?.let { File(dir, "db.sqlite-wal").writeBytes(it) }
         ArkSeed(ctx).save(s.words)
-        markBackedUp(ctx, s.movements)
         ensureStarted(ctx)
+        // The restored wallet is exactly what the file holds.
+        markBackedUp(ctx, stateFingerprint())
     }
 
     data class Balance(
@@ -220,9 +252,11 @@ object Ark {
      * Pays an Ark address, a Lightning invoice / address / offer, a Bitcoin address or a
      * BIP-321 URI. [sats] may be null when the destination carries the amount.
      */
-    fun send(destination: String, sats: Long?): String {
+    /** [maxTotal] caps the debit at what the user approved (Ark addresses only). */
+    fun send(destination: String, sats: Long?, maxTotal: Long? = null): String {
         val req = JSONObject().put("destination", destination.trim())
         if (sats != null) req.put("amount_sat", sats)
+        if (maxTotal != null && destination.trim().startsWith("ark1", ignoreCase = true)) req.put("max_total_sat", maxTotal)
         return JSONObject(call("POST", "/wallet/send", req, 180_000)).optString("message")
     }
 
@@ -232,7 +266,11 @@ object Ark {
      * emergency exit (about 6,000 with change, 4,000 without), and they are not refunded.
      * In fiat it is cents; in sats it can be most of a small payment, so it must be shown.
      */
-    data class Estimate(val amount: Long, val fee: Long, val total: Long, val exact: Boolean, val note: String)
+    data class Estimate(
+        val amount: Long, val fee: Long, val total: Long, val exact: Boolean, val note: String,
+        /** Set when the engine would refuse this payment as it stands; the UI then offers no send. */
+        val problem: String? = null,
+    )
 
     /** Sats encoded in a BOLT11 invoice's human-readable part (lnbc2500u…), or null. */
     fun invoiceSats(invoice: String): Long? {
@@ -264,13 +302,20 @@ object Ark {
             }
             d.startsWith("ark1", ignoreCase = true) -> {
                 val amt = sats ?: return null
-                // No server estimate for Ark-to-Ark; Paperclip documents the reserves.
-                val spendable = runCatching { balance().spendable }.getOrDefault(0L)
-                val reserve = if (amt >= spendable - 4_000) 4_000L else 6_000L
-                Estimate(amt, reserve, amt + reserve, false,
-                    "Recovery reserve pre-paid for the emergency exit; not refunded. " +
-                        "${if (reserve == 6_000L) "6,000 when there is change" else "4,000 without change"}, " +
-                        "more if several coins are combined.")
+                // The engine's own planner (Paperclip 0.7.7): the coins it will use and their
+                // recovery reserves. Refused payments come back as an error, never a zero quote.
+                try {
+                    val r = JSONObject(call("POST", "/fees/ark/send",
+                        JSONObject().put("destination", d).put("amount_sat", amt)))
+                    val coins = r.optInt("input_count", 1)
+                    Estimate(r.optLong("recipient_amount_sat"), r.optLong("recovery_reserve_sat") + r.optLong("service_fee_sat"),
+                        r.optLong("total_debit_sat"), true,
+                        "Recovery reserve pre-paid for the emergency exit of " +
+                            (if (coins == 1) "the coin used" else "each of the $coins coins used") + "; not refunded." +
+                            (if (coins > 1) " RENEW first joins your coins into one and makes payments cheaper." else ""))
+                } catch (e: ArkError) {
+                    Estimate(amt, 0, amt, false, "", (e.message ?: "The engine refused this payment.") + arkPaymentHint())
+                }
             }
             else -> {
                 val amt = sats ?: return null
@@ -279,6 +324,20 @@ object Ark {
             }
         }
     }
+
+    /**
+     * What to try when an Ark payment is refused: an Ark payment must cover 3 recovery
+     * reserves per coin and leave change of at least [MIN_OUTPUT_SAT].
+     */
+    private fun arkPaymentHint(): String = runCatching {
+        val arr = JSONArray(call("GET", "/wallet/vtxos"))
+        val biggest = (0 until arr.length()).map { arr.getJSONObject(it) }
+            .filter { it.optJSONObject("state")?.optString("type") == "spendable" }
+            .maxOfOrNull { it.optLong("amount_sat") } ?: 0L
+        val maxOne = biggest - 3 * RESERVE_SAT - MIN_OUTPUT_SAT
+        if (maxOne >= MIN_OUTPUT_SAT) " The most you can pay from one coin is $maxOne sats."
+        else " To empty Ark, send to an XBT address (on-chain) instead."
+    }.getOrDefault("")
 
     /** What arrives from a Lightning invoice of [sats] (receive fee + reserve deducted). */
     fun estimateLightningReceive(sats: Long): Estimate? =

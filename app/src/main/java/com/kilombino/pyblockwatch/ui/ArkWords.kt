@@ -279,7 +279,7 @@ fun ArkNewWords(words: List<String>, accent: Color, onDone: () -> Unit) {
 
 /** Recovery words and backup file, under the Ark balance. */
 @Composable
-fun ArkBackupPanel(movements: Int, accent: Color, onMessage: (String) -> Unit) {
+fun ArkBackupPanel(fingerprint: String?, accent: Color, onMessage: (String) -> Unit) {
     val ctx = LocalContext.current
     val activity = ctx as FragmentActivity
     val app = ctx.applicationContext
@@ -289,9 +289,9 @@ fun ArkBackupPanel(movements: Int, accent: Color, onMessage: (String) -> Unit) {
     var askPassword by remember { mutableStateOf(false) }
     var pw1 by remember { mutableStateOf("") }
     var pw2 by remember { mutableStateOf("") }
-    var pending by remember { mutableStateOf<Pair<ByteArray, Int>?>(null) }
+    var pending by remember { mutableStateOf<Pair<ByteArray, String?>?>(null) }
     var busy by remember { mutableStateOf<String?>(null) }
-    var backedUp by remember { mutableStateOf(Ark.backupMovements(app)) }
+    var backedUp by remember { mutableStateOf(Ark.backupFingerprint(app)) }
     val shared = Ark.wordsShared(app)
 
     val saveFile = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
@@ -352,7 +352,7 @@ fun ArkBackupPanel(movements: Int, accent: Color, onMessage: (String) -> Unit) {
                     scope.launch {
                         busy = "Preparing the backup file…"
                         val r = withContext(Dispatchers.IO) {
-                            runCatching { Ark.snapshot(app).let { s -> ArkBackup.encode(s, pw) to s.movements } }
+                            runCatching { Ark.snapshot(app).let { s -> ArkBackup.encode(s, pw) to Ark.lastSnapshotFingerprint } }
                         }
                         busy = null
                         r.onSuccess { p ->
@@ -372,8 +372,9 @@ fun ArkBackupPanel(movements: Int, accent: Color, onMessage: (String) -> Unit) {
         SectionLabel("Backup", accent)
         Spacer(Modifier.height(6.dp))
         val (status, color) = when {
-            backedUp < 0 -> "No backup file saved yet." to Warn
-            backedUp != movements -> "Your backup file is older than your last Ark movement. Save a new one." to Warn
+            backedUp == null -> "No backup file saved yet." to Warn
+            fingerprint != null && backedUp != fingerprint ->
+                "Your Ark wallet changed since the last backup file. Save a new one." to Warn
             else -> "Backup file up to date." to Good
         }
         Text(status, style = MaterialTheme.typography.bodySmall, color = color)

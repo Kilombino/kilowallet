@@ -90,6 +90,7 @@ fun ArkScreen(vm: WalletViewModel, accent: Color) {
     var balance by remember { mutableStateOf<Ark.Balance?>(null) }
     var expiry by remember { mutableStateOf<Int?>(null) }
     var history by remember { mutableStateOf<List<Ark.Movement>>(emptyList()) }
+    var fingerprint by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var sheet by remember { mutableStateOf<String?>(null) }   // "receive" | "send" | "board"
@@ -101,6 +102,7 @@ fun ArkScreen(vm: WalletViewModel, accent: Color) {
         balance = b
         expiry = withContext(Dispatchers.IO) { Ark.blocksToNearestExpiry() }
         history = withContext(Dispatchers.IO) { runCatching { Ark.history() }.getOrDefault(emptyList()) }
+        fingerprint = withContext(Dispatchers.IO) { Ark.stateFingerprint() }
     }
 
     fun run(label: String, block: suspend () -> String?) {
@@ -159,8 +161,8 @@ fun ArkScreen(vm: WalletViewModel, accent: Color) {
                 "receive" -> ArkReceiveSheet(accent, busy) { action, done ->
                     run(action.first) { val r = withContext(Dispatchers.IO) { action.second() }; done(r); null }
                 }
-                "send" -> ArkSendSheet(accent) { dest, sats ->
-                    run("Sending…") { withContext(Dispatchers.IO) { Ark.send(dest, sats) }.ifBlank { "Sent." } }
+                "send" -> ArkSendSheet(accent) { dest, sats, approved ->
+                    run("Sending…") { withContext(Dispatchers.IO) { Ark.send(dest, sats, approved) }.ifBlank { "Sent." } }
                     sheet = null
                 }
                 "board" -> ArkBoardSheet(balance, accent) { sats ->
@@ -173,7 +175,7 @@ fun ArkScreen(vm: WalletViewModel, accent: Color) {
                 else -> {}
             }
             if (history.isNotEmpty()) ArkHistory(history, accent)
-            ArkBackupPanel(history.size, accent) { message = it }
+            ArkBackupPanel(fingerprint, accent) { message = it }
             ArkWarnings()
         }
     }
@@ -282,7 +284,7 @@ private fun ArkReceiveSheet(
 }
 
 @Composable
-private fun ArkSendSheet(accent: Color, onSend: (String, Long?) -> Unit) {
+private fun ArkSendSheet(accent: Color, onSend: (String, Long?, Long?) -> Unit) {
     var dest by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var review by remember { mutableStateOf<Ark.Estimate?>(null) }
@@ -319,10 +321,11 @@ private fun ArkSendSheet(accent: Color, onSend: (String, Long?) -> Unit) {
             ) { Text(if (reviewing) "CALCULATING…" else "REVIEW COST", style = MaterialTheme.typography.titleMedium) }
             reviewError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Bad) }
         } else {
-            CostBreakdown(r, "They receive", "You pay in total", accent)
+            if (r.problem == null) CostBreakdown(r, "They receive", "You pay in total", accent)
             Spacer(Modifier.height(8.dp))
-            Button(
-                onClick = { onSend(dest, amount.toLongOrNull()) },
+            r.problem?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Warn) }
+            if (r.problem == null) Button(
+                onClick = { onSend(dest, amount.toLongOrNull(), r.total) },
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
                 shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
             ) { Text("CONFIRM AND SEND", style = MaterialTheme.typography.titleMedium) }
@@ -404,8 +407,9 @@ fun ArkWarnings() {
             "Minimum to move funds into Ark: ${groupSats(Ark.MIN_BOARD_SAT)} sats.",
             "Maximum per Ark coin: ${groupSats(Ark.MAX_VTXO_SAT)} sats.",
             "Lightning: up to ${groupSats(Ark.MAX_LIGHTNING_SAT)} sats per payment, no channels needed.",
+            "Every Ark payment pre-pays recovery reserves for each coin it uses (about 6 000 sats for one coin with change) and must leave at least 1 330 sats of change. Small balances can only leave Ark on-chain. The wallet shows the exact cost before you confirm.",
             "Rounds every 60 seconds; moving funds in needs 3 confirmations.",
-            "Your Ark wallet has its own keys, stored only on this phone. Uninstalling the app or clearing its data loses them: keep amounts small.",
+            "Back up Ark twice: write down its words, and save a backup file after each movement (BACKUP panel). With neither, uninstalling the app or losing the phone loses the funds.",
             "Ark is beta software, through the Paperclip Ark server (ark.paperclippool.xyz).",
         ).forEach {
             Text("•  $it", style = MaterialTheme.typography.bodySmall, color = TextSoft)
