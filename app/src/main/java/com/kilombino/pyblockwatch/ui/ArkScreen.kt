@@ -290,6 +290,12 @@ private fun ArkReceiveSheet(
             ArkButton("DEPOSIT", false, accent, Modifier.weight(1f)) {
                 run("Getting a deposit address…" to { Ark.onchainAddress() }) { shown = "On-chain deposit address" to it }
             }
+            ArkButton("⚡ OFFER", false, accent, Modifier.weight(1f)) {
+                val sats = amount.toLongOrNull()
+                run("Getting your reusable offer…" to { Ark.reusableOffer("Kilombino wallet", sats) }) {
+                    shown = "Reusable Lightning offer (BOLT12)" + (sats?.let { " for $it sats" } ?: ", any amount") to it
+                }
+            }
         }
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -321,10 +327,23 @@ private fun ArkReceiveSheet(
             Spacer(Modifier.height(10.dp))
             Text(label, style = MaterialTheme.typography.bodySmall, color = accent)
             Spacer(Modifier.height(6.dp))
-            QrImage(if (label.startsWith("Lightning")) text.uppercase() else text, 230)
+            QrImage(if (label.contains("Lightning")) text.uppercase() else text, 230)
             Spacer(Modifier.height(6.dp))
             SelectionContainer { Text(text, style = MaterialTheme.typography.bodySmall, color = TextMain) }
-            TextButton(onClick = { clip.setText(AnnotatedString(text)) }) { Text("COPY", color = accent) }
+            Row {
+                TextButton(onClick = { clip.setText(AnnotatedString(text)) }) { Text("COPY", color = accent) }
+                if (label.contains("BOLT12")) TextButton(onClick = {
+                    run("Disabling the offer…" to { Ark.disableOffer(); "" }) { shown = null }
+                }) { Text("DISABLE", color = TextSoft) }
+            }
+            if (label.contains("BOLT12")) Text(
+                "One code you can share and be paid on many times; each payment lands in Ark. " +
+                    "It only works while this wallet is running: keep notifications on so it stays up " +
+                    "in the background. If the phone is off, the payer sees the payment fail and " +
+                    "nothing is lost. Each payment pays the Lightning receive cost (about 4 100 sats: " +
+                    "recovery reserve plus the server's fee). " +
+                    "Type an amount first to fix it, or leave it empty so payers choose.",
+                style = MaterialTheme.typography.bodySmall, color = TextFaint)
         }
     }
 }

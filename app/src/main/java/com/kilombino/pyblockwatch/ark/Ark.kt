@@ -306,6 +306,8 @@ object Ark {
     fun estimateSend(destination: String, sats: Long?): Estimate? {
         val d = destination.trim()
         return when {
+            d.startsWith("lno", ignoreCase = true) && sats == null ->
+                Estimate(0, 0, 0, false, "", "This is a reusable BOLT12 offer: enter the amount to pay.")
             d.startsWith("ln", ignoreCase = true) -> {
                 val amt = sats ?: invoiceSats(d) ?: return null
                 feeQuery("/fees/lightning/pay?amount_sat=$amt")?.copy(
@@ -370,6 +372,22 @@ object Ark {
         val fee = maxOf(it.fee, 1_000L) + 1_000L
         Estimate(sats - fee, fee, sats, false, "Anchor and miner fee of the recovery transaction.")
     }
+
+    /**
+     * This wallet's reusable BOLT12 offer (lno1…), creating one if there is none. Payers
+     * ask the wallet for a fresh invoice through the Ark server, so it is only paid while
+     * the engine is running. [sats] fixes the amount; null lets each payer choose.
+     */
+    fun reusableOffer(description: String, sats: Long?): String {
+        runCatching { JSONObject(call("GET", "/lightning/offers")) }.getOrNull()
+            ?.takeIf { it.optBoolean("active") && it.optString("offer").isNotEmpty() }
+            ?.let { if (sats == null || it.optLong("amount_sat") == sats) return it.getString("offer") }
+        val req = JSONObject().put("description", description)
+        if (sats != null) req.put("amount_sat", sats)
+        return JSONObject(call("POST", "/lightning/offers", req, 60_000)).getString("offer")
+    }
+
+    fun disableOffer() { call("DELETE", "/lightning/offers") }
 
     /** A Lightning invoice paid into this Ark wallet. */
     fun lightningInvoice(sats: Long, description: String?): String {
