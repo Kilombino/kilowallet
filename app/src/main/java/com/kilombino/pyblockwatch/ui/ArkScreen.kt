@@ -162,6 +162,16 @@ fun ArkScreen(accent: Color) {
         }
         ArkView.Ready -> {
             ArkBalancePanel(balance, expiry, accent)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ArkButton("RECEIVE", sheet == "receive", accent, Modifier.weight(1f)) { sheet = if (sheet == "receive") null else "receive" }
+                ArkButton("SEND", sheet == "send", accent, Modifier.weight(1f)) { sheet = if (sheet == "send") null else "send" }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ArkButton("MOVE INTO ARK", sheet == "board", accent, Modifier.weight(1f)) { sheet = if (sheet == "board") null else "board" }
+                ArkButton("RENEW", false, accent, Modifier.weight(1f)) {
+                    run("Renewing coins…") { withContext(Dispatchers.IO) { Ark.refreshAll() }; "Renewal requested; it completes in the next round." }
+                }
+            }
             when (sheet) {
                 "receive" -> ArkReceiveSheet(accent, busy) { action, done ->
                     run(action.first) { val r = withContext(Dispatchers.IO) { action.second() }; done(r); null }
@@ -178,16 +188,6 @@ fun ArkScreen(accent: Color) {
                     sheet = null
                 }
                 else -> {}
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ArkButton("RECEIVE", sheet == "receive", accent, Modifier.weight(1f)) { sheet = if (sheet == "receive") null else "receive" }
-                ArkButton("SEND", sheet == "send", accent, Modifier.weight(1f)) { sheet = if (sheet == "send") null else "send" }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ArkButton("MOVE INTO ARK", sheet == "board", accent, Modifier.weight(1f)) { sheet = if (sheet == "board") null else "board" }
-                ArkButton("RENEW", false, accent, Modifier.weight(1f)) {
-                    run("Renewing coins…") { withContext(Dispatchers.IO) { Ark.refreshAll() }; "Renewal requested; it completes in the next round." }
-                }
             }
             if (history.isNotEmpty()) ArkHistory(history, accent)
             ArkWarnings()
