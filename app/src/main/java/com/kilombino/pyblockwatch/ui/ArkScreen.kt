@@ -98,15 +98,15 @@ private fun fiatOf(sats: Long): String? {
 }
 
 @Composable
-fun ArkScreen(vm: WalletViewModel, accent: Color) {
+fun ArkScreen(vm: WalletViewModel, accent: Color, pull: Int = 0) {
     val ui by vm.state.collectAsState()
     androidx.compose.runtime.CompositionLocalProvider(LocalFiat provides FiatCtx(ui.market, ui.fiat)) {
-        ArkScreenBody(vm, accent)
+        ArkScreenBody(vm, accent, pull)
     }
 }
 
 @Composable
-private fun ArkScreenBody(vm: WalletViewModel, accent: Color) {
+private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
     val ctx = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     var view by remember { mutableStateOf<ArkView>(ArkView.Starting) }
@@ -154,6 +154,14 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color) {
             if (view != ArkView.Ready) continue
             // A deposit should show up within a couple of minutes even between blocks.
             if (++tick % 4 == 0) withContext(Dispatchers.IO) { Ark.syncOnchain() }
+            runCatching { reload() }
+        }
+    }
+
+    // Pulled down in Simple mode: look at the chain now and reload the figures.
+    LaunchedEffect(pull) {
+        if (pull > 0 && view == ArkView.Ready) {
+            withContext(Dispatchers.IO) { Ark.syncOnchain() }
             runCatching { reload() }
         }
     }

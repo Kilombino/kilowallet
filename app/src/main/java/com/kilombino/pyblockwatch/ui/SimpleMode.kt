@@ -48,6 +48,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -127,6 +129,23 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
     // Simple mode is BLAKE2b only; Send/Receive work on the selected chain.
     LaunchedEffect(Unit) { if (state.selected != Chain.BLAKE2B) vm.select(Chain.BLAKE2B) }
 
+    // Pull down to refresh: the XBT balance and price, or the Ark tab (chain sync included).
+    var refreshing by remember { mutableStateOf(false) }
+    var arkPull by remember { mutableStateOf(0) }
+    val pullScope = rememberCoroutineScope()
+    @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+        isRefreshing = refreshing,
+        onRefresh = {
+            pullScope.launch {
+                refreshing = true
+                if (tab == 1) arkPull++ else { vm.refresh(Chain.BLAKE2B); vm.refreshMarket(force = true) }
+                kotlinx.coroutines.delay(1_500)
+                refreshing = false
+            }
+        },
+        modifier = Modifier.fillMaxSize(),
+    ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -148,7 +167,7 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
         }
 
         if (tab == 1) {
-            if (com.kilombino.pyblockwatch.ark.Ark.available) ArkScreen(vm, accent) else ArkComingSoon(accent)
+            if (com.kilombino.pyblockwatch.ark.Ark.available) ArkScreen(vm, accent, arkPull) else ArkComingSoon(accent)
             return@Column
         }
 
@@ -187,6 +206,7 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
         }
         AddWidgetButton(accent)
         Spacer(Modifier.height(30.dp))
+    }
     }
 }
 
