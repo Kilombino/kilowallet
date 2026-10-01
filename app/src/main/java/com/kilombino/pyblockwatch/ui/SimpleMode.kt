@@ -147,7 +147,7 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
         }
 
         if (tab == 1) {
-            ArkComingSoon(accent)
+            if (com.kilombino.pyblockwatch.ark.Ark.available) ArkScreen(accent) else ArkComingSoon(accent)
             return@Column
         }
 

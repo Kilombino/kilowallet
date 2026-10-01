@@ -77,6 +77,10 @@ android {
 
     packaging {
         resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
+        // The Ark engine is a large native library: store it compressed in the APK (Android
+        // extracts it at install) instead of uncompressed and page-aligned, which would make
+        // the download several times bigger.
+        jniLibs.useLegacyPackaging = true
     }
 }
 
