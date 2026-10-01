@@ -386,7 +386,9 @@ object Ark {
             Movement(
                 id = m.optString("id"),
                 status = m.optString("status"),
-                kind = kindLabel(m.optJSONObject("subsystem")?.optString("name").orEmpty()),
+                kind = kindLabel(m.optJSONObject("subsystem")?.optString("name").orEmpty()).let { k ->
+                    if (k == "Ark payment" && m.optLong("effective_balance_sat") > 0) "Ark received" else k
+                },
                 amount = m.optLong("effective_balance_sat", m.optLong("intended_balance_sat")),
                 time = m.optJSONObject("time")?.optString("created_at") ?: "",
             )
