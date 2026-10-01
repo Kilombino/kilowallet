@@ -122,6 +122,24 @@ class Store(context: Context) {
         get() = prefs.getString("ui_mode", null)
         set(v) = prefs.edit().putString("ui_mode", v).apply()
 
+    /**
+     * Block explorer (a mempool.space-style site) for [chain], used to open a movement.
+     * Defaults to Kilombino's: mempool.kilombino.com for BLAKE2b and its SHA-256 twin.
+     */
+    fun explorer(chain: Chain): String =
+        prefs.getString("explorer_${chain.id}", null) ?: defaultExplorer(chain)
+
+    fun setExplorer(chain: Chain, url: String?) {
+        val clean = url?.trim()?.trimEnd('/')
+        if (clean.isNullOrBlank()) prefs.edit().remove("explorer_${chain.id}").apply()
+        else prefs.edit().putString("explorer_${chain.id}", clean).apply()
+    }
+
+    fun defaultExplorer(chain: Chain): String = when (chain) {
+        Chain.BLAKE2B -> "https://mempool.kilombino.com"
+        Chain.SHA256 -> "https://nobip110mempool.kilombino.com"
+    }
+
     /** Fiat currency for conversions: "USD" or "EUR". */
     var fiat: String
         get() = prefs.getString("fiat", "USD") ?: "USD"

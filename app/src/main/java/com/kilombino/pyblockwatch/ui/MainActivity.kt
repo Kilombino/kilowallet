@@ -36,6 +36,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -304,7 +306,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
 
         ScanStatus(cs, accent, onRetry = { vm.scan(chain) })
 
-        if (cs.transactions.isNotEmpty()) MovementsCard(cs.transactions, accent)
+        if (cs.transactions.isNotEmpty()) MovementsCard(cs.transactions, accent, vm.explorerFor(chain))
 
         if (cs.fingerprintChanged) {
             Panel(accent = Bad) {
@@ -598,6 +600,35 @@ private fun SettingsPanel(
             )
         }
 
+        Spacer(Modifier.height(14.dp))
+        // Block explorer used to open a movement. Any mempool.space-style site works.
+        var explorer by remember(chain) { mutableStateOf(vm.explorerFor(chain)) }
+        var explorerMsg by remember(chain) { mutableStateOf<String?>(null) }
+        Text("${chain.display} block explorer",
+             style = MaterialTheme.typography.bodyMedium, color = TextMain)
+        Explain("Where a movement opens when you tap it. Default: ${vm.defaultExplorerFor(chain)}.")
+        Spacer(Modifier.height(6.dp))
+        OutlinedTextField(
+            value = explorer, onValueChange = { explorer = it.trim(); explorerMsg = null },
+            label = { Text("https://…", style = MaterialTheme.typography.bodySmall) },
+            textStyle = MaterialTheme.typography.bodySmall,
+            singleLine = true, modifier = Modifier.fillMaxWidth(),
+        )
+        Row {
+            TextButton(onClick = {
+                val u = explorer.trimEnd('/')
+                if (u.startsWith("https://") || (u.startsWith("http://") && u.contains(".onion"))) {
+                    vm.setExplorer(chain, u); explorerMsg = "saved"
+                } else {
+                    explorerMsg = "use an https:// address (http:// only for .onion)"
+                }
+            }) { Text("save", color = accent, style = MaterialTheme.typography.bodySmall) }
+            TextButton(onClick = {
+                vm.setExplorer(chain, null); explorer = vm.defaultExplorerFor(chain); explorerMsg = "back to default"
+            }) { Text("default", color = TextSoft, style = MaterialTheme.typography.bodySmall) }
+        }
+        explorerMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = TextFaint) }
+
         Spacer(Modifier.height(10.dp))
         SelectionContainer {
             Text(
@@ -640,13 +671,39 @@ private fun DerivationSelector(current: ScriptType?, accent: Color, onSelect: (S
 }
 
 @Composable
-private fun MovementsCard(txs: List<TxConf>, accent: Color) {
+private fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String) {
+    // Tapping a movement asks before leaving the app: opening it reveals the txid (and so
+    // which addresses are yours) to whoever runs that explorer.
+    var asking by remember { mutableStateOf<String?>(null) }
+    val uri = LocalUriHandler.current
+    val site = explorer.removePrefix("https://").removePrefix("http://")
+    asking?.let { txid ->
+        AlertDialog(
+            onDismissRequest = { asking = null },
+            title = { Text("Open this movement?") },
+            text = {
+                Text("View transaction ${txid.take(10)}…${txid.takeLast(8)} on $site?\n\n" +
+                    "The site will see which transaction you look up.")
+            },
+            confirmButton = {
+                TextButton(onClick = { asking = null; runCatching { uri.openUri("$explorer/tx/$txid") } }) {
+                    Text("OPEN", color = accent)
+                }
+            },
+            dismissButton = { TextButton(onClick = { asking = null }) { Text("CANCEL", color = TextSoft) } },
+            containerColor = PanelBg,
+            titleContentColor = TextMain,
+            textContentColor = TextSoft,
+        )
+    }
     Panel(accent = accent) {
         SectionLabel("movements · confirmations", accent)
         Spacer(Modifier.height(8.dp))
+        Text("tap a movement to open it on $site", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+        Spacer(Modifier.height(4.dp))
         txs.take(15).forEach { t ->
             Row(
-                Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                Modifier.fillMaxWidth().clickable { asking = t.txid }.padding(vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
