@@ -247,6 +247,19 @@
     </LinearLayout>
     <TextView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
     <TextView
+        android:id="@+id/convert"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:background="@drawable/xbt_widget_button"
+        android:gravity="center"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:text="@string/xbtw_convert"
+        android:textColor="@color/widget_ink"
+        android:textSize="13sp" />
+    <TextView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
+    <TextView
         android:id="@+id/updated"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

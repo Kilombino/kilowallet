@@ -109,6 +109,10 @@ class XbtWidget : AppWidgetProvider() {
             v.setOnClickPendingIntent(R.id.root, PendingIntent.getActivity(
                 ctx, 0, Intent(ctx, MainActivity::class.java),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+            if (size == Size.LARGE) v.setOnClickPendingIntent(R.id.convert, PendingIntent.getActivity(
+                ctx, 2, Intent(ctx, com.kilombino.pyblockwatch.ui.ConverterActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
             v.setOnClickPendingIntent(R.id.refresh, PendingIntent.getBroadcast(
                 ctx, 1, Intent(ctx, XbtWidget::class.java).setAction(ACTION_REFRESH),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))

@@ -186,7 +186,7 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
             }
         }
         ArkView.Ready -> {
-            ArkBalancePanel(balance, expiry, accent)
+            ArkBalancePanel(balance, expiry, accent, onFiat = vm::setFiat)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ArkButton("RECEIVE", sheet == "receive", accent, Modifier.weight(1f)) { sheet = if (sheet == "receive") null else "receive" }
                 ArkButton("SEND", sheet == "send", accent, Modifier.weight(1f)) { sheet = if (sheet == "send") null else "send" }
@@ -247,7 +247,7 @@ private fun ArkButton(label: String, selected: Boolean, accent: Color, modifier:
 }
 
 @Composable
-private fun ArkBalancePanel(b: Ark.Balance?, expiry: Int?, accent: Color) {
+private fun ArkBalancePanel(b: Ark.Balance?, expiry: Int?, accent: Color, onFiat: (String) -> Unit) {
     Panel(accent = accent) {
         SectionLabel("Your Ark balance", accent)
         Spacer(Modifier.height(6.dp))
@@ -256,7 +256,15 @@ private fun ArkBalancePanel(b: Ark.Balance?, expiry: Int?, accent: Color) {
             Spacer(Modifier.width(8.dp))
             Text("sats", style = MaterialTheme.typography.titleLarge, color = accent.copy(alpha = 0.7f))
         }
-        fiatOf(b?.spendable ?: 0)?.let { Text(it, style = MaterialTheme.typography.headlineSmall, color = TextMain) }
+        // The same USD/EUR choice as the XBT tab and the widget.
+        val code = LocalFiat.current.code
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(fiatOf(b?.spendable ?: 0) ?: "≈ –", style = MaterialTheme.typography.headlineSmall, color = TextMain,
+                 modifier = Modifier.weight(1f))
+            FiatChip("USD", code == "USD", accent) { onFiat("USD") }
+            Spacer(Modifier.width(6.dp))
+            FiatChip("EUR", code == "EUR", accent) { onFiat("EUR") }
+        }
         if (b == null) { Text("Loading…", style = MaterialTheme.typography.bodySmall, color = TextFaint); return@Panel }
         if (b.pendingBoard > 0) Text("entering Ark: ${groupSats(b.pendingBoard)} sats (needs 3 confirmations)",
                                      style = MaterialTheme.typography.bodySmall, color = Warn)

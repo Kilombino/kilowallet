@@ -275,7 +275,7 @@ private fun SimpleBalance(
 }
 
 @Composable
-private fun FiatChip(label: String, selected: Boolean, accent: Color, onClick: () -> Unit) {
+internal fun FiatChip(label: String, selected: Boolean, accent: Color, onClick: () -> Unit) {
     Box(
         Modifier
             .clip(RoundedCornerShape(8.dp))

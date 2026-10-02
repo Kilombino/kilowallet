@@ -278,6 +278,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun setFiat(fiat: String) {
         store.fiat = fiat
         _state.update { it.copy(fiat = fiat) }
+        // The home-screen widget shows the same currency.
+        runCatching { com.kilombino.pyblockwatch.widget.XbtWidget.renderAll(getApplication()) }
     }
 
     /** Price and mining figures; [force] is the user tapping refresh (still rate-limited). */

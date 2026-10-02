@@ -18,6 +18,14 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.PyBlockWatch">
 
+        <!-- XBT ⇄ Poolcoins ⇄ EUR ⇄ USD, opened from the widget's Convert button. -->
+        <activity
+            android:name=".ui.ConverterActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.PyBlockWatch.Converter"
+            android:windowSoftInputMode="stateVisible|adjustResize" />
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
