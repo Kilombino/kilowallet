@@ -204,9 +204,12 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
             }
             renew?.let { e ->
                 ArkRenewDialog(e, accent,
-                    onConfirm = {
+                    onConfirm = { chosen ->
                         renew = null
-                        run("Renewing coins…") { withContext(Dispatchers.IO) { Ark.refreshAll() }; "Renewal requested; it completes in the next round." }
+                        run("Renewing coins…") {
+                            withContext(Dispatchers.IO) { if (chosen == null) Ark.refreshAll() else Ark.renewCoins(chosen) }
+                            "Renewal requested; it completes in the next round."
+                        }
                     },
                     onDismiss = { renew = null })
             }
@@ -214,10 +217,15 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
                 "receive" -> ArkReceiveSheet(accent, busy) { action, done ->
                     run(action.first) { val r = withContext(Dispatchers.IO) { action.second() }; done(r); null }
                 }
-                "send" -> ArkSendSheet(accent, (balance?.onchainConfirmed ?: 0)) { dest, sats, approved, fromDeposit ->
+                "send" -> ArkSendSheet(accent, (balance?.onchainConfirmed ?: 0)) { dest, sats, approved, fromDeposit, coins ->
                     run("Sending…") {
                         withContext(Dispatchers.IO) {
-                            if (fromDeposit) Ark.sendFromDeposit(dest, sats) else Ark.send(dest, sats, approved)
+                            when {
+                                coins.isNotEmpty() && fromDeposit -> Ark.sendDepositCoins(dest, sats, coins)
+                                coins.isNotEmpty() -> Ark.withdrawCoins(dest, coins)
+                                fromDeposit -> Ark.sendFromDeposit(dest, sats)
+                                else -> Ark.send(dest, sats, approved)
+                            }
                         }.ifBlank { "Sent." }
                     }
                     sheet = null
@@ -386,8 +394,12 @@ private fun ArkReceiveSheet(
 }
 
 @Composable
-private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, Long?, Boolean) -> Unit) {
+private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, Long?, Boolean, List<String>) -> Unit) {
     var dest by remember { mutableStateOf("") }
+    // Coin control: spend exactly the coins ticked here (deposit coins, or Ark coins to withdraw).
+    var choose by remember { mutableStateOf(false) }
+    var coins by remember { mutableStateOf<List<Ark.Coin>>(emptyList()) }
+    var picked by remember { mutableStateOf(setOf<String>()) }
     // Two pockets: Ark coins (Ark, Lightning or a withdrawal) or the plain on-chain deposit.
     var fromDeposit by remember { mutableStateOf(false) }
     var amount by remember { mutableStateOf("") }
@@ -401,10 +413,20 @@ private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, L
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("From", style = MaterialTheme.typography.bodySmall, color = TextSoft, modifier = Modifier.weight(1f))
-            FiatChip("ARK", !fromDeposit, accent) { fromDeposit = false; review = null }
+            FiatChip("ARK", !fromDeposit, accent) { fromDeposit = false; review = null; picked = emptySet(); choose = false }
             Spacer(Modifier.width(6.dp))
-            FiatChip("DEPOSIT · " + groupSats(deposit), fromDeposit, accent) { fromDeposit = true; review = null }
+            FiatChip("DEPOSIT · " + groupSats(deposit), fromDeposit, accent) { fromDeposit = true; review = null; picked = emptySet(); choose = false }
         }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
+            choose = !choose; review = null; picked = emptySet()
+            if (choose) scope.launch { coins = withContext(Dispatchers.IO) { if (fromDeposit) Ark.depositCoins() else Ark.arkCoins() } }
+        }) {
+            Text(if (choose) "☑" else "☐", color = accent, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.width(8.dp))
+            Text("Choose coins" + if (!fromDeposit) " (withdrawals to an XBT address)" else "",
+                 style = MaterialTheme.typography.bodySmall, color = TextSoft)
+        }
+        if (choose) CoinPicker(coins, picked, accent) { id -> picked = if (id in picked) picked - id else picked + id; review = null }
         if (fromDeposit) Text("Plain on-chain XBT to an XBT address. Only the network fee; no Ark reserves.",
                               style = MaterialTheme.typography.bodySmall, color = TextFaint)
         Spacer(Modifier.height(6.dp))
@@ -425,8 +447,19 @@ private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, L
                     scope.launch {
                         val e = withContext(Dispatchers.IO) {
                             runCatching {
-                                if (fromDeposit) Ark.estimateDepositSend(dest, amount.toLongOrNull())
-                                else Ark.estimateSend(dest, amount.toLongOrNull())
+                                val sats = amount.toLongOrNull()
+                                when {
+                                    choose && picked.isEmpty() -> Ark.Estimate(0, 0, 0, false, "", "Tick the coins to spend.")
+                                    choose && fromDeposit -> Ark.estimateDepositCoins(dest, sats, picked.toList())
+                                    choose && (dest.startsWith("ark1", true) || dest.startsWith("ln", true)) ->
+                                        Ark.Estimate(0, 0, 0, false, "", "Choosing Ark coins works for withdrawals to an XBT " +
+                                            "address. Ark and Lightning payments pick their coins themselves.")
+                                    choose && sats != null -> Ark.Estimate(0, 0, 0, false, "",
+                                        "Chosen Ark coins leave whole: leave the amount empty.")
+                                    choose -> Ark.estimateWithdrawCoins(dest, picked.toList())
+                                    fromDeposit -> Ark.estimateDepositSend(dest, sats)
+                                    else -> Ark.estimateSend(dest, sats)
+                                }
                             }.getOrNull()
                         }
                         reviewing = false
@@ -443,12 +476,33 @@ private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, L
             Spacer(Modifier.height(8.dp))
             r.problem?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Warn) }
             if (r.problem == null) Button(
-                onClick = { onSend(dest, amount.toLongOrNull(), r.total, fromDeposit) },
+                onClick = { onSend(dest, amount.toLongOrNull(), r.total, fromDeposit, if (choose) picked.toList() else emptyList()) },
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
                 shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
             ) { Text("CONFIRM AND SEND", style = MaterialTheme.typography.titleMedium) }
             TextButton(onClick = { review = null }) { Text("change", color = TextSoft) }
         }
+    }
+}
+
+/** Tick boxes over coins, biggest first, with what each holds. */
+@Composable
+private fun CoinPicker(coins: List<Ark.Coin>, picked: Set<String>, accent: Color, onToggle: (String) -> Unit) {
+    if (coins.isEmpty()) { Text("No coins here.", style = MaterialTheme.typography.bodySmall, color = TextFaint); return }
+    Column(Modifier.fillMaxWidth().border(1.dp, Line, RoundedCornerShape(10.dp)).padding(8.dp)) {
+        coins.forEach { c ->
+            Row(verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().clickable { onToggle(c.id) }.padding(vertical = 4.dp)) {
+                Text(if (c.id in picked) "☑" else "☐", color = accent, style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(groupSats(c.amount) + " sats", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                    Text(c.id.take(10) + "…" + c.id.takeLast(6) + "  " + c.note, style = MaterialTheme.typography.bodySmall, color = TextFaint)
+                }
+            }
+        }
+        Text("Chosen: " + groupSats(coins.filter { it.id in picked }.sumOf { it.amount }) + " sats in " + picked.size + " coin" +
+             (if (picked.size == 1) "" else "s"), style = MaterialTheme.typography.bodySmall, color = TextSoft)
     }
 }
 
@@ -491,7 +545,13 @@ private fun ArkBoardSheet(b: Ark.Balance?, accent: Color, onBoard: (Long?) -> Un
             val target = sats ?: available
             est = if (target >= Ark.MIN_BOARD_SAT) withContext(Dispatchers.IO) { runCatching { Ark.estimateBoard(target) }.getOrNull() } else null
         }
-        est?.let { CostBreakdown(it, "Spendable in Ark", "Moved in", accent); Spacer(Modifier.height(8.dp)) }
+        est?.let {
+            CostBreakdown(it, "Added to Ark", "From your deposit", accent)
+            Text("Your Ark balance after: " + groupSats((b?.spendable ?: 0) + it.amount) + " sats " +
+                "(now ${groupSats(b?.spendable ?: 0)} + ${groupSats(it.amount)}).",
+                style = MaterialTheme.typography.bodySmall, color = TextSoft)
+            Spacer(Modifier.height(8.dp))
+        }
         Button(
             enabled = available >= Ark.MIN_BOARD_SAT && (sats == null || sats >= Ark.MIN_BOARD_SAT),
             onClick = { onBoard(sats) },
@@ -578,25 +638,50 @@ private fun ArkMovementDialog(m: Ark.Movement, accent: Color, explorer: String, 
     )
 }
 
-/** RENEW asks first: what a renewal does, what it costs now, and what is left. */
+/**
+ * RENEW asks first: what a renewal does, what it costs now, and what is left. Every coin is
+ * ticked by default; untick some to renew only the others (coin control), and the cost follows.
+ */
 @Composable
-private fun ArkRenewDialog(e: Ark.Estimate, accent: Color, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+private fun ArkRenewDialog(e: Ark.Estimate, accent: Color, onConfirm: (List<String>?) -> Unit, onDismiss: () -> Unit) {
+    var coins by remember { mutableStateOf<List<Ark.Coin>>(emptyList()) }
+    var picked by remember { mutableStateOf<Set<String>?>(null) }
+    var quote by remember { mutableStateOf(e) }
+    LaunchedEffect(Unit) {
+        coins = withContext(Dispatchers.IO) { Ark.arkCoins() }
+        picked = coins.map { it.id }.toSet()
+    }
+    val sel = picked
+    LaunchedEffect(sel) {
+        if (sel != null && coins.isNotEmpty() && sel.size != coins.size) {
+            quote = withContext(Dispatchers.IO) {
+                if (sel.isEmpty()) Ark.Estimate(0, 0, 0, false, "", "Tick at least one coin.")
+                else Ark.estimateRenewCoins(sel.toList()) ?: Ark.Estimate(0, 0, 0, false, "", "Could not calculate the cost.")
+            }
+        } else if (sel != null && sel.size == coins.size) quote = e
+    }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Renew your Ark coins?") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Renewing takes your coins into the next round: they get a new expiry, about " +
                     "30 days from now, and are joined into one coin, which makes later payments " +
                     "cheaper. The wallet also renews by itself before coins expire, so you only " +
                     "need this to join coins or to renew early.", style = MaterialTheme.typography.bodySmall)
-                if (e.problem != null) Text(e.problem, style = MaterialTheme.typography.bodySmall, color = Warn)
-                else CostBreakdown(Ark.Estimate(e.amount, e.fee, e.total, true, e.note),
+                if (coins.size > 1 && sel != null) CoinPicker(coins, sel, accent) { id ->
+                    picked = if (id in sel) sel - id else sel + id
+                }
+                if (quote.problem != null) Text(quote.problem!!, style = MaterialTheme.typography.bodySmall, color = Warn)
+                else CostBreakdown(Ark.Estimate(quote.amount, quote.fee, quote.total, true, quote.note),
                     "Your coins after", "Renewed now", accent)
             }
         },
         confirmButton = {
-            if (e.problem == null) TextButton(onClick = onConfirm) { Text("RENEW", color = accent) }
+            if (quote.problem == null) TextButton(onClick = {
+                val all = sel == null || sel.size == coins.size
+                onConfirm(if (all) null else sel.toList())
+            }) { Text("RENEW", color = accent) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("CANCEL", color = TextSoft) } },
         containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,

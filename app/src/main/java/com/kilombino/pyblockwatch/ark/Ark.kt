@@ -438,6 +438,71 @@ object Ark {
         return (moves + deposits).sortedByDescending { it.time }
     }
 
+    // ---------------------------------------------------------------- coin control
+
+    /** One coin: an on-chain deposit output ("txid:vout") or an Ark coin (VTXO id). */
+    data class Coin(val id: String, val amount: Long, val note: String)
+
+    fun depositCoins(): List<Coin> = runCatching {
+        val arr = JSONArray(call("GET", "/onchain/utxos"))
+        (0 until arr.length()).map { arr.getJSONObject(it) }.map { u ->
+            val h = u.optInt("confirmation_height", -1)
+            Coin(u.getString("outpoint"), u.optLong("amount_sat"), if (h > 0) "block $h" else "unconfirmed")
+        }.sortedByDescending { it.amount }
+    }.getOrDefault(emptyList())
+
+    fun arkCoins(): List<Coin> = runCatching {
+        val tip = JSONObject(call("GET", "/bitcoin/tip")).optInt("tip_height", -1)
+        val arr = JSONArray(call("GET", "/wallet/vtxos"))
+        (0 until arr.length()).map { arr.getJSONObject(it) }
+            .filter { it.optJSONObject("state")?.optString("type") == "spendable" }
+            .map { v ->
+                val left = v.optInt("expiry_height") - tip
+                Coin(v.getString("id"), v.optLong("amount_sat"),
+                    if (tip > 0) "expires in $left blocks (≈ ${String.format(java.util.Locale.US, "%.1f", left * 10 / 1440.0)} d)" else "")
+            }.sortedByDescending { it.amount }
+    }.getOrDefault(emptyList())
+
+    private fun ids(a: List<String>) = JSONArray().apply { a.forEach { put(it) } }
+
+    /** Deposit send from exactly [coins]: [sats] to [dest], or all of them with no amount. */
+    fun estimateDepositCoins(dest: String, sats: Long?, coins: List<String>): Estimate? = runCatching {
+        val req = JSONObject().put("destination", dest.trim()).put("outpoints", ids(coins))
+        if (sats != null) req.put("amount_sat", sats)
+        val r = JSONObject(call("POST", "/onchain/send-selected/estimate", req))
+        val amount = r.optLong("amount_sat"); val fee = r.optLong("fee_sat"); val change = r.optLong("change_sat")
+        Estimate(amount, fee, amount + fee, true,
+            "From ${coins.size} chosen coin" + (if (coins.size == 1) "" else "s") + "; network fee only" +
+                (if (change > 0) "; ${change} sats of change back to the deposit." else "."))
+    }.getOrElse { e -> if (e is ArkError) Estimate(0, 0, 0, false, "", e.message) else null }
+
+    fun sendDepositCoins(dest: String, sats: Long?, coins: List<String>): String {
+        val req = JSONObject().put("destination", dest.trim()).put("outpoints", ids(coins))
+        if (sats != null) req.put("amount_sat", sats)
+        val r = JSONObject(call("POST", "/onchain/send-selected", req, 120_000))
+        return "Sent from the chosen coins: " + r.optString("txid").take(16) + "…"
+    }
+
+    /** Withdrawing chosen Ark coins whole to an XBT address. */
+    fun estimateWithdrawCoins(dest: String, coins: List<String>): Estimate? = runCatching {
+        val r = JSONObject(call("POST", "/fees/offboard", JSONObject().put("address", dest.trim()).put("vtxos", ids(coins))))
+        Estimate(r.optLong("net_amount_sat"), r.optLong("fee_sat"), r.optLong("gross_amount_sat"), true,
+            "${coins.size} chosen Ark coin" + (if (coins.size == 1) "" else "s") + " leave Ark whole in the next round.")
+    }.getOrElse { e -> if (e is ArkError) Estimate(0, 0, 0, false, "", e.message) else null }
+
+    fun withdrawCoins(dest: String, coins: List<String>): String {
+        call("POST", "/wallet/offboard/vtxos", JSONObject().put("address", dest.trim()).put("vtxos", ids(coins)), 180_000)
+        return "Withdrawal requested: the chosen coins leave Ark in the next round."
+    }
+
+    fun estimateRenewCoins(coins: List<String>): Estimate? = runCatching {
+        val r = JSONObject(call("POST", "/fees/refresh", JSONObject().put("vtxos", ids(coins))))
+        Estimate(r.optLong("net_amount_sat"), r.optLong("fee_sat"), r.optLong("gross_amount_sat"), true,
+            "${coins.size} coin" + (if (coins.size == 1) "" else "s") + " renewed into one")
+    }.getOrElse { e -> if (e is ArkError) Estimate(0, 0, 0, false, "", e.message) else null }
+
+    fun renewCoins(coins: List<String>) { call("POST", "/wallet/refresh/vtxos", JSONObject().put("vtxos", ids(coins)), 180_000) }
+
     // ---------------------------------------------------------------- emergency exit
 
     data class ExitState(val vtxo: String, val type: String, val claimableHeight: Int?, val tip: Int?)
