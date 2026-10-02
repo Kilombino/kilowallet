@@ -351,7 +351,16 @@ private fun ArkReceiveSheet(
             Spacer(Modifier.width(6.dp))
             ArkButton("⚡ INVOICE", false, accent, Modifier.width(130.dp)) {
                 val sats = amount.toLongOrNull() ?: return@ArkButton
-                run("Creating a Lightning invoice…" to { Ark.lightningInvoice(sats, null) }) { shown = "Lightning invoice ($sats sats)" to it }
+                run("Creating a Lightning invoice…" to {
+                    // The engine would make an invoice whose payment can never be claimed: the
+                    // payer's HTLC is refused and the payment fails. Refuse it here instead.
+                    val net = Ark.estimateLightningReceive(sats)?.amount
+                    require(net == null || net >= Ark.MIN_OUTPUT_SAT) {
+                        "An invoice of $sats sats leaves you ${net ?: 0} after the receive cost, below the " +
+                            "${Ark.MIN_OUTPUT_SAT}-sat minimum, so the payment would fail. Ask for at least about 5 500 sats."
+                    }
+                    Ark.lightningInvoice(sats, null)
+                }) { shown = "Lightning invoice ($sats sats)" to it }
             }
         }
         Text("Lightning: up to ${groupSats(Ark.MAX_LIGHTNING_SAT)} sats per payment. Deposits become Ark funds with MOVE INTO ARK (minimum ${groupSats(Ark.MIN_BOARD_SAT)} sats).",
@@ -365,6 +374,9 @@ private fun ArkReceiveSheet(
         lnEst?.let { e ->
             Spacer(Modifier.height(6.dp))
             CostBreakdown(Ark.Estimate(e.amount, e.fee, e.total, e.exact, e.note), "You receive", "Invoice amount", accent)
+            if (e.amount < Ark.MIN_OUTPUT_SAT) Text("Too small: after the receive cost you would get ${groupSats(e.amount)} " +
+                "sats, below the ${groupSats(Ark.MIN_OUTPUT_SAT)}-sat minimum, so the payer's payment would fail.",
+                style = MaterialTheme.typography.bodySmall, color = Bad)
         }
         shown?.let { (label, text) ->
             Spacer(Modifier.height(10.dp))
@@ -385,6 +397,7 @@ private fun ArkReceiveSheet(
                     "in the background. If the phone is off, the payer sees the payment fail and " +
                     "nothing is lost. Each payment pays the Lightning receive cost (about 4 100 sats: " +
                     "recovery reserve plus the server's fee). " +
+                    "Payments under about 5 500 sats fail: after the receive cost too little would be left. " +
                     "Save a backup file after creating it: the file brings this same offer back on a new " +
                     "phone; the words alone give you a new one. " +
                     "Type an amount first to fix it, or leave it empty so payers choose.",
