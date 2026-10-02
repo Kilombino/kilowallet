@@ -219,6 +219,8 @@ object Ark {
         val pendingExit: Long,
         val onchainConfirmed: Long,
         val onchainPending: Long,
+        /** Lightning payments received but not yet settled into Ark coins, and sends in flight. */
+        val lightningPending: Long = 0,
     ) {
         val arkTotal: Long get() = spendable + pendingBoard + pendingRound
     }
@@ -234,6 +236,7 @@ object Ark {
             pendingExit = a.optLong("pending_exit_sat"),
             onchainConfirmed = o?.optLong("confirmed_sat") ?: 0,
             onchainPending = (o?.optLong("trusted_pending_sat") ?: 0) + (o?.optLong("untrusted_pending_sat") ?: 0),
+            lightningPending = a.optLong("claimable_lightning_receive_sat") + a.optLong("pending_lightning_send_sat"),
         )
     }
 
@@ -357,6 +360,121 @@ object Ark {
         if (maxOne >= MIN_OUTPUT_SAT) " The most you can pay from one coin is $maxOne sats."
         else " To empty Ark, send to an XBT address (on-chain) instead."
     }.getOrDefault("")
+
+    // ---------------------------------------------------------------- deposit (on-chain)
+
+    /** A transaction of the on-chain deposit wallet; [height] is null while in the mempool. */
+    data class DepositTx(val txid: String, val change: Long, val fee: Long?, val height: Int?)
+
+    fun depositTxs(): List<DepositTx> = runCatching {
+        val arr = JSONArray(call("GET", "/onchain/transactions"))
+        (0 until arr.length()).map { arr.getJSONObject(it) }.map { t ->
+            DepositTx(t.getString("txid"), t.optLong("balance_change_sat"),
+                t.optLong("onchain_fee_sat", -1).takeIf { it >= 0 },
+                t.optJSONObject("confirmation")?.optInt("height"))
+        }.reversed()
+    }.getOrDefault(emptyList())
+
+    /**
+     * Sending straight from the deposit: plain on-chain XBT, no Ark reserves. The fee is an
+     * estimate from the current rate and the size of a transaction spending every deposit
+     * coin, which is what the wallet's coin selection does at worst.
+     */
+    fun estimateDepositSend(dest: String, sats: Long?): Estimate? = runCatching {
+        val d = dest.trim()
+        if (d.startsWith("ark1", ignoreCase = true) || d.startsWith("ln", ignoreCase = true)) {
+            return@runCatching Estimate(0, 0, 0, false, "",
+                "From the deposit you can only send to an XBT address. Choose ARK to pay an Ark address or Lightning.")
+        }
+        val b = balance()
+        val available = b.onchainConfirmed
+        val rate = JSONObject(call("GET", "/fees/onchain")).let { r ->
+            listOf("regular_sat_per_vb", "slow_sat_per_vb", "fast_sat_per_vb").firstNotNullOfOrNull { k -> r.optDouble(k).takeIf { !it.isNaN() && it > 0 } } ?: 1.0
+        }.coerceAtLeast(1.0)
+        val inputs = runCatching { JSONArray(call("GET", "/onchain/utxos")).length() }.getOrDefault(1).coerceAtLeast(1)
+        val outputs = if (sats == null) 1 else 2
+        val fee = kotlin.math.ceil(rate * (11 + 58 * inputs + 43 * outputs)).toLong()
+        val amount = sats ?: (available - fee)
+        val problem = when {
+            amount < 330 -> "Not enough confirmed in the deposit to send."
+            sats != null && sats + fee > available ->
+                "The deposit has $available sats confirmed; this needs ${sats + fee} with the fee."
+            else -> null
+        }
+        Estimate(amount, fee, amount + fee, false,
+            "Plain on-chain XBT from your deposit: only the network fee (about " +
+                String.format(java.util.Locale.US, "%.1f", rate) + " sat/vB), no Ark reserves.", problem)
+    }.getOrNull()
+
+    fun sendFromDeposit(dest: String, sats: Long?): String {
+        val d = dest.trim()
+        val r = if (sats == null) JSONObject(call("POST", "/onchain/drain", JSONObject().put("destination", d), 120_000))
+        else JSONObject(call("POST", "/onchain/send", JSONObject().put("destination", d).put("amount_sat", sats), 120_000))
+        return "Sent from the deposit: " + r.optString("txid").take(16) + "…"
+    }
+
+    /**
+     * Ark movements and the deposit's on-chain transactions in one list, newest first. A
+     * deposit transaction that funded a move into Ark is left out: the move already shows.
+     * On-chain entries have no clock time, only a block, so their time is estimated from it.
+     */
+    fun activity(): List<Movement> {
+        val moves = history()
+        val anchored = moves.mapNotNull { it.onchainTxid }.toSet()
+        val tip = runCatching { JSONObject(call("GET", "/bitcoin/tip")).optInt("tip_height", -1) }.getOrDefault(-1)
+        val now = System.currentTimeMillis()
+        val iso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+            .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+        val deposits = depositTxs().filter { it.txid !in anchored && it.change != 0L }.map { t ->
+            val ms = if (t.height == null || tip < 0) now else now - (tip - t.height).coerceAtLeast(0) * 600_000L
+            Movement(
+                id = "tx:" + t.txid,
+                status = if (t.height == null) "unconfirmed" else "confirmed",
+                kind = if (t.change > 0) "deposit received" else "sent from deposit",
+                amount = t.change, time = iso.format(java.util.Date(ms)),
+                fee = t.fee ?: 0, onchainTxid = t.txid,
+            )
+        }
+        return (moves + deposits).sortedByDescending { it.time }
+    }
+
+    // ---------------------------------------------------------------- emergency exit
+
+    data class ExitState(val vtxo: String, val type: String, val claimableHeight: Int?, val tip: Int?)
+
+    fun exits(): List<ExitState> = runCatching {
+        val arr = JSONArray(call("GET", "/exits/status/all"))
+        (0 until arr.length()).map { arr.getJSONObject(it) }.map { e ->
+            val st = e.optJSONObject("state") ?: JSONObject()
+            ExitState(e.optString("vtxo_id"), st.optString("type"),
+                st.optInt("claimable_height").takeIf { it > 0 }, st.optInt("tip_height").takeIf { it > 0 })
+        }
+    }.getOrDefault(emptyList())
+
+    private fun sats(o: JSONObject, k: String): Long =
+        o.opt(k).let { v -> if (v is Number && v.toString().contains('.')) Math.round(v.toDouble() * 1e8) else (v as? Number)?.toLong() ?: 0L }
+
+    /** What leaving Ark without the server costs: broadcasting the exit chain, then the claim. */
+    fun estimateExit(): Estimate? = runCatching {
+        val b = balance()
+        if (b.spendable == 0L) return@runCatching Estimate(0, 0, 0, false, "", "You have no Ark coins to exit.")
+        val r = JSONObject(call("GET", "/exits/fee"))
+        val total = sats(r, "total_fee")
+        val broadcast = sats(r, "exit_broadcast_fee")
+        val deposit = b.onchainConfirmed
+        Estimate(b.spendable - total, total, b.spendable, false,
+            "broadcast $broadcast sats for " + r.optInt("txs_to_broadcast") + " transactions + claim " +
+                sats(r, "claim_fee") + " sats",
+            if (broadcast > deposit) "Broadcasting needs $broadcast sats confirmed in your on-chain deposit and " +
+                "it has $deposit. Send that much to your DEPOSIT address first." else null)
+    }.getOrElse { e -> if (e is ArkError) Estimate(0, 0, 0, false, "", e.message) else null }
+
+    fun startExitAll(): String = JSONObject(call("POST", "/exits/start/all", JSONObject(), 120_000)).optString("message", "Exit started.")
+
+    fun claimExits(dest: String): String {
+        call("POST", "/exits/claim/all", JSONObject().put("destination", dest.trim()), 120_000)
+        return "Claimed: the recovered XBT is on its way to the address."
+    }
 
     /** What arrives from a Lightning invoice of [sats] (receive fee + reserve deducted). */
     fun estimateLightningReceive(sats: Long): Estimate? =

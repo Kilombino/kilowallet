@@ -126,7 +126,7 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
         val b = withContext(Dispatchers.IO) { runCatching { Ark.balance() }.getOrNull() }
         balance = b
         expiry = withContext(Dispatchers.IO) { Ark.blocksToNearestExpiry() }
-        history = withContext(Dispatchers.IO) { runCatching { Ark.history() }.getOrDefault(emptyList()) }
+        history = withContext(Dispatchers.IO) { runCatching { Ark.activity() }.getOrDefault(emptyList()) }
         fingerprint = withContext(Dispatchers.IO) { Ark.stateFingerprint() }
     }
 
@@ -214,8 +214,12 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
                 "receive" -> ArkReceiveSheet(accent, busy) { action, done ->
                     run(action.first) { val r = withContext(Dispatchers.IO) { action.second() }; done(r); null }
                 }
-                "send" -> ArkSendSheet(accent) { dest, sats, approved ->
-                    run("Sending…") { withContext(Dispatchers.IO) { Ark.send(dest, sats, approved) }.ifBlank { "Sent." } }
+                "send" -> ArkSendSheet(accent, (balance?.onchainConfirmed ?: 0)) { dest, sats, approved, fromDeposit ->
+                    run("Sending…") {
+                        withContext(Dispatchers.IO) {
+                            if (fromDeposit) Ark.sendFromDeposit(dest, sats) else Ark.send(dest, sats, approved)
+                        }.ifBlank { "Sent." }
+                    }
                     sheet = null
                 }
                 "board" -> ArkBoardSheet(balance, accent) { sats ->
@@ -229,6 +233,7 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
             }
             if (history.isNotEmpty()) ArkHistory(history, accent, vm.explorerFor(com.kilombino.pyblockwatch.chain.Chain.BLAKE2B))
             ArkBackupPanel(fingerprint, accent) { message = it }
+            ArkEmergencyPanel(accent) { message = it }
             ArkWarnings()
         }
     }
@@ -249,17 +254,19 @@ private fun ArkButton(label: String, selected: Boolean, accent: Color, modifier:
 @Composable
 private fun ArkBalancePanel(b: Ark.Balance?, expiry: Int?, accent: Color, onFiat: (String) -> Unit) {
     Panel(accent = accent) {
-        SectionLabel("Your Ark balance", accent)
+        SectionLabel("Your Ark wallet", accent)
         Spacer(Modifier.height(6.dp))
+        val deposit = (b?.onchainConfirmed ?: 0) + (b?.onchainPending ?: 0)
+        val total = (b?.arkTotal ?: 0) + deposit + (b?.lightningPending ?: 0)
         Row(verticalAlignment = Alignment.Bottom) {
-            Text(groupSats(b?.spendable ?: 0), style = MaterialTheme.typography.displayLarge, color = accent)
+            Text(groupSats(total), style = MaterialTheme.typography.displayLarge, color = accent)
             Spacer(Modifier.width(8.dp))
             Text("sats", style = MaterialTheme.typography.titleLarge, color = accent.copy(alpha = 0.7f))
         }
         // The same USD/EUR choice as the XBT tab and the widget.
         val code = LocalFiat.current.code
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(fiatOf(b?.spendable ?: 0) ?: "≈ –", style = MaterialTheme.typography.headlineSmall, color = TextMain,
+            Text(fiatOf(total) ?: "≈ –", style = MaterialTheme.typography.headlineSmall, color = TextMain,
                  modifier = Modifier.weight(1f))
             FiatChip("USD", code == "USD", accent) { onFiat("USD") }
             Spacer(Modifier.width(6.dp))
@@ -270,9 +277,12 @@ private fun ArkBalancePanel(b: Ark.Balance?, expiry: Int?, accent: Color, onFiat
                                      style = MaterialTheme.typography.bodySmall, color = Warn)
         if (b.pendingRound > 0) Text("in the next round: ${groupSats(b.pendingRound)} sats",
                                      style = MaterialTheme.typography.bodySmall, color = Warn)
-        if (b.onchainConfirmed + b.onchainPending > 0) Text(
-            "deposit (on-chain, not in Ark yet): ${groupSats(b.onchainConfirmed + b.onchainPending)} sats",
-            style = MaterialTheme.typography.bodySmall, color = TextSoft)
+        // Where it is: Ark coins, the on-chain deposit, and Lightning still settling.
+        Spacer(Modifier.height(6.dp))
+        PocketRow("In Ark", b.spendable, "spendable", Good)
+        PocketRow("On-chain deposit", deposit,
+            if (b.onchainPending > 0) "${groupSats(b.onchainPending)} unconfirmed · not in Ark yet" else "not in Ark yet", TextSoft)
+        if (b.lightningPending > 0) PocketRow("Lightning", b.lightningPending, "settling", Warn)
         if (b.pendingExit > 0) Text("leaving Ark (emergency exit): ${groupSats(b.pendingExit)} sats",
                                     style = MaterialTheme.typography.bodySmall, color = Bad)
         expiry?.let {
@@ -285,6 +295,15 @@ private fun ArkBalancePanel(b: Ark.Balance?, expiry: Int?, accent: Color, onFiat
                 color = if (it < 1008) Bad else TextFaint,   // under ~7 days: red
             )
         }
+    }
+}
+
+@Composable
+private fun PocketRow(label: String, sats: Long, note: String, color: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = TextSoft, modifier = Modifier.width(130.dp))
+        Text(groupSats(sats) + " sats", style = MaterialTheme.typography.bodyMedium, color = color, modifier = Modifier.weight(1f))
+        Text(note, style = MaterialTheme.typography.bodySmall, color = TextFaint)
     }
 }
 
@@ -367,8 +386,10 @@ private fun ArkReceiveSheet(
 }
 
 @Composable
-private fun ArkSendSheet(accent: Color, onSend: (String, Long?, Long?) -> Unit) {
+private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, Long?, Boolean) -> Unit) {
     var dest by remember { mutableStateOf("") }
+    // Two pockets: Ark coins (Ark, Lightning or a withdrawal) or the plain on-chain deposit.
+    var fromDeposit by remember { mutableStateOf(false) }
     var amount by remember { mutableStateOf("") }
     var review by remember { mutableStateOf<Ark.Estimate?>(null) }
     var reviewing by remember { mutableStateOf(false) }
@@ -376,8 +397,17 @@ private fun ArkSendSheet(accent: Color, onSend: (String, Long?, Long?) -> Unit) 
     val clip = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     Panel(accent = accent) {
-        SectionLabel("Send from Ark", accent)
+        SectionLabel(if (fromDeposit) "Send from the on-chain deposit" else "Send from Ark", accent)
         Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("From", style = MaterialTheme.typography.bodySmall, color = TextSoft, modifier = Modifier.weight(1f))
+            FiatChip("ARK", !fromDeposit, accent) { fromDeposit = false; review = null }
+            Spacer(Modifier.width(6.dp))
+            FiatChip("DEPOSIT · " + groupSats(deposit), fromDeposit, accent) { fromDeposit = true; review = null }
+        }
+        if (fromDeposit) Text("Plain on-chain XBT to an XBT address. Only the network fee; no Ark reserves.",
+                              style = MaterialTheme.typography.bodySmall, color = TextFaint)
+        Spacer(Modifier.height(6.dp))
         OutlinedTextField(value = dest, onValueChange = { dest = it.trim(); review = null },
             label = { Text("Ark address, Lightning invoice or XBT address") }, modifier = Modifier.fillMaxWidth())
         TextButton(onClick = { clip.getText()?.text?.let { dest = it.trim(); review = null } }) { Text("PASTE", color = accent) }
@@ -393,7 +423,12 @@ private fun ArkSendSheet(accent: Color, onSend: (String, Long?, Long?) -> Unit) 
                 onClick = {
                     reviewing = true; reviewError = null
                     scope.launch {
-                        val e = withContext(Dispatchers.IO) { runCatching { Ark.estimateSend(dest, amount.toLongOrNull()) }.getOrNull() }
+                        val e = withContext(Dispatchers.IO) {
+                            runCatching {
+                                if (fromDeposit) Ark.estimateDepositSend(dest, amount.toLongOrNull())
+                                else Ark.estimateSend(dest, amount.toLongOrNull())
+                            }.getOrNull()
+                        }
                         reviewing = false
                         if (e == null) reviewError = "Could not estimate the cost. Check the destination and the amount."
                         review = e
@@ -408,7 +443,7 @@ private fun ArkSendSheet(accent: Color, onSend: (String, Long?, Long?) -> Unit) 
             Spacer(Modifier.height(8.dp))
             r.problem?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Warn) }
             if (r.problem == null) Button(
-                onClick = { onSend(dest, amount.toLongOrNull(), r.total) },
+                onClick = { onSend(dest, amount.toLongOrNull(), r.total, fromDeposit) },
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
                 shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
             ) { Text("CONFIRM AND SEND", style = MaterialTheme.typography.titleMedium) }
