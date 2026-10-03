@@ -45,6 +45,9 @@ data class SendDraft(
     // Set for a silent payment: the recipient's keys. Output 0's real scriptPubKey depends on
     // the input private keys, so it is only computed at signing time and replaces the placeholder.
     val silentRecipient: com.kilombino.pyblockwatch.crypto.SilentPayment.Recipient? = null,
+    /** Set when this draft replaces an unconfirmed send (RBF): its txid and the fee it paid. */
+    val replaces: String? = null,
+    val replacedFee: Long = 0,
 )
 
 /** One coin found on a private key being swept, with the address form it sits in. */
@@ -689,6 +692,72 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ------------------------------------------------------------------ hot wallet: speed up (RBF)
+
+    /**
+     * Draft a replacement of unconfirmed send [txid] that pays [ratePerVb]: the same inputs and
+     * recipients, the extra fee taken from the change. Full RBF is on by default in Knots and in
+     * Bitcoin Core 28+, so even a send that did not signal it can be replaced. The replacement
+     * must pay at least the old fee plus 1 sat/vB of its own size (and more if something already
+     * spends it). The review and signing are the normal send's.
+     */
+    fun prepareBump(txid: String, ratePerVb: Double) {
+        val chain = _state.value.selected
+        val cs = _state.value.chains[chain] ?: return
+        _state.update { it.copy(sendPhase = SendPhase.Preparing) }
+        viewModelScope.launch {
+            runCatching {
+                val endpoint = store.endpoint(chain)
+                val client = com.kilombino.pyblockwatch.chain.ElectrumClient(endpoint, store.pinnedFingerprint(endpoint))
+                val draft = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        client.connect()
+                        val tx = com.kilombino.pyblockwatch.crypto.TxParse.parse(client.transaction(txid))
+                        val byHash = cs.rows.associateBy { it.scriptHash }
+                        val inputs = tx.inputs.map { i ->
+                            val prev = com.kilombino.pyblockwatch.crypto.TxParse.parse(client.transaction(i.txid)).outputs[i.vout]
+                            val row = byHash[com.kilombino.pyblockwatch.crypto.Address.electrumScriptHash(prev.scriptPubKey)]
+                                ?: error("This transaction spends coins that are not in this wallet: it can't be replaced from here.")
+                            com.kilombino.pyblockwatch.data.Scanner.SpendableUtxo(i.txid, i.vout, prev.value, row.chainIndex, row.index, 0)
+                        }
+                        val outs = tx.outputs.map { com.kilombino.pyblockwatch.crypto.TxBuilder.Output(it.scriptPubKey, it.value) }
+                        fun ours(o: com.kilombino.pyblockwatch.crypto.TxBuilder.Output) =
+                            byHash[com.kilombino.pyblockwatch.crypto.Address.electrumScriptHash(o.scriptPubKey)]
+                        val changeIdx = outs.indices.filter { ours(outs[it])?.chainIndex == 1 }.maxByOrNull { outs[it].value }
+                            ?: error("This send has no change output to pay a higher fee from.")
+                        val oldFee = inputs.sumOf { it.value } - outs.sumOf { it.value }
+                        val newFee = maxOf(
+                            estimateFee(inputs.size, outs.map { it.scriptPubKey }, ratePerVb.coerceIn(0.1, 1000.0)),
+                            oldFee + estimateFee(inputs.size, outs.map { it.scriptPubKey }, 1.0) + 1,
+                        )
+                        val change = outs[changeIdx].value - (newFee - oldFee)
+                        require(change > DUST_SATS) {
+                            "The change (${outs[changeIdx].value} sats) can't cover the new fee of $newFee sats."
+                        }
+                        val newOuts = outs.mapIndexed { n, o -> if (n == changeIdx) o.copy(value = change) else o }
+                        val sent = newOuts.filterIndexed { n, _ -> n != changeIdx }
+                        val to = sent.firstOrNull()?.let { runCatching { scriptToAddress(it.scriptPubKey) }.getOrNull() } ?: "(replacement)"
+                        SendDraft(to, sent.sumOf { it.value }, newFee, change, inputs, newOuts, chain,
+                            replaces = txid, replacedFee = oldFee)
+                    } finally { client.close() }
+                }
+                _state.update { it.copy(sendPhase = SendPhase.Review(draft)) }
+            }.onFailure { e ->
+                _state.update { it.copy(sendPhase = SendPhase.Failed(e.message ?: "Could not prepare the replacement.")) }
+            }
+        }
+    }
+
+    /** A readable address for an output script (bc1q/bc1p/1/3), for the review screen. */
+    private fun scriptToAddress(spk: ByteArray): String = when {
+        spk.size == 22 && spk[0] == 0.toByte() -> com.kilombino.pyblockwatch.crypto.Bech32.encodeSegwit("bc", 0, spk.copyOfRange(2, 22))
+        spk.size == 34 && spk[0] == 0.toByte() -> com.kilombino.pyblockwatch.crypto.Bech32.encodeSegwit("bc", 0, spk.copyOfRange(2, 34))
+        spk.size == 34 && spk[0] == 0x51.toByte() -> com.kilombino.pyblockwatch.crypto.Bech32.encodeSegwit("bc", 1, spk.copyOfRange(2, 34))
+        spk.size == 25 -> com.kilombino.pyblockwatch.crypto.Base58.encodeChecked(byteArrayOf(0) + spk.copyOfRange(3, 23))
+        spk.size == 23 -> com.kilombino.pyblockwatch.crypto.Base58.encodeChecked(byteArrayOf(5) + spk.copyOfRange(2, 22))
+        else -> error("unknown script")
+    }
+
     // ------------------------------------------------------------------ hot wallet: send
 
     fun resetSend() = _state.update { it.copy(sendPhase = SendPhase.Editing, utxos = null, utxosChain = null) }
@@ -758,6 +827,10 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 require(amountSats > 0) { "Enter an amount." }
                 val rate = feeRatePerVb.coerceIn(0.1, 1000.0)
 
+                val changeScript = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    changeScriptPubKey(xpub, nextChangeIndex(cs.rows))
+                }
+                val withChange = listOf(toScript, changeScript)
                 val chosen: List<com.kilombino.pyblockwatch.data.Scanner.SpendableUtxo>
                 var sum: Long
                 if (selected.isNotEmpty()) {
@@ -774,14 +847,14 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     var s = 0L
                     for (u in utxos.sortedByDescending { it.value }) {
                         acc += u; s += u.value
-                        if (s >= amountSats + estimateFee(acc.size, 2, rate)) break
+                        if (s >= amountSats + estimateFee(acc.size, withChange, rate)) break
                     }
                     chosen = acc; sum = s
                 }
 
-                var fee = estimateFee(chosen.size, 2, rate)
+                var fee = estimateFee(chosen.size, withChange, rate)
                 // Sending everything (MAX) has no change output: size the fee for one output.
-                if (sum < amountSats + fee) fee = estimateFee(chosen.size, 1, rate)
+                if (sum < amountSats + fee) fee = estimateFee(chosen.size, listOf(toScript), rate)
                 require(sum >= amountSats + fee) {
                     if (selected.isNotEmpty()) "The chosen coins don't cover the amount plus fee."
                     else "Not enough funds for the amount plus fee."
@@ -792,9 +865,6 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     com.kilombino.pyblockwatch.crypto.TxBuilder.Output(toScript, amountSats),
                 )
                 if (change > DUST_SATS) {
-                    val changeScript = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                        changeScriptPubKey(xpub, nextChangeIndex(cs.rows))
-                    }
                     outputs += com.kilombino.pyblockwatch.crypto.TxBuilder.Output(changeScript, change)
                 } else {
                     fee = sum - amountSats // dust change folded into the fee
@@ -813,7 +883,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun maxSendable(feeRatePerVb: Double, selected: List<com.kilombino.pyblockwatch.data.Scanner.SpendableUtxo>): Long {
         val u = if (selected.isNotEmpty()) selected else _state.value.utxos ?: emptyList()
         if (u.isEmpty()) return 0
-        val fee = estimateFee(u.size, 1, feeRatePerVb.coerceIn(0.1, 1000.0))
+        // A P2TR output (the largest common one) so MAX never undershoots the rate for any address.
+        val fee = estimateFee(u.size, listOf(ByteArray(34)), feeRatePerVb.coerceIn(0.1, 1000.0))
         return (u.sumOf { it.value } - fee).coerceAtLeast(0)
     }
 
@@ -891,8 +962,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     val inputs = draft.inputs.map { u ->
                         val node = com.kilombino.pyblockwatch.crypto.Bip32Priv
                             .derivePath(master, "m/$purpose'/0'/0'/${u.chainIndex}/${u.index}")
+                        // 0xfffffffd signals replace-by-fee (BIP-125), so a stuck send can be bumped.
                         com.kilombino.pyblockwatch.crypto.TxBuilder.Input(
-                            u.txid, u.vout, u.value, node.key, node.publicKey(),
+                            u.txid, u.vout, u.value, node.key, node.publicKey(), 0xfffffffdL,
                         )
                     }
                     // Silent payment: now that the input keys are known, compute the real Taproot
@@ -929,6 +1001,17 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     /** Roughly a P2WPKH transaction's vbytes → fee in sats, rounded up. */
     private fun estimateFee(nIn: Int, nOut: Int, ratePerVb: Double): Long {
         val vbytes = 11.0 + 68.0 * nIn + 31.0 * nOut // overhead + inputs + outputs (segwit)
+        return kotlin.math.ceil(vbytes * ratePerVb).toLong()
+    }
+
+    /**
+     * Fee for P2WPKH inputs and these exact outputs: each output is 8 + 1 + script bytes, so a
+     * bc1p (34-byte script) costs 43 vbytes, not the 31 of a bc1q. Sizing every output as bc1q
+     * made a 1 sat/vB send to a Taproot address go out at 0.92 sat/vB, below most nodes' relay
+     * minimum, and it never propagated.
+     */
+    private fun estimateFee(nIn: Int, outputScripts: List<ByteArray>, ratePerVb: Double): Long {
+        val vbytes = 10.5 + 68.0 * nIn + outputScripts.sumOf { 9.0 + it.size }
         return kotlin.math.ceil(vbytes * ratePerVb).toLong()
     }
 

@@ -306,7 +306,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
 
         ScanStatus(cs, accent, onRetry = { vm.scan(chain) })
 
-        if (cs.transactions.isNotEmpty()) MovementsCard(cs.transactions, accent, vm.explorerFor(chain))
+        if (cs.transactions.isNotEmpty()) MovementsCard(cs.transactions, accent, vm.explorerFor(chain), vm, state.isHot)
 
         if (cs.fingerprintChanged) {
             Panel(accent = Bad) {
@@ -679,10 +679,12 @@ private fun DerivationSelector(current: ScriptType?, accent: Color, onSelect: (S
 }
 
 @Composable
-private fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String) {
+private fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, vm: WalletViewModel, isHot: Boolean) {
     // Tapping a movement asks before leaving the app: opening it reveals the txid (and so
     // which addresses are yours) to whoever runs that explorer.
     var asking by remember { mutableStateOf<String?>(null) }
+    var bumping by remember { mutableStateOf<String?>(null) }
+    bumping?.let { txid -> BumpDialog(vm, txid, accent) { bumping = null; vm.resetSend() } }
     val uri = LocalUriHandler.current
     val site = explorer.removePrefix("https://").removePrefix("http://")
     asking?.let { txid ->
@@ -722,6 +724,9 @@ private fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String) {
                 if (t.pending) {
                     Text("in mempool · 0 conf",
                          style = MaterialTheme.typography.bodySmall, color = Warn)
+                    if (isHot) TextButton(onClick = { bumping = t.txid }) {
+                        Text("⚡ speed up", style = MaterialTheme.typography.bodySmall, color = accent)
+                    }
                 } else {
                     Text(
                         "${t.confirmations} conf" + if (t.confirmations >= 6) "  ✓" else "",
@@ -736,4 +741,60 @@ private fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String) {
                  style = MaterialTheme.typography.bodySmall, color = TextFaint)
         }
     }
+}
+
+/**
+ * Speed up an unconfirmed send by replacing it (RBF) with the same payment at a higher fee,
+ * paid from its change. Only sends from this wallet with a change output qualify; anything
+ * else explains why it can't be replaced.
+ */
+@Composable
+private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, onClose: () -> Unit) {
+    val state by vm.state.collectAsState()
+    val activity = LocalContext.current as androidx.fragment.app.FragmentActivity
+    var rate by remember { mutableStateOf("3") }
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Speed up ${txid.take(8)}…") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                when (val p = state.sendPhase) {
+                    is SendPhase.Review -> {
+                        val d = p.draft
+                        Text("Replaces the stuck send with the same payment and a higher fee, taken from your change.",
+                             style = MaterialTheme.typography.bodySmall)
+                        Text("To: ${shortAddress(d.toAddress)} · ${groupSats(d.amount)} sats", style = MaterialTheme.typography.bodySmall)
+                        Text("Fee: ${groupSats(d.replacedFee)} → ${groupSats(d.fee)} sats", style = MaterialTheme.typography.bodySmall, color = accent)
+                        Text("Change: ${groupSats(d.change)} sats", style = MaterialTheme.typography.bodySmall)
+                    }
+                    is SendPhase.Sent -> Text("Replacement sent ✓\n${p.txid}", style = MaterialTheme.typography.bodySmall, color = Good)
+                    SendPhase.Preparing, SendPhase.Broadcasting -> Text("working…", style = MaterialTheme.typography.bodySmall, color = accent)
+                    else -> {
+                        if (p is SendPhase.Failed) Text(p.message, style = MaterialTheme.typography.bodySmall, color = Bad)
+                        Text("New fee rate. It must beat the old fee by at least 1 sat/vB of the transaction's size; " +
+                            "most pools only mine from 1 sat/vB.", style = MaterialTheme.typography.bodySmall)
+                        OutlinedTextField(value = rate, onValueChange = { rate = it.filter { c -> c.isDigit() || c == '.' } },
+                            label = { Text("sat/vB", style = MaterialTheme.typography.bodySmall) }, singleLine = true)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            when (state.sendPhase) {
+                is SendPhase.Review -> TextButton(onClick = {
+                    runCatching { vm.seedDecryptCipher() }.onSuccess { cipher ->
+                        Biometric.authenticate(activity, "Speed up payment", "Unlock to sign the replacement", cipher,
+                            onSuccess = { authed -> vm.confirmSend(authed) }, onError = { })
+                    }
+                }) { Text("CONFIRM & SIGN", color = accent) }
+                is SendPhase.Sent -> TextButton(onClick = onClose) { Text("DONE", color = accent) }
+                SendPhase.Preparing, SendPhase.Broadcasting -> {}
+                else -> TextButton(onClick = { vm.prepareBump(txid, rate.toDoubleOrNull() ?: 3.0) }) {
+                    Text("REVIEW", color = accent)
+                }
+            }
+        },
+        dismissButton = { TextButton(onClick = onClose) { Text("CLOSE", color = TextSoft) } },
+        containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
+    )
 }
