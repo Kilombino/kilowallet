@@ -26,7 +26,11 @@ account. Apache-2.0, reproducible, and every line of cryptography is in this rep
   BLAKE2b (BIP-84/49/86 wallet and channel payment keys) are swept with the unified
   sighash, which the SHA-256 chain rejects, so the same node there is untouched.
   Cooperative channel closes it made on SHA-256 after the fork can be replayed on BLAKE2b
-  to free your share; nothing but a channel close is ever replayed.
+  to free your share; nothing but a channel close is ever replayed. Load the node's
+  channel.backup too and every channel is listed with its state on both chains, the
+  anchor outputs a peer's force close paid you are found, and your delayed output of a
+  force close you made is rebuilt from the seed and the backup and swept once its CSV
+  delay has passed.
 - **Optional BIP-39 passphrase.** When creating or restoring a wallet you can add a
   passphrase ("25th word"); leave it empty for none. The app shows the wallet's
   fingerprint, the same one Sparrow and SeedSigner show, so you can check you typed it

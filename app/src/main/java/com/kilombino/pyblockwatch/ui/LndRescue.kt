@@ -63,6 +63,15 @@ fun LndRescuePanel(vm: WalletViewModel, accent: Color) {
     var dest by remember { mutableStateOf(vm.defaultRescueAddress() ?: "") }
     var feeRate by remember { mutableStateOf("2") }
     var replay by remember { mutableStateOf(true) }
+    var backup by remember { mutableStateOf<ByteArray?>(null) }
+    var backupError by remember { mutableStateOf<String?>(null) }
+    val ctx = LocalContext.current
+    val pickBackup = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching { ctx.contentResolver.openInputStream(uri)!!.use { it.readBytes() } }
+            .onSuccess { backup = it; backupError = null }
+            .onFailure { backupError = it.message }
+    }
 
     Panel(accent = Warn) {
         SectionLabel("rescue XBT from a pre-fork LND seed", Warn)
@@ -82,6 +91,10 @@ fun LndRescuePanel(vm: WalletViewModel, accent: Color) {
                     SelectionContainer { Text(it, color = TextSoft, style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace) }
                 }
+                if (p.pendingSats > 0) Text(
+                    "${groupSats(p.pendingSats)} sats are in delayed channel outputs: run the rescue again in about " +
+                        "${p.pendingBlocks} blocks (≈ ${p.pendingBlocks * 10 / 60} h) to sweep them.",
+                    color = Warn, style = MaterialTheme.typography.bodySmall)
                 TextButton(onClick = { vm.resetRescue(); words = ""; passphrase = "" }) {
                     Text("done", color = accent, style = MaterialTheme.typography.bodySmall)
                 }
@@ -94,13 +107,39 @@ fun LndRescuePanel(vm: WalletViewModel, accent: Color) {
                 Text("On the BLAKE2b chain", color = TextMain, style = MaterialTheme.typography.bodyMedium)
                 if (r.coins.isEmpty()) Text("no coins", color = TextFaint, style = MaterialTheme.typography.bodySmall)
                 r.coins.forEach { c ->
-                    RowLine2("${c.key.type.label} · ${shortAddress(c.key.address)}" + (if (c.height <= 0) " · 0 conf" else ""),
-                        "${groupSats(c.value)} sats", accent)
+                    val wait = c.waitBlocks(r.tip)
+                    RowLine2("${c.key.label} · ${shortAddress(c.key.address)}" + (if (c.height <= 0) " · 0 conf" else "") +
+                        (if (wait > 0) " · spendable in $wait blocks" else ""),
+                        "${groupSats(c.value)} sats", if (wait > 0) Warn else accent)
+                }
+                if (r.channels.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("Channels in the backup (${r.channels.size})", color = TextMain, style = MaterialTheme.typography.bodyMedium)
+                    r.channels.forEach { s ->
+                        val (icon, what) = when (s.state) {
+                            com.kilombino.pyblockwatch.data.LndRescue.ChanState.OPEN_BOTH -> "🔒" to "open on both chains: locked on BLAKE2b"
+                            com.kilombino.pyblockwatch.data.LndRescue.ChanState.CLOSED_SHA_ONLY ->
+                                (if (s.forced == true) "⚠️" to "force-closed on SHA-256: replayable" else "✅" to "closed on SHA-256: replayable")
+                            com.kilombino.pyblockwatch.data.LndRescue.ChanState.CLOSED_XBT ->
+                                "✔️" to (if (s.forced == true) "force-closed on BLAKE2b" else "closed on BLAKE2b")
+                            com.kilombino.pyblockwatch.data.LndRescue.ChanState.TAPROOT_UNCHECKED -> "·" to "taproot channel: not checked"
+                            else -> "?" to "funding output not found on BLAKE2b"
+                        }
+                        Text("$icon ${s.channel.shortChannelId} · ${groupSats(s.channel.capacity)} sats · peer ${s.channel.remoteNode.take(10)}…",
+                             color = TextSoft, style = MaterialTheme.typography.bodySmall)
+                        Text("    $what", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
                 if (r.replays.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
                     Text("Channel closes made on SHA-256 after the fork", color = TextMain, style = MaterialTheme.typography.bodyMedium)
-                    r.replays.forEach { rp -> RowLine2("close ${rp.txid.take(10)}…", "${groupSats(rp.toUsSats)} sats", accent) }
+                    r.replays.forEach { rp ->
+                        RowLine2((if (rp.forced) "force close " else "close ") + "${rp.txid.take(10)}…", "${groupSats(rp.toUsSats)} sats", accent)
+                        val delayed = rp.outputsToUs.filter { it.key.csv > 1 }.sumOf { it.value }
+                        if (delayed > 0) Text("    ${groupSats(delayed)} of it is delayed: sweep it with a second run once " +
+                            "the replayed close has ${rp.outputsToUs.maxOf { it.key.csv }} confirmations",
+                            color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.clickable { replay = !replay }) {
                         Text(if (replay) "☑" else "☐", color = accent, style = MaterialTheme.typography.titleMedium)
@@ -109,9 +148,9 @@ fun LndRescuePanel(vm: WalletViewModel, accent: Color) {
                             "where they are already closed)", color = TextSoft, style = MaterialTheme.typography.bodySmall)
                     }
                 }
-                if (r.forceCloses > 0) Text(
-                    "${r.forceCloses} force close(s) found on SHA-256: not replayed. Their delayed output needs channel " +
-                        "data the seed does not hold.", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                if (r.unmatchedForceCloses > 0) Text(
+                    "${r.unmatchedForceCloses} force close(s) on SHA-256 with no output found for you: load the node's " +
+                        "channel.backup to find the delayed one.", color = TextFaint, style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(value = dest, onValueChange = { dest = it.trim() },
                     label = { Text("send to (XBT address)", style = MaterialTheme.typography.bodySmall) },
@@ -119,7 +158,7 @@ fun LndRescuePanel(vm: WalletViewModel, accent: Color) {
                 OutlinedTextField(value = feeRate, onValueChange = { feeRate = it.filter { c -> c.isDigit() || c == '.' } },
                     label = { Text("fee, sat/vB", style = MaterialTheme.typography.bodySmall) },
                     textStyle = MaterialTheme.typography.bodySmall, singleLine = true, modifier = Modifier.fillMaxWidth())
-                val coins = r.coins + (if (replay) r.replays.flatMap { it.outputsToUs } else emptyList())
+                val coins = r.spendable() + (if (replay) r.replays.flatMap { rp -> rp.outputsToUs.filter { it.key.csv == 0 } } else emptyList())
                 val total = coins.sumOf { it.value }
                 val fee = if (coins.isEmpty()) null else vm.rescueFee(coins, dest, feeRate.toDoubleOrNull() ?: 2.0)
                 Spacer(Modifier.height(6.dp))
@@ -128,7 +167,7 @@ fun LndRescuePanel(vm: WalletViewModel, accent: Color) {
                 RowLine2("You receive", fee?.let { "${groupSats(total - it)} sats" } ?: "—", Good)
                 Spacer(Modifier.height(8.dp))
                 Button(onClick = { vm.rescueConfirm(dest, feeRate.toDoubleOrNull() ?: 2.0, replay) },
-                    enabled = coins.isNotEmpty() && fee != null && total - fee > 294,
+                    enabled = (coins.isNotEmpty() && fee != null && total - fee > 294) || (replay && r.replays.isNotEmpty()),
                     colors = ButtonDefaults.buttonColors(containerColor = Warn, contentColor = Ink),
                     shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
                 ) { Text("RESCUE TO THIS ADDRESS", style = MaterialTheme.typography.titleMedium) }
@@ -141,7 +180,8 @@ fun LndRescuePanel(vm: WalletViewModel, accent: Color) {
                     "Its coins on the BLAKE2b chain are swept with the unified signature, which the SHA-256 " +
                     "chain rejects, so the same LND node there keeps running untouched: no channel is closed there. " +
                     "Cooperative closes that wallet made on SHA-256 after the fork can be replayed on BLAKE2b to " +
-                    "free your share. Channels still open on both chains cannot be rescued without the peer.")
+                    "free your share. With the node's channel.backup the app also lists every channel and finds your " +
+                    "delayed output of a force close. Channels still open on both chains cannot be rescued without the peer.")
                 Spacer(Modifier.height(8.dp))
                 if (p is RescuePhase.Failed) Text(p.message, color = Bad, style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(value = words, onValueChange = { words = it },
@@ -152,13 +192,23 @@ fun LndRescuePanel(vm: WalletViewModel, accent: Color) {
                     textStyle = MaterialTheme.typography.bodySmall, singleLine = true,
                     visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth())
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { pickBackup.launch(arrayOf("*/*")) }) {
+                        Text(if (backup == null) "+ channel.backup (optional)" else "channel.backup loaded ✓",
+                             color = accent, style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (backup != null) TextButton(onClick = { backup = null }) {
+                        Text("remove", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                backupError?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall) }
                 OutlinedTextField(value = gap, onValueChange = { gap = it.filter(Char::isDigit) },
                     label = { Text("gap: unused addresses before stopping", style = MaterialTheme.typography.bodySmall) },
                     textStyle = MaterialTheme.typography.bodySmall, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
                 Button(
                     onClick = {
-                        vm.rescueScan(words.trim().lowercase().split(Regex("\\s+")), passphrase, gap.toIntOrNull() ?: 50)
+                        vm.rescueScan(words.trim().lowercase().split(Regex("\\s+")), passphrase, gap.toIntOrNull() ?: 50, backup)
                     },
                     enabled = words.isNotBlank(),
                     colors = ButtonDefaults.buttonColors(containerColor = Warn, contentColor = Ink),

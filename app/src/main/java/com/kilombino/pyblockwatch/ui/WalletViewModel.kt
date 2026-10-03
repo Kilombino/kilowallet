@@ -81,7 +81,11 @@ sealed interface RescuePhase {
     data object Idle : RescuePhase
     data class Busy(val message: String) : RescuePhase
     data class Review(val result: com.kilombino.pyblockwatch.data.LndRescue.Result) : RescuePhase
-    data class Done(val replayed: List<String>, val replayErrors: List<String>, val sweepTxid: String?, val swept: Long) : RescuePhase
+    data class Done(
+        val replayed: List<String>, val replayErrors: List<String>, val sweepTxid: String?, val swept: Long,
+        /** Delayed channel outputs not spendable yet: sats and the most blocks still to wait. */
+        val pendingSats: Long, val pendingBlocks: Int,
+    ) : RescuePhase
     data class Failed(val message: String) : RescuePhase
 }
 
@@ -587,14 +591,18 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Decipher the LND seed and look for its coins (BLAKE2b) and post-fork closes (SHA-256). */
-    fun rescueScan(words: List<String>, passphrase: String, gap: Int) {
+    fun rescueScan(words: List<String>, passphrase: String, gap: Int, channelBackup: ByteArray? = null) {
         _rescue.value = RescuePhase.Busy("deciphering the LND seed…")
         viewModelScope.launch {
             runCatching {
                 val seed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                     com.kilombino.pyblockwatch.crypto.Aezeed.decode(words, passphrase)
                 }
-                val r = com.kilombino.pyblockwatch.data.LndRescue(seed)
+                val channels = channelBackup?.let {
+                    _rescue.value = RescuePhase.Busy("opening the channel.backup…")
+                    com.kilombino.pyblockwatch.data.Scb.decode(it, com.kilombino.pyblockwatch.crypto.Bip32Priv.fromSeed(seed.entropy))
+                } ?: emptyList()
+                val r = com.kilombino.pyblockwatch.data.LndRescue(seed, channels)
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     val xbt = client(Chain.BLAKE2B)
                     val sha = client(Chain.SHA256)
@@ -613,7 +621,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         com.kilombino.pyblockwatch.crypto.TxBuilder.build(
             coins.map {
                 com.kilombino.pyblockwatch.crypto.TxBuilder.Input(
-                    it.txid, it.vout, it.value, it.key.privateKey, it.key.pubkey, 0xfffffffdL, it.key.type,
+                    it.txid, it.vout, it.value, it.key.privateKey, it.key.pubkey,
+                    if (it.key.csv > 0) it.key.csv.toLong() else 0xfffffffdL, it.key.type,
+                    witnessScript = it.key.witnessScript, witnessExtra = it.key.witnessExtra,
                 )
             },
             listOf(com.kilombino.pyblockwatch.crypto.TxBuilder.Output(toScript, amount)),
@@ -638,7 +648,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
             runCatching {
                 val toScript = com.kilombino.pyblockwatch.crypto.Address.decodeToScriptPubKey(toAddress.trim())
                 val ok = ArrayList<String>(); val errs = ArrayList<String>()
-                val coins = ArrayList(res.coins)
+                // Only what can be spent now: delayed channel outputs wait for their CSV.
+                val coins = ArrayList(res.spendable())
+                val pending = ArrayList(res.coins.filter { it.waitBlocks(res.tip) > 0 })
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     val xbt = client(Chain.BLAKE2B)
                     try {
@@ -646,10 +658,21 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                         if (replay) for (r in res.replays) {
                             _rescue.value = RescuePhase.Busy("replaying close ${r.txid.take(8)}… on BLAKE2b")
                             runCatching { xbt.broadcast(r.rawHex) }
-                                .onSuccess { ok += r.txid; coins += r.outputsToUs }
+                                .onSuccess {
+                                    ok += r.txid
+                                    coins += r.outputsToUs.filter { it.key.csv == 0 }
+                                    pending += r.outputsToUs.filter { it.key.csv > 0 }
+                                }
                                 .onFailure { errs += "${r.txid.take(8)}…: ${it.message}" }
                         }
-                        require(coins.isNotEmpty()) { "Nothing to sweep." + if (errs.isNotEmpty()) " " + errs.joinToString("; ") else "" }
+                        if (coins.isEmpty()) {
+                            require(ok.isNotEmpty() || pending.isNotEmpty()) {
+                                "Nothing to sweep." + if (errs.isNotEmpty()) " " + errs.joinToString("; ") else ""
+                            }
+                            _rescue.value = RescuePhase.Done(ok, errs, null, 0,
+                                pending.sumOf { it.value }, pending.maxOfOrNull { it.waitBlocks(res.tip) } ?: 0)
+                            return@withContext
+                        }
                         _rescue.value = RescuePhase.Busy("signing and sending the sweep…")
                         val total = coins.sumOf { it.value }
                         val probe = buildRescue(coins, toScript, total)
@@ -657,7 +680,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                         require(total - fee > DUST_SATS) { "The coins found ($total sats) do not cover the fee ($fee sats)." }
                         val signed = buildRescue(coins, toScript, total - fee)
                         val txid = xbt.broadcast(signed.rawHex)
-                        _rescue.value = RescuePhase.Done(ok, errs, txid, total - fee)
+                        _rescue.value = RescuePhase.Done(ok, errs, txid, total - fee,
+                            pending.sumOf { it.value }, pending.maxOfOrNull { it.waitBlocks(res.tip) } ?: 0)
                     } finally { xbt.close() }
                 }
                 scan(Chain.BLAKE2B)

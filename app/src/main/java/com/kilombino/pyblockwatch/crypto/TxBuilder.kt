@@ -44,15 +44,25 @@ object TxBuilder {
         val pubkey: ByteArray,     // 33-byte compressed (65-byte uncompressed only for P2PKH)
         val sequence: Long = 0xffffffffL,
         val type: ScriptType = ScriptType.P2WPKH,
+        /**
+         * Set for a P2WSH output with a custom script (Lightning to_local or anchor to_remote):
+         * the input is then signed BIP-143 with this script as scriptCode, and its witness is the
+         * signature, [witnessExtra], then the script.
+         */
+        val witnessScript: ByteArray? = null,
+        val witnessExtra: List<ByteArray> = emptyList(),
     ) {
         init {
             require(pubkey.size == 33 || (pubkey.size == 65 && type == ScriptType.P2PKH)) {
                 "SegWit inputs need a compressed public key"
             }
         }
-        val isSegwit: Boolean get() = type != ScriptType.P2PKH
+        val isSegwit: Boolean get() = witnessScript != null || type != ScriptType.P2PKH
         /** The scriptPubKey of the output being spent. */
-        val spentScript: ByteArray get() = Address.scriptPubKey(pubkey, type)
+        val spentScript: ByteArray get() = witnessScript?.let { byteArrayOf(0x00, 0x20) + Hashes.sha256(it) }
+            ?: Address.scriptPubKey(pubkey, type)
+        /** The BIP-143 / unified scriptCode: the witness script, or the key's P2PKH script. */
+        val scriptCode: ByteArray get() = witnessScript ?: Address.scriptPubKey(pubkey, ScriptType.P2PKH)
     }
 
     data class Output(val scriptPubKey: ByteArray, val value: Long)
@@ -104,8 +114,8 @@ object TxBuilder {
         val hashOutputs = Hashes.doubleSha256(outs.toByteArray())
 
         val inp = inputs[index]
-        // scriptCode for P2WPKH is the P2PKH script of the same key hash.
-        val scriptCode = Address.scriptPubKey(inp.pubkey, ScriptType.P2PKH)
+        // scriptCode for P2WPKH is the P2PKH script of the same key hash; for P2WSH, the script.
+        val scriptCode = inp.scriptCode
 
         val pre = ByteArrayOutputStream()
         pre.write(u32le(version))
@@ -278,13 +288,18 @@ object TxBuilder {
         return unifiedMessage(
             version = version, locktime = locktime,
             hashType = SIGHASH_UNIFIED or SIGHASH_ALL,
-            scriptType = when (inputs[index].type) { ScriptType.P2PKH -> 0; ScriptType.P2TR -> 2; else -> 1 },
+            scriptType = when {
+                inputs[index].witnessScript != null -> 1
+                inputs[index].type == ScriptType.P2PKH -> 0
+                inputs[index].type == ScriptType.P2TR -> 2
+                else -> 1
+            },
             prevouts = inputs.map { outpoint(it.txid, it.vout) },
             amounts = inputs.map { it.value },
             spentScripts = inputs.map { it.spentScript },
             sequences = inputs.map { it.sequence },
             outputs = outputs, index = index,
-            scriptCode = Address.scriptPubKey(inputs[index].pubkey, ScriptType.P2PKH),
+            scriptCode = inputs[index].scriptCode,
         )
     }
 
@@ -296,7 +311,7 @@ object TxBuilder {
         version: Long, inputs: List<Input>, outputs: List<Output>, index: Int, locktime: Long,
         unified: Boolean = false, grindLowR: Boolean = false, auxRand: ByteArray? = null,
     ): ByteArray {
-        if (inputs[index].type == ScriptType.P2TR) {
+        if (inputs[index].type == ScriptType.P2TR && inputs[index].witnessScript == null) {
             // Key path: SIGHASH_DEFAULT (64 bytes, no hash byte) or the unified opt-in 0x21.
             val h = if (unified) unifiedSighash(version, inputs, outputs, index, locktime)
                     else taprootSighash(version, inputs, outputs, index, locktime)
@@ -336,6 +351,7 @@ object TxBuilder {
         // P2WPKH proves everything in the witness; nested SegWit puts its redeem script in the
         // scriptSig; legacy P2PKH carries signature and key in the scriptSig and no witness.
         val scriptSigs = inputs.mapIndexed { i, inp ->
+            if (inp.witnessScript != null) return@mapIndexed ByteArray(0)
             when (inp.type) {
                 ScriptType.P2WPKH, ScriptType.P2TR -> ByteArray(0)
                 ScriptType.P2SH_P2WPKH -> push(Address.scriptPubKey(inp.pubkey, ScriptType.P2WPKH))
@@ -373,6 +389,13 @@ object TxBuilder {
         writeInputsOutputs(full)
         for (i in inputs.indices) {
             if (!inputs[i].isSegwit) { full.write(varint(0)); continue } // legacy: empty witness
+            inputs[i].witnessScript?.let { ws ->                          // P2WSH: sig, extras, script
+                full.write(varint(2L + inputs[i].witnessExtra.size))
+                full.write(varBytes(witnesses[i]))
+                inputs[i].witnessExtra.forEach { full.write(varBytes(it)) }
+                full.write(varBytes(ws))
+                continue
+            }
             if (inputs[i].type == ScriptType.P2TR) {                     // key path: the signature only
                 full.write(varint(1)); full.write(varBytes(witnesses[i])); continue
             }
