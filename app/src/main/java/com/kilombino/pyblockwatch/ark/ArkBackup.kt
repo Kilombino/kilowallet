@@ -19,6 +19,8 @@ import javax.crypto.spec.SecretKeySpec
  * recovery transactions. With it the coins can be withdrawn on-chain even if the Ark
  * server disappears; the words alone depend on the server to hand the coins back.
  *
+ * The JSON holds the words and, only when there is one, their BIP-39 passphrase.
+ *
  * Layout: "KARKBAK1", one flag byte (0 = plain, 1 = password), then for a password a
  * 16-byte salt and 12-byte IV, then gzip(JSON) — AES-256-GCM encrypted for a password,
  * with the key from PBKDF2-HMAC-SHA256.
@@ -29,6 +31,8 @@ object ArkBackup {
 
     class Snapshot(
         val words: List<String>,
+        /** The words' BIP-39 passphrase, "" for none. */
+        val passphrase: String = "",
         val config: String,
         val db: ByteArray,
         val dbWal: ByteArray?,
@@ -46,11 +50,14 @@ object ArkBackup {
     fun encode(s: Snapshot, password: String?): ByteArray {
         val json = JSONObject()
             .put("format", "kilombino-ark-backup")
-            .put("version", 1)
+            // Version 2 only when there is a passphrase: an older app, which would restore
+            // the words without it and open the wrong wallet, refuses the file instead.
+            .put("version", if (s.passphrase.isEmpty()) 1 else 2)
             .put("network", "mainnet")
             .put("created", s.created)
             .put("movements", s.movements)
             .put("mnemonic", s.words.joinToString(" "))
+            .apply { if (s.passphrase.isNotEmpty()) put("passphrase", s.passphrase) }
             .put("config", s.config)
             .put("db", Base64.encodeToString(s.db, Base64.NO_WRAP))
             .apply { s.dbWal?.let { put("db_wal", Base64.encodeToString(it, Base64.NO_WRAP)) } }
@@ -87,10 +94,11 @@ object ArkBackup {
         }
         val j = JSONObject(String(gunzip(payload), Charsets.UTF_8))
         require(j.optString("format") == "kilombino-ark-backup") { "Not a Kilombino Ark backup." }
-        require(j.optInt("version") == 1) { "This backup was made by a newer version of the app." }
+        require(j.optInt("version") in 1..2) { "This backup was made by a newer version of the app." }
         require(j.optString("network") == "mainnet") { "This backup is not for XBT mainnet." }
         return Snapshot(
             words = j.getString("mnemonic").trim().split(Regex("\\s+")),
+            passphrase = j.optString("passphrase", ""),
             config = j.getString("config"),
             db = Base64.decode(j.getString("db"), Base64.NO_WRAP),
             dbWal = j.optString("db_wal").takeIf { it.isNotEmpty() }?.let { Base64.decode(it, Base64.NO_WRAP) },

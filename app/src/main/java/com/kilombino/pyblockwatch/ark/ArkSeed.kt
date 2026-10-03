@@ -51,22 +51,33 @@ internal class ArkSeed(context: Context) {
             .apply { init(spec) }.generateKey()
     }
 
-    fun save(words: List<String>) {
+    /**
+     * Stores the words and their optional BIP-39 passphrase. The passphrase follows the
+     * words after a newline in the same ciphertext; words without one are stored as before.
+     */
+    fun save(words: List<String>, passphrase: String = "") {
+        require('\n' !in passphrase) { "the passphrase cannot contain a line break" }
+        val text = words.joinToString(" ") + if (passphrase.isEmpty()) "" else "\n$passphrase"
         val cipher = Cipher.getInstance(TRANSFORMATION).apply { init(Cipher.ENCRYPT_MODE, key()) }
-        val blob = cipher.doFinal(words.joinToString(" ").toByteArray(Charsets.UTF_8))
+        val blob = cipher.doFinal(text.toByteArray(Charsets.UTF_8))
         prefs.edit()
             .putString(KEY_BLOB, Base64.encodeToString(blob, Base64.NO_WRAP))
             .putString(KEY_IV, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
             .commit()
     }
 
-    fun load(): List<String>? {
+    private fun loadText(): String? {
         val blob = prefs.getString(KEY_BLOB, null) ?: return null
         val iv = Base64.decode(prefs.getString(KEY_IV, null) ?: return null, Base64.NO_WRAP)
         val cipher = Cipher.getInstance(TRANSFORMATION)
             .apply { init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, iv)) }
-        return String(cipher.doFinal(Base64.decode(blob, Base64.NO_WRAP)), Charsets.UTF_8).trim().split(" ")
+        return String(cipher.doFinal(Base64.decode(blob, Base64.NO_WRAP)), Charsets.UTF_8)
     }
+
+    fun load(): List<String>? = loadText()?.substringBefore('\n')?.trim()?.split(" ")
+
+    /** The BIP-39 passphrase, "" for none (and for wallets stored before passphrases). */
+    fun passphrase(): String = loadText()?.let { if ('\n' in it) it.substringAfter('\n') else "" } ?: ""
 
     fun clear() {
         prefs.edit().clear().commit()

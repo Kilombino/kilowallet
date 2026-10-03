@@ -70,14 +70,20 @@ object Bip39 {
         return bits.substring(entBits) == expected.toString()
     }
 
-    /** PBKDF2-HMAC-SHA512(mnemonic, "mnemonic"+passphrase, 2048, 512 bits) → 64-byte seed. */
+    /**
+     * PBKDF2-HMAC-SHA512(mnemonic, "mnemonic"+passphrase, 2048, 512 bits) → 64-byte seed.
+     * Both are NFKD-normalised as BIP-39 requires, so a passphrase with accents gives the
+     * same seed here as in any other wallet.
+     */
     fun toSeed(mnemonic: List<String>, passphrase: String = ""): ByteArray {
-        val phrase = mnemonic.joinToString(" ")
-        val salt = "mnemonic$passphrase".toByteArray(Charsets.UTF_8)
+        val phrase = nfkd(mnemonic.joinToString(" "))
+        val salt = "mnemonic${nfkd(passphrase)}".toByteArray(Charsets.UTF_8)
         val spec = PBEKeySpec(phrase.toCharArray(), salt, 2048, 512)
         val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA512")
         return factory.generateSecret(spec).encoded
     }
+
+    private fun nfkd(s: String) = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFKD)
 
     /**
      * SeedSigner-compatible dice entropy: SHA-256 over the roll string (each die a digit

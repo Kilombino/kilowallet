@@ -1,4 +1,6 @@
-# Kilombino Bitcoin-Blake2b wallet
+# Kilowallet
+
+Kilombino's Bitcoin BLAKE2b (XBT) wallet, formerly "Kilombino Bitcoin-Blake2b wallet".
 
 A Bitcoin wallet for Android for **both sides of the BLAKE2b fork at once**. Watch any
 extended *public* key across the BLAKE2b chain and the classic SHA-256 chain side by
@@ -15,6 +17,10 @@ account. Apache-2.0, reproducible, and every line of cryptography is in this rep
   wallet: its seed is generated on the phone — roll physical dice, SeedSigner-style, or
   use the secure RNG — and stored encrypted behind an Android Keystore key that needs
   your fingerprint or device PIN to sign. Native SegWit (bc1q) by default.
+- **Optional BIP-39 passphrase.** When creating or restoring a wallet you can add a
+  passphrase ("25th word"); leave it empty for none. The app shows the wallet's
+  fingerprint, the same one Sparrow and SeedSigner show, so you can check you typed it
+  right. Ark uses the same words and passphrase.
 - **Both chains, one key.** BLAKE2b and SHA-256 share a genesis block and Bitcoin's
   whole address scheme — the fork changed the proof-of-work, not key derivation — so
   the same xpub is meaningful on both, and the balances diverge at the fork.

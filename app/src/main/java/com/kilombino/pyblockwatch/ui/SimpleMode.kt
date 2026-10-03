@@ -79,7 +79,7 @@ fun ModeChooser(vm: WalletViewModel) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Spacer(Modifier.height(36.dp))
-        Text("KILOMBINO", style = MaterialTheme.typography.titleMedium, color = Purple)
+        Text("KILOWALLET", style = MaterialTheme.typography.titleMedium, color = Purple)
         Text("How do you want to use the wallet?",
              style = MaterialTheme.typography.headlineSmall, color = TextMain)
         Text("You can change this at any time from the top of the wallet.",
@@ -153,7 +153,7 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
         Spacer(Modifier.height(28.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("KILOMBINO", style = MaterialTheme.typography.titleMedium, color = accent)
+                Text("KILOWALLET", style = MaterialTheme.typography.titleMedium, color = accent)
                 Text("simple mode", style = MaterialTheme.typography.bodySmall, color = TextFaint)
             }
             TextButton(onClick = { vm.setUiMode("advanced") }) {

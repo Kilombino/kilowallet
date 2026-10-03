@@ -75,21 +75,39 @@ class SeedVault(context: Context) {
             .apply { init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv)) }
     }
 
-    /** Encrypt and persist the mnemonic with an authorised [encryptCipher]. */
-    fun store(cipher: Cipher, mnemonic: List<String>) {
-        val plaintext = mnemonic.joinToString(" ").toByteArray(Charsets.UTF_8)
-        val ciphertext = cipher.doFinal(plaintext)
+    /** The mnemonic and its optional BIP-39 passphrase ("" when there is none). */
+    class Secret(val words: List<String>, val passphrase: String)
+
+    /** True when the stored seed has a passphrase. Not secret: it only says one exists. */
+    fun hasPassphrase(): Boolean = prefs.getBoolean(KEY_HAS_PASSPHRASE, false)
+
+    /**
+     * Encrypt and persist the mnemonic, and its passphrase if any, with an authorised
+     * [encryptCipher]. The passphrase follows the words after a newline, inside the same
+     * ciphertext; a seed without one is stored exactly as before.
+     */
+    fun store(cipher: Cipher, mnemonic: List<String>, passphrase: String = "") {
+        require('\n' !in passphrase) { "the passphrase cannot contain a line break" }
+        val text = mnemonic.joinToString(" ") + if (passphrase.isEmpty()) "" else "\n$passphrase"
+        val ciphertext = cipher.doFinal(text.toByteArray(Charsets.UTF_8))
         prefs.edit()
             .putString(KEY_BLOB, Base64.encodeToString(ciphertext, Base64.NO_WRAP))
             .putString(KEY_IV, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+            .putBoolean(KEY_HAS_PASSPHRASE, passphrase.isNotEmpty())
             .apply()
     }
 
-    /** Recover the mnemonic with an authorised [decryptCipher]. */
-    fun reveal(cipher: Cipher): List<String> {
+    /** Recover the mnemonic and passphrase with an authorised [decryptCipher]. */
+    fun revealSecret(cipher: Cipher): Secret {
         val ciphertext = Base64.decode(prefs.getString(KEY_BLOB, null) ?: error("no seed stored"), Base64.NO_WRAP)
-        return String(cipher.doFinal(ciphertext), Charsets.UTF_8).trim().split(" ")
+        val text = String(cipher.doFinal(ciphertext), Charsets.UTF_8)
+        val words = text.substringBefore('\n').trim().split(" ")
+        val passphrase = if ('\n' in text) text.substringAfter('\n') else ""
+        return Secret(words, passphrase)
     }
+
+    /** Recover just the mnemonic with an authorised [decryptCipher]. */
+    fun reveal(cipher: Cipher): List<String> = revealSecret(cipher).words
 
     fun clear() {
         prefs.edit().clear().apply()
@@ -102,5 +120,6 @@ class SeedVault(context: Context) {
         const val TRANSFORMATION = "AES/GCM/NoPadding"
         const val KEY_BLOB = "seed_blob"
         const val KEY_IV = "seed_iv"
+        const val KEY_HAS_PASSPHRASE = "seed_has_passphrase"
     }
 }

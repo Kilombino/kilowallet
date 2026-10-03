@@ -42,12 +42,13 @@ object Ark {
         val seed = ArkSeed(ctx)
         seed.migrateFrom(datadir)
         val words = seed.load()?.joinToString(" ")
+        val passphrase = seed.passphrase()
         val dir = datadir.absolutePath
         var lastErr = "no port"
         repeat(5) {
             // A random high port; the token, not the port, is what keeps other apps out.
             val p = Random.nextInt(20_000, 60_000)
-            val r = ArkNative.start(dir, p, words)
+            val r = ArkNative.start(dir, p, words, passphrase)
             if (!r.startsWith("ERR:")) { port = p; token = r; return }
             lastErr = r.removePrefix("ERR:")
             if (!lastErr.contains("bind", ignoreCase = true)) throw IllegalStateException(lastErr)
@@ -111,14 +112,15 @@ object Ark {
      * wallet. Words that already held Ark coins get them back from the server's recovery
      * mailbox. The words go to the Keystore first and to the engine in memory only.
      */
-    fun createWallet(ctx: Context, words: List<String>) {
+    fun createWallet(ctx: Context, words: List<String>, passphrase: String = "") {
         val seed = ArkSeed(ctx)
-        seed.save(words)
+        seed.save(words, passphrase)
         val req = JSONObject()
             .put("ark_server", SERVER)
             .put("chain_source", JSONObject().put("esplora", JSONObject().put("url", ESPLORA)))
             .put("network", "mainnet")
             .put("mnemonic", words.joinToString(" "))
+            .apply { if (passphrase.isNotEmpty()) put("passphrase", passphrase) }
         try {
             call("POST", "/wallet/create", req, timeoutMs = 300_000)
         } catch (e: Exception) {
@@ -131,6 +133,9 @@ object Ark {
     fun words(ctx: Context): List<String>? = ArkSeed(ctx).load()
 
     fun hasWords(ctx: Context): Boolean = ArkSeed(ctx).has()
+
+    /** The Ark wallet's BIP-39 passphrase, "" for none. */
+    fun passphrase(ctx: Context): String = ArkSeed(ctx).passphrase()
 
     // ---------------------------------------------------------------- backup file
 
@@ -159,6 +164,7 @@ object Ark {
     @Synchronized
     fun snapshot(ctx: Context): ArkBackup.Snapshot {
         val words = ArkSeed(ctx).load() ?: error("There is no Ark wallet to back up.")
+        val passphrase = ArkSeed(ctx).passphrase()
         val movements = runCatching { history().size }.getOrDefault(0)
         lastSnapshotFingerprint = stateFingerprint()
         stop()
@@ -166,6 +172,7 @@ object Ark {
             val dir = datadir(ctx)
             return ArkBackup.Snapshot(
                 words = words,
+                passphrase = passphrase,
                 config = File(dir, "config.toml").readText(),
                 db = File(dir, "db.sqlite").readBytes(),
                 dbWal = File(dir, "db.sqlite-wal").takeIf { it.exists() && it.length() > 0 }?.readBytes(),
@@ -177,7 +184,7 @@ object Ark {
         }
     }
 
-    /** True when the Ark words are also the XBT spending wallet's words. */
+    /** True when the Ark words (and passphrase) are also the XBT spending wallet's. */
     fun wordsShared(ctx: Context): Boolean = prefs(ctx).getBoolean("words_shared", false)
 
     fun setWordsShared(ctx: Context, shared: Boolean) {
@@ -205,7 +212,7 @@ object Ark {
         File(dir, "config.toml").writeText(s.config)
         File(dir, "db.sqlite").writeBytes(s.db)
         s.dbWal?.let { File(dir, "db.sqlite-wal").writeBytes(it) }
-        ArkSeed(ctx).save(s.words)
+        ArkSeed(ctx).save(s.words, s.passphrase)
         ensureStarted(ctx)
         // The restored wallet is exactly what the file holds.
         markBackedUp(ctx, stateFingerprint())
@@ -316,23 +323,7 @@ object Ark {
                 feeQuery("/fees/lightning/pay?amount_sat=$amt")?.copy(
                     note = "Lightning: the server's fee plus the recovery reserve of the transfer.")
             }
-            d.startsWith("ark1", ignoreCase = true) -> {
-                val amt = sats ?: return null
-                // The engine's own planner (Paperclip 0.7.7): the coins it will use and their
-                // recovery reserves. Refused payments come back as an error, never a zero quote.
-                try {
-                    val r = JSONObject(call("POST", "/fees/ark/send",
-                        JSONObject().put("destination", d).put("amount_sat", amt)))
-                    val coins = r.optInt("input_count", 1)
-                    Estimate(r.optLong("recipient_amount_sat"), r.optLong("recovery_reserve_sat") + r.optLong("service_fee_sat"),
-                        r.optLong("total_debit_sat"), true,
-                        "Recovery reserve pre-paid for the emergency exit of " +
-                            (if (coins == 1) "the coin used" else "each of the $coins coins used") + "; not refunded." +
-                            (if (coins > 1) " RENEW first joins your coins into one and makes payments cheaper." else ""))
-                } catch (e: ArkError) {
-                    Estimate(amt, 0, amt, false, "", (e.message ?: "The engine refused this payment.") + arkPaymentHint())
-                }
-            }
+            d.startsWith("ark1", ignoreCase = true) -> estimateArkPayment(d, sats ?: return null, null)
             else -> {
                 val addr = java.net.URLEncoder.encode(d, "UTF-8")
                 if (sats == null) {
@@ -348,6 +339,37 @@ object Ark {
     }
 
     /**
+     * The engine's own planner (Paperclip 0.7.7): the coins it will use and their recovery
+     * reserves. With [coins] (coin control) it spends exactly those. Refused payments come
+     * back as an error, never a zero quote.
+     */
+    private fun estimateArkPayment(dest: String, amt: Long, coins: List<String>?): Estimate = try {
+        val req = JSONObject().put("destination", dest).put("amount_sat", amt)
+        if (coins != null) req.put("vtxos", ids(coins))
+        val r = JSONObject(call("POST", "/fees/ark/send", req))
+        val n = r.optInt("input_count", 1)
+        Estimate(r.optLong("recipient_amount_sat"), r.optLong("recovery_reserve_sat") + r.optLong("service_fee_sat"),
+            r.optLong("total_debit_sat"), true,
+            "Recovery reserve pre-paid for the emergency exit of " +
+                (if (n == 1) "the coin used" else "each of the $n coins used") + "; not refunded." +
+                (if (n > 1) " RENEW first joins your coins into one and makes payments cheaper." else ""))
+    } catch (e: ArkError) {
+        Estimate(amt, 0, amt, false, "", (e.message ?: "The engine refused this payment.") +
+            if (coins == null) arkPaymentHint() else "")
+    }
+
+    /** Ark payment spending exactly the chosen Ark [coins]: what it costs. */
+    fun estimateArkCoins(dest: String, sats: Long, coins: List<String>): Estimate =
+        estimateArkPayment(dest.trim(), sats, coins)
+
+    /** Pays an Ark address spending exactly the chosen Ark [coins], capped at [maxTotal]. */
+    fun sendArkCoins(dest: String, sats: Long, maxTotal: Long, coins: List<String>): String {
+        val req = JSONObject().put("destination", dest.trim()).put("amount_sat", sats)
+            .put("max_total_sat", maxTotal).put("vtxos", ids(coins))
+        return JSONObject(call("POST", "/wallet/send", req, 180_000)).optString("message")
+    }
+
+    /**
      * What to try when an Ark payment is refused: an Ark payment must cover 3 recovery
      * reserves per coin and leave change of at least [MIN_OUTPUT_SAT].
      */
@@ -357,7 +379,8 @@ object Ark {
             .filter { it.optJSONObject("state")?.optString("type") == "spendable" }
             .maxOfOrNull { it.optLong("amount_sat") } ?: 0L
         val maxOne = biggest - 3 * RESERVE_SAT - MIN_OUTPUT_SAT
-        if (maxOne >= MIN_OUTPUT_SAT) " The most you can pay from one coin is $maxOne sats."
+        if (maxOne >= MIN_OUTPUT_SAT) " The most you can pay from one coin is $maxOne sats: tick " +
+            "Choose coins and pick that coin, or RENEW to join your coins into one."
         else " To empty Ark, send to an XBT address (on-chain) instead."
     }.getOrDefault("")
 

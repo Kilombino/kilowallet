@@ -11,9 +11,10 @@ internal object ArkNative {
 
     /**
      * Starts the engine; returns the bearer token, or "ERR:<message>". [mnemonic] is null
-     * while there is no Ark wallet yet; the engine keeps it in memory only.
+     * while there is no Ark wallet yet; [passphrase] is its BIP-39 passphrase, "" for none.
+     * The engine keeps both in memory only.
      */
-    external fun start(datadir: String, port: Int, mnemonic: String?): String
+    external fun start(datadir: String, port: Int, mnemonic: String?, passphrase: String): String
 
     external fun stop()
 }

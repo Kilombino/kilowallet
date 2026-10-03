@@ -1,7 +1,7 @@
-sha256=1e6cb4466b2fe4b9c1796a82e6a6dc2eb0a7cb6a8e2d591e116f9a7d1cb1a445
+sha256=c3e4856f3a3879071edb125a300efe853dae5c701cbc75216f8887f55ccc206e
 repo=https://github.com/Kilombino/paperclip-wallet-app
 branch=kilombino-esplora
-commit=bd446d9
+commit=a7d0f82
 build=kilombino-ark/build-android.sh
 rustc=1.98.0
 cargo-ndk=4.1.2

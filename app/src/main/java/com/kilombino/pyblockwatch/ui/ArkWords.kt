@@ -67,16 +67,19 @@ fun WordsGrid(words: List<String>) {
     }
 }
 
-/** Unlocks the spending wallet and hands its words to [onWords]; null when there is none. */
+/**
+ * Unlocks the spending wallet and hands its words and passphrase to [onWords]; null when
+ * there is none.
+ */
 private fun withHotWords(
     activity: FragmentActivity, vm: WalletViewModel, why: String,
-    onWords: (List<String>?) -> Unit, onError: (String) -> Unit,
+    onWords: (com.kilombino.pyblockwatch.data.SeedVault.Secret?) -> Unit, onError: (String) -> Unit,
 ) {
     if (!vm.hasSeed()) { onWords(null); return }
     runCatching { vm.seedDecryptCipher() }
         .onSuccess { cipher ->
             Biometric.authenticate(activity, "Unlock your wallet", why, cipher,
-                onSuccess = { authed -> runCatching { vm.revealSeed(authed) }.onSuccess(onWords).onFailure { onError(it.message ?: "$it") } },
+                onSuccess = { authed -> runCatching { vm.revealSecret(authed) }.onSuccess(onWords).onFailure { onError(it.message ?: "$it") } },
                 onError = onError)
         }
         .onFailure { onError(it.message ?: "$it") }
@@ -94,18 +97,19 @@ fun ArkActivate(vm: WalletViewModel, accent: Color, onReady: (newWords: List<Str
     var error by remember { mutableStateOf<String?>(null) }
     var mode by remember { mutableStateOf("activate") }      // activate | words
     var phrase by remember { mutableStateOf("") }
+    var passphrase by remember { mutableStateOf("") }
     var fileBytes by remember { mutableStateOf<ByteArray?>(null) }
     var password by remember { mutableStateOf("") }
     // Restoring something whose words differ from the spending wallet's asks first.
     var mismatch by remember { mutableStateOf<(() -> Unit)?>(null) }
     val hot = vm.hasSeed()
 
-    fun create(words: List<String>, shared: Boolean, isNew: Boolean) {
+    fun create(words: List<String>, passphrase: String, shared: Boolean, isNew: Boolean) {
         scope.launch {
             busy = if (isNew) "Creating your Ark wallet…" else "Restoring your Ark wallet… (this can take a minute)"
             error = null
             try {
-                withContext(Dispatchers.IO) { Ark.createWallet(app, words) }
+                withContext(Dispatchers.IO) { Ark.createWallet(app, words, passphrase) }
                 Ark.setWordsShared(app, shared)
                 onReady(if (isNew && !shared) words else null)
             } catch (e: Exception) { error = e.message ?: e.toString() }
@@ -125,13 +129,16 @@ fun ArkActivate(vm: WalletViewModel, accent: Color, onReady: (newWords: List<Str
         }
     }
 
-    /** Runs [go] with whether [words] match the spending wallet; asks first when they do not. */
-    fun checkAgainstHot(words: List<String>, go: (shared: Boolean) -> Unit) {
+    /**
+     * Runs [go] with whether [words] and [passphrase] match the spending wallet's; asks
+     * first when they do not.
+     */
+    fun checkAgainstHot(words: List<String>, passphrase: String, go: (shared: Boolean) -> Unit) {
         withHotWords(activity, vm, "Compare with your XBT wallet's words",
-            onWords = { hotWords ->
+            onWords = { hot ->
                 when {
-                    hotWords == null -> go(false)
-                    hotWords == words -> go(true)
+                    hot == null -> go(false)
+                    hot.words == words && hot.passphrase == passphrase -> go(true)
                     else -> mismatch = { go(false) }
                 }
             },
@@ -147,7 +154,7 @@ fun ArkActivate(vm: WalletViewModel, accent: Color, onReady: (newWords: List<Str
                     .onSuccess { enc ->
                         if (enc) { fileBytes = b; password = "" }
                         else runCatching { ArkBackup.decode(b, null) }
-                            .onSuccess { s -> checkAgainstHot(s.words) { shared -> restoreFile(s, shared) } }
+                            .onSuccess { s -> checkAgainstHot(s.words, s.passphrase) { shared -> restoreFile(s, shared) } }
                             .onFailure { error = it.message }
                     }
                     .onFailure { error = it.message }
@@ -159,8 +166,8 @@ fun ArkActivate(vm: WalletViewModel, accent: Color, onReady: (newWords: List<Str
         AlertDialog(
             onDismissRequest = { mismatch = null },
             title = { Text("Different words") },
-            text = { Text("These Ark words are not the words of your XBT spending wallet. " +
-                "You will have two sets of words to keep safe. Continue?") },
+            text = { Text("These Ark words (or their passphrase) are not those of your XBT spending " +
+                "wallet. You will have two sets of words to keep safe. Continue?") },
             confirmButton = { TextButton(onClick = { mismatch = null; proceed() }) { Text("CONTINUE", color = accent) } },
             dismissButton = { TextButton(onClick = { mismatch = null }) { Text("CANCEL", color = TextSoft) } },
             containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
@@ -185,7 +192,7 @@ fun ArkActivate(vm: WalletViewModel, accent: Color, onReady: (newWords: List<Str
                         busy = "Opening the backup…"
                         val r = withContext(Dispatchers.Default) { runCatching { ArkBackup.decode(bytes, pw) } }
                         busy = null
-                        r.onSuccess { s -> checkAgainstHot(s.words) { shared -> restoreFile(s, shared) } }
+                        r.onSuccess { s -> checkAgainstHot(s.words, s.passphrase) { shared -> restoreFile(s, shared) } }
                             .onFailure { error = it.message }
                     }
                 }) { Text("OPEN", color = accent) }
@@ -215,11 +222,11 @@ fun ArkActivate(vm: WalletViewModel, accent: Color, onReady: (newWords: List<Str
                 onClick = {
                     if (hot) {
                         withHotWords(activity, vm, "Use the same words for Ark",
-                            onWords = { w -> if (w != null) create(w, shared = true, isNew = true) },
+                            onWords = { w -> if (w != null) create(w.words, w.passphrase, shared = true, isNew = true) },
                             onError = { error = it })
                     } else {
                         val words = Bip39.fromEntropy(ByteArray(16).also { SecureRandom().nextBytes(it) })
-                        create(words, shared = false, isNew = true)
+                        create(words, "", shared = false, isNew = true)
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
@@ -241,12 +248,14 @@ fun ArkActivate(vm: WalletViewModel, accent: Color, onReady: (newWords: List<Str
                 label = { Text("Ark words", style = MaterialTheme.typography.bodySmall) },
                 minLines = 3, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(8.dp))
+            PassphraseFields(phrase.trim().lowercase().split(Regex("\\s+")), passphrase, { passphrase = it }, null, null)
+            Spacer(Modifier.height(8.dp))
             Button(
                 enabled = busy == null,
                 onClick = {
                     val words = phrase.trim().lowercase().split(Regex("\\s+"))
                     if (!Bip39.isValid(words)) { error = "Those words are not a valid BIP-39 phrase." }
-                    else checkAgainstHot(words) { shared -> create(words, shared, isNew = false) }
+                    else checkAgainstHot(words, passphrase) { shared -> create(words, passphrase, shared, isNew = false) }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
                 shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
@@ -286,6 +295,7 @@ fun ArkBackupPanel(fingerprint: String?, accent: Color, onMessage: (String) -> U
     val scope = rememberCoroutineScope()
     var warnWords by remember { mutableStateOf(false) }
     var shown by remember { mutableStateOf<List<String>?>(null) }
+    var shownPassphrase by remember { mutableStateOf("") }
     var askPassword by remember { mutableStateOf(false) }
     var pw1 by remember { mutableStateOf("") }
     var pw2 by remember { mutableStateOf("") }
@@ -315,7 +325,7 @@ fun ArkBackupPanel(fingerprint: String?, accent: Color, onMessage: (String) -> U
                 TextButton(onClick = {
                     warnWords = false
                     Biometric.confirm(activity, "Show recovery words", "Confirm it is you",
-                        onSuccess = { shown = Ark.words(app) },
+                        onSuccess = { shown = Ark.words(app); shownPassphrase = Ark.passphrase(app) },
                         onError = { onMessage("Error: $it") })
                 }) { Text("SHOW", color = Bad) }
             },
@@ -392,7 +402,17 @@ fun ArkBackupPanel(fingerprint: String?, accent: Color, onMessage: (String) -> U
         }
         busy?.let { Spacer(Modifier.height(6.dp)); Text(it, style = MaterialTheme.typography.bodySmall, color = Warn) }
     }
-    shown?.let { WordsGrid(it) }
+    shown?.let {
+        WordsGrid(it)
+        if (shownPassphrase.isNotEmpty()) Panel(accent = Orange) {
+            SectionLabel("+ passphrase", Orange)
+            Spacer(Modifier.height(4.dp))
+            Text(shownPassphrase, style = MaterialTheme.typography.bodyMedium,
+                 fontFamily = FontFamily.Monospace, color = TextMain)
+            Spacer(Modifier.height(4.dp))
+            Explain("The words alone open a different, empty wallet: keep the passphrase too.")
+        }
+    }
 }
 
 @Composable

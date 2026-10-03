@@ -222,6 +222,8 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
                         withContext(Dispatchers.IO) {
                             when {
                                 coins.isNotEmpty() && fromDeposit -> Ark.sendDepositCoins(dest, sats, coins)
+                                coins.isNotEmpty() && dest.startsWith("ark1", true) && sats != null && approved != null ->
+                                    Ark.sendArkCoins(dest, sats, approved, coins)
                                 coins.isNotEmpty() -> Ark.withdrawCoins(dest, coins)
                                 fromDeposit -> Ark.sendFromDeposit(dest, sats)
                                 else -> Ark.send(dest, sats, approved)
@@ -436,7 +438,7 @@ private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, L
         }) {
             Text(if (choose) "☑" else "☐", color = accent, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.width(8.dp))
-            Text("Choose coins" + if (!fromDeposit) " (withdrawals to an XBT address)" else "",
+            Text("Choose coins" + if (!fromDeposit) " (Ark payments and withdrawals to an XBT address)" else "",
                  style = MaterialTheme.typography.bodySmall, color = TextSoft)
         }
         if (choose) CoinPicker(coins, picked, accent) { id -> picked = if (id in picked) picked - id else picked + id; review = null }
@@ -464,9 +466,12 @@ private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, L
                                 when {
                                     choose && picked.isEmpty() -> Ark.Estimate(0, 0, 0, false, "", "Tick the coins to spend.")
                                     choose && fromDeposit -> Ark.estimateDepositCoins(dest, sats, picked.toList())
-                                    choose && (dest.startsWith("ark1", true) || dest.startsWith("ln", true)) ->
-                                        Ark.Estimate(0, 0, 0, false, "", "Choosing Ark coins works for withdrawals to an XBT " +
-                                            "address. Ark and Lightning payments pick their coins themselves.")
+                                    choose && dest.startsWith("ark1", true) ->
+                                        if (sats == null) Ark.Estimate(0, 0, 0, false, "", "Enter the amount to pay.")
+                                        else Ark.estimateArkCoins(dest, sats, picked.toList())
+                                    choose && dest.startsWith("ln", true) ->
+                                        Ark.Estimate(0, 0, 0, false, "", "Choosing coins works for Ark payments and " +
+                                            "withdrawals to an XBT address. Lightning payments pick their coins themselves.")
                                     choose && sats != null -> Ark.Estimate(0, 0, 0, false, "",
                                         "Chosen Ark coins leave whole: leave the amount empty.")
                                     choose -> Ark.estimateWithdrawCoins(dest, picked.toList())

@@ -1,5 +1,5 @@
 repository: https://github.com/Kilombino/pyblock-watch
-name: Kilombino Bitcoin-Blake2b wallet
+name: Kilowallet
 images:
   - ./screenshots/1.png
   - ./screenshots/2.png

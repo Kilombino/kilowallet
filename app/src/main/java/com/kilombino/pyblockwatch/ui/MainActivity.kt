@@ -154,8 +154,8 @@ private fun OnboardingScreen(state: UiState, vm: WalletViewModel) {
                 Text("← back to wallet", color = TextSoft, style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text("Kilombino", style = MaterialTheme.typography.displayLarge, color = Purple)
-        Text("BITCOIN-BLAKE2b WALLET", style = MaterialTheme.typography.titleLarge, color = TextSoft)
+        Text("Kilowallet", style = MaterialTheme.typography.displayLarge, color = Purple)
+        Text("BITCOIN BLAKE2b (XBT) WALLET", style = MaterialTheme.typography.titleLarge, color = TextSoft)
         if (state.hasWallet) {
             Explain("Creating or importing a wallet here REPLACES the current one. Your coins are " +
                 "safe on-chain; make sure you still have this wallet's backup before switching.")
@@ -256,7 +256,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("KILOMBINO", style = MaterialTheme.typography.titleMedium, color = accent)
+                Text("KILOWALLET", style = MaterialTheme.typography.titleMedium, color = accent)
                 Text(
                     state.label.ifBlank { if (state.isHot) "spending wallet" else "watch-only wallet" },
                     style = MaterialTheme.typography.bodySmall, color = TextFaint,

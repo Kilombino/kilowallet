@@ -122,6 +122,12 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     /** The spending wallet's words, with a [seedDecryptCipher] the user has authorised. */
     fun revealSeed(decryptCipher: javax.crypto.Cipher): List<String> = seedVault.reveal(decryptCipher)
 
+    /** The spending wallet's words and passphrase, with an authorised [decryptCipher]. */
+    fun revealSecret(decryptCipher: javax.crypto.Cipher) = seedVault.revealSecret(decryptCipher)
+
+    /** True when the spending wallet's seed has a BIP-39 passphrase. */
+    fun hasPassphrase(): Boolean = seedVault.hasPassphrase()
+
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
@@ -397,19 +403,23 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
      * behind the just-authorised [encryptCipher], derive the account zpub, and hand that to
      * the same scanner a watch-only xpub uses. Native SegWit (BIP-84) by default.
      */
-    fun createHotWallet(mnemonic: List<String>, encryptCipher: javax.crypto.Cipher, onError: (String) -> Unit) {
+    fun createHotWallet(
+        mnemonic: List<String>, passphrase: String, encryptCipher: javax.crypto.Cipher, onError: (String) -> Unit,
+    ) {
         viewModelScope.launch {
             runCatching {
-                seedVault.store(encryptCipher, mnemonic)
+                seedVault.store(encryptCipher, mnemonic, passphrase)
                 // Remember whether this spending wallet and the Ark wallet share their words.
                 runCatching {
                     val ark = com.kilombino.pyblockwatch.ark.Ark
                     val ctx = getApplication<Application>()
-                    if (ark.hasWords(ctx)) ark.setWordsShared(ctx, ark.words(ctx) == mnemonic)
+                    if (ark.hasWords(ctx)) ark.setWordsShared(
+                        ctx, ark.words(ctx) == mnemonic && ark.passphrase(ctx) == passphrase,
+                    )
                 }
                 val zpub = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                     val master = com.kilombino.pyblockwatch.crypto.Bip32Priv
-                        .fromSeed(com.kilombino.pyblockwatch.crypto.Bip39.toSeed(mnemonic))
+                        .fromSeed(com.kilombino.pyblockwatch.crypto.Bip39.toSeed(mnemonic, passphrase))
                     com.kilombino.pyblockwatch.crypto.Bip32Priv.accountXpub(master, purpose = 84, account = 0)
                 }
                 store.xpub = zpub
@@ -624,9 +634,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
             runCatching {
                 val purpose = Scanner.purposeFor(store.scriptType)
                 val signed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                    val mnemonic = seedVault.reveal(decryptCipher)
+                    val secret = seedVault.revealSecret(decryptCipher)
                     val master = com.kilombino.pyblockwatch.crypto.Bip32Priv
-                        .fromSeed(com.kilombino.pyblockwatch.crypto.Bip39.toSeed(mnemonic))
+                        .fromSeed(com.kilombino.pyblockwatch.crypto.Bip39.toSeed(secret.words, secret.passphrase))
                     val inputs = draft.inputs.map { u ->
                         val node = com.kilombino.pyblockwatch.crypto.Bip32Priv
                             .derivePath(master, "m/$purpose'/0'/0'/${u.chainIndex}/${u.index}")

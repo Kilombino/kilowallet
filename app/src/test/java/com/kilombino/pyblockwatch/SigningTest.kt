@@ -62,6 +62,17 @@ class SigningTest {
     }
 
     @Test
+    fun `bip39 passphrase is NFKD-normalised`() {
+        val words = ("abandon ".repeat(11) + "about").split(" ")
+        // Python: pbkdf2_hmac("sha512", NFKD(mnemonic), "mnemonic" + NFKD("Señor Ñandú"), 2048)
+        val expected = "88436299a7da6e01b144614722444737020428bcfca1949d0a17a4cee1a3132a" +
+            "b54b507ea5d10ae182f6223083b56bb031896ffabd05abb8bbd6f99508ec083a"
+        assertEquals(expected, Bip39.toSeed(words, "Se\u00f1or \u00d1andu\u0301").toHex())
+        assertEquals(expected, Bip39.toSeed(words, "Sen\u0303or N\u0303and\u00fa").toHex())
+        assertTrue(Bip39.toSeed(words, "").toHex() != expected)
+    }
+
+    @Test
     fun `bip39 rejects a tampered checksum`() {
         val good = "abandon abandon abandon abandon abandon abandon " +
             "abandon abandon abandon abandon abandon about"

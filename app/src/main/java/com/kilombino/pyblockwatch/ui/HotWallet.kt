@@ -63,6 +63,8 @@ fun DiceScreen(vm: WalletViewModel, onBack: () -> Unit) {
     var strength by remember { mutableStateOf(256) }          // 24 words by default
     var rolls by remember { mutableStateOf("") }
     var mnemonic by remember { mutableStateOf<List<String>?>(null) }
+    // The Ark wallet's passphrase when its words are reused, so both stay one wallet.
+    var arkPassphrase by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     val needed = if (strength == 128) 50 else 99
 
@@ -99,8 +101,11 @@ fun DiceScreen(vm: WalletViewModel, onBack: () -> Unit) {
                         onClick = {
                             Biometric.confirm(activity, "Use your Ark words", "Confirm it is you",
                                 onSuccess = {
-                                    runCatching { com.kilombino.pyblockwatch.ark.Ark.words(arkCtx) }
-                                        .onSuccess { mnemonic = it }.onFailure { error = it.message }
+                                    runCatching {
+                                        val ark = com.kilombino.pyblockwatch.ark.Ark
+                                        ark.words(arkCtx) to ark.passphrase(arkCtx)
+                                    }.onSuccess { (w, p) -> arkPassphrase = p; mnemonic = w }
+                                        .onFailure { error = it.message }
                                 },
                                 onError = { error = it })
                         },
@@ -164,8 +169,9 @@ fun DiceScreen(vm: WalletViewModel, onBack: () -> Unit) {
         } else {
             SeedBackup(
                 words = words,
-                onDiscard = { mnemonic = null; rolls = "" },
-                onConfirm = {
+                initialPassphrase = arkPassphrase,
+                onDiscard = { mnemonic = null; rolls = ""; arkPassphrase = "" },
+                onConfirm = { passphrase ->
                     error = null
                     runCatching { vm.seedEncryptCipher() }
                         .onSuccess { cipher ->
@@ -173,7 +179,7 @@ fun DiceScreen(vm: WalletViewModel, onBack: () -> Unit) {
                                 activity, "Protect your seed",
                                 "Unlock to encrypt and store it",
                                 cipher,
-                                onSuccess = { authed -> vm.createHotWallet(words, authed) { error = it } },
+                                onSuccess = { authed -> vm.createHotWallet(words, passphrase, authed) { error = it } },
                                 onError = { error = it },
                             )
                         }
@@ -211,8 +217,80 @@ private fun DieButton(n: Int, enabled: Boolean, modifier: Modifier = Modifier, o
     }
 }
 
+/**
+ * The optional BIP-39 passphrase ("25th word"), asked twice when creating a wallet and once
+ * when restoring. Shows the master fingerprint of words + passphrase so the user can write
+ * it down and later check they typed the same passphrase: a different one opens a different,
+ * empty wallet without any error.
+ */
 @Composable
-private fun SeedBackup(words: List<String>, onDiscard: () -> Unit, onConfirm: () -> Unit) {
+fun PassphraseFields(
+    words: List<String>?, passphrase: String, onPassphrase: (String) -> Unit,
+    repeat: String?, onRepeat: ((String) -> Unit)?,
+) {
+    var visible by remember { mutableStateOf(false) }
+    Panel(accent = Orange) {
+        SectionLabel("Passphrase (optional)", Orange)
+        Spacer(Modifier.height(6.dp))
+        Explain("Leave it EMPTY for a wallet without a passphrase, the usual choice. With one, " +
+            "the words alone are not enough: the same words with a different passphrase open a " +
+            "different, empty wallet, and a forgotten passphrase cannot be recovered. Write it " +
+            "down apart from the words. Upper and lower case, spaces and accents all count.")
+        Spacer(Modifier.height(8.dp))
+        val transform = if (visible) androidx.compose.ui.text.input.VisualTransformation.None
+            else androidx.compose.ui.text.input.PasswordVisualTransformation()
+        OutlinedTextField(
+            value = passphrase, onValueChange = { onPassphrase(it.replace("\n", "")) },
+            label = { Text("passphrase (empty = none)", style = MaterialTheme.typography.bodySmall) },
+            textStyle = MaterialTheme.typography.bodyMedium, singleLine = true,
+            visualTransformation = transform,
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                keyboardType = androidx.compose.ui.text.input.KeyboardType.Password, autoCorrectEnabled = false),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (repeat != null && onRepeat != null && passphrase.isNotEmpty()) {
+            OutlinedTextField(
+                value = repeat, onValueChange = { onRepeat(it.replace("\n", "")) },
+                label = { Text("repeat passphrase", style = MaterialTheme.typography.bodySmall) },
+                textStyle = MaterialTheme.typography.bodyMedium, singleLine = true,
+                visualTransformation = transform, isError = repeat.isNotEmpty() && repeat != passphrase,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Password, autoCorrectEnabled = false),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(if (passphrase.isEmpty()) "No passphrase." else "${passphrase.length} characters",
+                 color = TextFaint, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+            if (passphrase.isNotEmpty()) TextButton(onClick = { visible = !visible }) {
+                Text(if (visible) "hide" else "show", color = Orange, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        if (words != null && Bip39.isValid(words)) {
+            var fp by remember { mutableStateOf<String?>(null) }
+            LaunchedEffect(words, passphrase) {
+                fp = null
+                kotlinx.coroutines.delay(300)
+                fp = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    com.kilombino.pyblockwatch.crypto.Bip32Priv.fromSeed(Bip39.toSeed(words, passphrase))
+                        .fingerprint().joinToString("") { "%02x".format(it) }
+                }
+            }
+            Text("Wallet fingerprint: ${fp ?: "…"}", color = TextSoft,
+                 style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+            Text("Write it down too: the same words and passphrase always give this fingerprint " +
+                "(Sparrow and SeedSigner show the same one).",
+                 color = TextFaint, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun SeedBackup(
+    words: List<String>, initialPassphrase: String, onDiscard: () -> Unit, onConfirm: (passphrase: String) -> Unit,
+) {
+    var passphrase by remember { mutableStateOf(initialPassphrase) }
+    var repeat by remember { mutableStateOf(initialPassphrase) }
     Panel(accent = Bad) {
         SectionLabel("Write these ${words.size} words down", Bad)
         Spacer(Modifier.height(6.dp))
@@ -240,11 +318,15 @@ private fun SeedBackup(words: List<String>, onDiscard: () -> Unit, onConfirm: ()
         }
     }
     Spacer(Modifier.height(12.dp))
+    PassphraseFields(words, passphrase, { passphrase = it }, repeat, { repeat = it })
+    Spacer(Modifier.height(12.dp))
     Button(
-        onClick = onConfirm,
+        onClick = { onConfirm(passphrase) },
+        enabled = passphrase.isEmpty() || repeat == passphrase,
         colors = ButtonDefaults.buttonColors(containerColor = Purple, contentColor = Ink),
         shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
-    ) { Text("I'VE WRITTEN IT DOWN — CREATE", style = MaterialTheme.typography.titleMedium) }
+    ) { Text(if (passphrase.isEmpty()) "I'VE WRITTEN IT DOWN — CREATE"
+             else "I'VE WRITTEN BOTH DOWN — CREATE", style = MaterialTheme.typography.titleMedium) }
     TextButton(onClick = onDiscard, modifier = Modifier.fillMaxWidth()) {
         Text("start over", color = TextFaint, style = MaterialTheme.typography.bodySmall)
     }
@@ -256,6 +338,7 @@ private fun SeedBackup(words: List<String>, onDiscard: () -> Unit, onConfirm: ()
 fun RestoreScreen(vm: WalletViewModel, onBack: () -> Unit) {
     val activity = LocalContext.current as FragmentActivity
     var phrase by remember { mutableStateOf("") }
+    var passphrase by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
 
     Column(
@@ -273,7 +356,8 @@ fun RestoreScreen(vm: WalletViewModel, onBack: () -> Unit) {
             SectionLabel("Enter your seed words")
             Spacer(Modifier.height(8.dp))
             Explain("Type your 12 or 24 BIP-39 words, separated by spaces. They are checked before " +
-                "anything is stored, and then encrypted behind your biometric.")
+                "anything is stored, and then encrypted behind your biometric. If the wallet had a " +
+                "passphrase, type it below exactly; if it had none, leave it empty.")
         }
         OutlinedTextField(
             value = phrase, onValueChange = { phrase = it; error = null },
@@ -281,6 +365,7 @@ fun RestoreScreen(vm: WalletViewModel, onBack: () -> Unit) {
             textStyle = MaterialTheme.typography.bodyMedium,
             minLines = 3, modifier = Modifier.fillMaxWidth(),
         )
+        PassphraseFields(phrase.trim().lowercase().split(Regex("\\s+")), passphrase, { passphrase = it }, null, null)
         error?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall) }
         Button(
             onClick = {
@@ -289,7 +374,7 @@ fun RestoreScreen(vm: WalletViewModel, onBack: () -> Unit) {
                 runCatching { vm.seedEncryptCipher() }.onSuccess { cipher ->
                     Biometric.authenticate(
                         activity, "Protect your seed", "Unlock to encrypt and store it", cipher,
-                        onSuccess = { authed -> vm.createHotWallet(words, authed) { error = it } },
+                        onSuccess = { authed -> vm.createHotWallet(words, passphrase, authed) { error = it } },
                         onError = { error = it },
                     )
                 }.onFailure { error = it.message }
