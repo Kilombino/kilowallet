@@ -44,7 +44,7 @@ python3 -m venv ~/pyblock-toolchain/venv && ~/pyblock-toolchain/venv/bin/pip ins
 ## 1. Clone
 
 ```bash
-git clone git@github.com:Kilombino/pyblock-watch.git && cd pyblock-watch
+git clone git@github.com:Kilombino/kilowallet.git && cd kilowallet
 ```
 
 ## 2. Run the tests
@@ -128,7 +128,7 @@ gh release create v0.1.0 ~/pyblock-watch-0.1.0.apk \
   --title "PyBLØCK Watch 0.1.0" --notes-file release-notes.md
 ```
 
-…or on the web at `https://github.com/Kilombino/pyblock-watch/releases/new`, choosing
+…or on the web at `https://github.com/Kilombino/kilowallet/releases/new`, choosing
 tag `v0.1.0` and attaching the APK.
 
 **Always publish both hashes in the release notes** — the signed APK's SHA-256 (what
@@ -159,7 +159,7 @@ For unattended releases later, sign with a NIP-46 bunker rather than putting an 
 in the environment:
 
 ```bash
-SIGN_WITH="bunker://..." zsp publish -r github.com/Kilombino/pyblock-watch
+SIGN_WITH="bunker://..." zsp publish -r github.com/Kilombino/kilowallet
 ```
 
 ## 9. Subsequent releases

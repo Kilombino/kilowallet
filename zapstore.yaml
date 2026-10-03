@@ -1,4 +1,4 @@
-repository: https://github.com/Kilombino/pyblock-watch
+repository: https://github.com/Kilombino/kilowallet
 name: Kilowallet
 summary: Bitcoin BLAKE2b (XBT) wallet with Ark, Lightning and on-device dice seeds
 images:

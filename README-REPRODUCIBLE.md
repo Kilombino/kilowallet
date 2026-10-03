@@ -129,7 +129,7 @@ signed file is the unsigned build plus only a signature block — no re-zipping 
 what lets a verifier's `apksigcopier copy` reproduce it byte for byte. The certificate is
 unchanged from 0.1.0 — the v3 lineage means the key is the same across versions.
 Distributed via
-[GitHub Releases](https://github.com/Kilombino/pyblock-watch/releases/tag/v0.12.0) and
+[GitHub Releases](https://github.com/Kilombino/kilowallet/releases/tag/v0.12.0) and
 Zapstore.
 
 ## 8. The Ark engine
