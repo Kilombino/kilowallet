@@ -37,6 +37,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.text.font.FontFamily
+import kotlinx.coroutines.launch
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -248,6 +251,22 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
     var showSend by remember { mutableStateOf(false) }
     var showReceive by remember { mutableStateOf(false) }
 
+    // Pull down to refresh the selected chain, as in simple mode.
+    var refreshing by remember { mutableStateOf(false) }
+    val pullScope = rememberCoroutineScope()
+    @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+        isRefreshing = refreshing,
+        onRefresh = {
+            pullScope.launch {
+                refreshing = true
+                vm.refresh(chain)
+                kotlinx.coroutines.delay(1_500)
+                refreshing = false
+            }
+        },
+        modifier = Modifier.fillMaxSize(),
+    ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -345,6 +364,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
             )
         }
         Spacer(Modifier.height(30.dp))
+    }
     }
 }
 
@@ -682,38 +702,24 @@ private fun DerivationSelector(current: ScriptType?, accent: Color, onSelect: (S
 private fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, vm: WalletViewModel, isHot: Boolean) {
     // Tapping a movement asks before leaving the app: opening it reveals the txid (and so
     // which addresses are yours) to whoever runs that explorer.
-    var asking by remember { mutableStateOf<String?>(null) }
+    var asking by remember { mutableStateOf<TxConf?>(null) }
     var bumping by remember { mutableStateOf<String?>(null) }
-    bumping?.let { txid -> BumpDialog(vm, txid, accent) { bumping = null; vm.resetSend() } }
-    val uri = LocalUriHandler.current
+    bumping?.let { txid -> BumpDialog(vm, txid, accent, explorer) { bumping = null; vm.resetSend() } }
     val site = explorer.removePrefix("https://").removePrefix("http://")
-    asking?.let { txid ->
-        AlertDialog(
-            onDismissRequest = { asking = null },
-            title = { Text("Open this movement?") },
-            text = {
-                Text("View transaction ${txid.take(10)}…${txid.takeLast(8)} on $site?\n\n" +
-                    "The site will see which transaction you look up.")
-            },
-            confirmButton = {
-                TextButton(onClick = { asking = null; runCatching { uri.openUri("$explorer/tx/$txid") } }) {
-                    Text("OPEN", color = accent)
-                }
-            },
-            dismissButton = { TextButton(onClick = { asking = null }) { Text("CANCEL", color = TextSoft) } },
-            containerColor = PanelBg,
-            titleContentColor = TextMain,
-            textContentColor = TextSoft,
-        )
+    asking?.let { t ->
+        TxDetailDialog(t.txid, accent, explorer,
+            status = if (t.pending) "in mempool · 0 confirmations" else "${t.confirmations} confirmations",
+            onSpeedUp = if (t.pending && isHot) ({ asking = null; bumping = t.txid }) else null,
+            onClose = { asking = null })
     }
     Panel(accent = accent) {
         SectionLabel("movements · confirmations", accent)
         Spacer(Modifier.height(8.dp))
-        Text("tap a movement to open it on $site", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+        Text("tap a movement for its details: copy the txid or open it on $site", style = MaterialTheme.typography.bodySmall, color = TextFaint)
         Spacer(Modifier.height(4.dp))
         txs.take(15).forEach { t ->
             Row(
-                Modifier.fillMaxWidth().clickable { asking = t.txid }.padding(vertical = 3.dp),
+                Modifier.fillMaxWidth().clickable { asking = t }.padding(vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -749,7 +755,12 @@ private fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, vm
  * else explains why it can't be replaced.
  */
 @Composable
-private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, onClose: () -> Unit) {
+private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, explorer: String, onClose: () -> Unit) {
+    val sent = (vm.state.collectAsState().value.sendPhase as? SendPhase.Sent)?.txid
+    if (sent != null) {
+        TxDetailDialog(sent, accent, explorer, status = "replacement sent ✓ · in mempool", onSpeedUp = null, onClose = onClose)
+        return
+    }
     val state by vm.state.collectAsState()
     val activity = LocalContext.current as androidx.fragment.app.FragmentActivity
     var rate by remember { mutableStateOf("3") }
@@ -795,6 +806,53 @@ private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, onClose
             }
         },
         dismissButton = { TextButton(onClick = onClose) { Text("CLOSE", color = TextSoft) } },
+        containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
+    )
+}
+
+/**
+ * A transaction's details: the full txid to copy with one tap, and opening it on the block
+ * explorer after a warning (the site learns which transaction, and so which addresses, you
+ * looked up).
+ */
+@Composable
+private fun TxDetailDialog(
+    txid: String, accent: Color, explorer: String, status: String,
+    onSpeedUp: (() -> Unit)?, onClose: () -> Unit,
+) {
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    val uri = LocalUriHandler.current
+    val site = explorer.removePrefix("https://").removePrefix("http://")
+    var copied by remember { mutableStateOf(false) }
+    var confirmOpen by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Transaction") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(status, style = MaterialTheme.typography.bodySmall, color = accent)
+                SelectionContainer {
+                    Text(txid, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = TextMain)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = {
+                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(txid)); copied = true
+                    }) { Text(if (copied) "COPIED ✓" else "📋 COPY TXID", color = accent) }
+                    TextButton(onClick = { confirmOpen = true }) { Text("🔎 EXPLORER", color = accent) }
+                }
+                if (confirmOpen) {
+                    Text("Open it on $site? The site will see which transaction you look up.",
+                         style = MaterialTheme.typography.bodySmall, color = Warn)
+                    TextButton(onClick = { runCatching { uri.openUri("$explorer/tx/$txid") }; confirmOpen = false }) {
+                        Text("OPEN ON ${site.uppercase()}", color = accent)
+                    }
+                }
+                onSpeedUp?.let {
+                    TextButton(onClick = it) { Text("⚡ SPEED UP (RBF)", color = accent) }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text("CLOSE", color = TextSoft) } },
         containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
     )
 }
