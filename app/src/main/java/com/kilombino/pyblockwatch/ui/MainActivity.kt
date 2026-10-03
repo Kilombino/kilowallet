@@ -630,6 +630,14 @@ private fun SettingsPanel(
         explorerMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = TextFaint) }
 
         Spacer(Modifier.height(10.dp))
+        var rescueOpen by remember { mutableStateOf(false) }
+        TextButton(onClick = { rescueOpen = !rescueOpen }) {
+            Text((if (rescueOpen) "▾" else "▸") + " Rescue XBT from a pre-fork Lightning (LND) seed",
+                 color = TextSoft, style = MaterialTheme.typography.bodySmall)
+        }
+        if (rescueOpen) LndRescuePanel(vm, accent)
+
+        Spacer(Modifier.height(10.dp))
         SelectionContainer {
             Text(
                 state.xpub?.let { "${it.take(24)}…${it.takeLast(10)}" } ?: "",

@@ -228,6 +228,11 @@ class ElectrumClient(
         return (r as? Number)?.toDouble() ?: 0.0
     }
 
+    /** The raw (hex) transaction for [txid]; throws when the server does not know it. */
+    fun transaction(txid: String): String =
+        call("blockchain.transaction.get", JSONArray().put(txid).put(false))?.toString()
+            ?: throw ElectrumException("unknown transaction $txid")
+
     /** Broadcast a raw (hex) transaction. Returns the txid, or throws with the server's reason. */
     fun broadcast(rawTxHex: String): String {
         val r = call("blockchain.transaction.broadcast", JSONArray().put(rawTxHex))

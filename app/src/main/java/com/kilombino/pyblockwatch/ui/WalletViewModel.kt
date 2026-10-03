@@ -77,6 +77,14 @@ sealed interface SweepPhase {
     data class Failed(val message: String) : SweepPhase
 }
 
+sealed interface RescuePhase {
+    data object Idle : RescuePhase
+    data class Busy(val message: String) : RescuePhase
+    data class Review(val result: com.kilombino.pyblockwatch.data.LndRescue.Result) : RescuePhase
+    data class Done(val replayed: List<String>, val replayErrors: List<String>, val sweepTxid: String?, val swept: Long) : RescuePhase
+    data class Failed(val message: String) : RescuePhase
+}
+
 /** Where the send flow is, so the UI can move from editing → review → broadcast → done. */
 sealed interface SendPhase {
     data object Editing : SendPhase
@@ -560,6 +568,100 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 _sweep.value = SweepPhase.Sent(txid, draft.chain)
                 scan(draft.chain)
             }.onFailure { e -> _sweep.value = SweepPhase.Failed(e.message ?: "The broadcast failed.") }
+        }
+    }
+
+    // ------------------------------------------------------------------ rescue a pre-fork LND wallet
+
+    private val _rescue = MutableStateFlow<RescuePhase>(RescuePhase.Idle)
+    val rescue: StateFlow<RescuePhase> = _rescue.asStateFlow()
+
+    fun resetRescue() { _rescue.value = RescuePhase.Idle }
+
+    /** The wallet's next receive address, the default destination of a rescue. */
+    fun defaultRescueAddress(): String? = receiveAddress(nextReceiveIndex())?.first
+
+    private fun client(chain: Chain): com.kilombino.pyblockwatch.chain.ElectrumClient {
+        val endpoint = store.endpoint(chain)
+        return com.kilombino.pyblockwatch.chain.ElectrumClient(endpoint, store.pinnedFingerprint(endpoint))
+    }
+
+    /** Decipher the LND seed and look for its coins (BLAKE2b) and post-fork closes (SHA-256). */
+    fun rescueScan(words: List<String>, passphrase: String, gap: Int) {
+        _rescue.value = RescuePhase.Busy("deciphering the LND seed…")
+        viewModelScope.launch {
+            runCatching {
+                val seed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    com.kilombino.pyblockwatch.crypto.Aezeed.decode(words, passphrase)
+                }
+                val r = com.kilombino.pyblockwatch.data.LndRescue(seed)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val xbt = client(Chain.BLAKE2B)
+                    val sha = client(Chain.SHA256)
+                    try {
+                        xbt.connect()
+                        val shaOk = runCatching { sha.connect() }.isSuccess
+                        r.scan(xbt, if (shaOk) sha else null, gap.coerceIn(10, 500)) { _rescue.value = RescuePhase.Busy(it) }
+                    } finally { xbt.close(); sha.close() }
+                }
+            }.onSuccess { _rescue.value = RescuePhase.Review(it) }
+             .onFailure { _rescue.value = RescuePhase.Failed(it.message ?: "Could not read that seed.") }
+        }
+    }
+
+    private fun buildRescue(coins: List<com.kilombino.pyblockwatch.data.LndRescue.Coin>, toScript: ByteArray, amount: Long) =
+        com.kilombino.pyblockwatch.crypto.TxBuilder.build(
+            coins.map {
+                com.kilombino.pyblockwatch.crypto.TxBuilder.Input(
+                    it.txid, it.vout, it.value, it.key.privateKey, it.key.pubkey, 0xfffffffdL, it.key.type,
+                )
+            },
+            listOf(com.kilombino.pyblockwatch.crypto.TxBuilder.Output(toScript, amount)),
+            unified = true, grindLowR = true, // BLAKE2b only: never valid on the SHA-256 chain
+        )
+
+    /** Fee in sats for sweeping [coins] at [rate], from a real signature of the same shape. */
+    fun rescueFee(coins: List<com.kilombino.pyblockwatch.data.LndRescue.Coin>, toAddress: String, rate: Double): Long? =
+        runCatching {
+            val probe = buildRescue(coins, com.kilombino.pyblockwatch.crypto.Address.decodeToScriptPubKey(toAddress), coins.sumOf { it.value })
+            kotlin.math.ceil(probe.vbytes * rate.coerceIn(0.1, 1000.0)).toLong()
+        }.getOrNull()
+
+    /**
+     * Replay the chosen closes on BLAKE2b, then sweep everything to [toAddress] in one
+     * unified-sighash transaction. A replay the network refuses is reported and its outputs
+     * are left out of the sweep.
+     */
+    fun rescueConfirm(toAddress: String, rate: Double, replay: Boolean) {
+        val res = (_rescue.value as? RescuePhase.Review)?.result ?: return
+        viewModelScope.launch {
+            runCatching {
+                val toScript = com.kilombino.pyblockwatch.crypto.Address.decodeToScriptPubKey(toAddress.trim())
+                val ok = ArrayList<String>(); val errs = ArrayList<String>()
+                val coins = ArrayList(res.coins)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val xbt = client(Chain.BLAKE2B)
+                    try {
+                        xbt.connect()
+                        if (replay) for (r in res.replays) {
+                            _rescue.value = RescuePhase.Busy("replaying close ${r.txid.take(8)}… on BLAKE2b")
+                            runCatching { xbt.broadcast(r.rawHex) }
+                                .onSuccess { ok += r.txid; coins += r.outputsToUs }
+                                .onFailure { errs += "${r.txid.take(8)}…: ${it.message}" }
+                        }
+                        require(coins.isNotEmpty()) { "Nothing to sweep." + if (errs.isNotEmpty()) " " + errs.joinToString("; ") else "" }
+                        _rescue.value = RescuePhase.Busy("signing and sending the sweep…")
+                        val total = coins.sumOf { it.value }
+                        val probe = buildRescue(coins, toScript, total)
+                        val fee = kotlin.math.ceil(probe.vbytes * rate.coerceIn(0.1, 1000.0)).toLong()
+                        require(total - fee > DUST_SATS) { "The coins found ($total sats) do not cover the fee ($fee sats)." }
+                        val signed = buildRescue(coins, toScript, total - fee)
+                        val txid = xbt.broadcast(signed.rawHex)
+                        _rescue.value = RescuePhase.Done(ok, errs, txid, total - fee)
+                    } finally { xbt.close() }
+                }
+                scan(Chain.BLAKE2B)
+            }.onFailure { _rescue.value = RescuePhase.Failed(it.message ?: "The rescue failed.") }
         }
     }
 

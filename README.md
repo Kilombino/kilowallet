@@ -21,6 +21,12 @@ account. Apache-2.0, reproducible, and every line of cryptography is in this rep
   and move all its coins into this wallet in one transaction, after seeing the fee: legacy
   (1…), nested SegWit (3…), native SegWit (bc1q…) and Taproot (bc1p…), compressed or
   uncompressed keys. Signed byte for byte as Bitcoin Knots signs, unified sighash on BLAKE2b.
+- **Rescue XBT from a pre-fork LND seed** (Settings, Advanced). Type the 24 aezeed words
+  (and passphrase) of a Lightning node created before the fork: its on-chain coins on
+  BLAKE2b (BIP-84/49/86 wallet and channel payment keys) are swept with the unified
+  sighash, which the SHA-256 chain rejects, so the same node there is untouched.
+  Cooperative channel closes it made on SHA-256 after the fork can be replayed on BLAKE2b
+  to free your share; nothing but a channel close is ever replayed.
 - **Optional BIP-39 passphrase.** When creating or restoring a wallet you can add a
   passphrase ("25th word"); leave it empty for none. The app shows the wallet's
   fingerprint, the same one Sparrow and SeedSigner show, so you can check you typed it
