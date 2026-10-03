@@ -17,6 +17,10 @@ account. Apache-2.0, reproducible, and every line of cryptography is in this rep
   wallet: its seed is generated on the phone — roll physical dice, SeedSigner-style, or
   use the secure RNG — and stored encrypted behind an Android Keystore key that needs
   your fingerprint or device PIN to sign. Native SegWit (bc1q) by default.
+- **Sweep a private key.** Paste or scan a WIF key (paper wallet, another wallet's export)
+  and move all its coins into this wallet in one transaction, after seeing the fee: legacy
+  (1…), nested SegWit (3…), native SegWit (bc1q…) and Taproot (bc1p…), compressed or
+  uncompressed keys. Signed byte for byte as Bitcoin Knots signs, unified sighash on BLAKE2b.
 - **Optional BIP-39 passphrase.** When creating or restoring a wallet you can add a
   passphrase ("25th word"); leave it empty for none. The app shows the wallet's
   fingerprint, the same one Sparrow and SeedSigner show, so you can check you typed it

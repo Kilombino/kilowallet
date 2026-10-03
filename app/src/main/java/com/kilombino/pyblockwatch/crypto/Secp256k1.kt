@@ -133,6 +133,17 @@ object Secp256k1 {
         return out
     }
 
+    /** Serialise a point as a 65-byte uncompressed SEC pubkey (04 ‖ x ‖ y), for old keys. */
+    fun uncompressed(point: Point): ByteArray {
+        require(!point.isInfinity) { "cannot serialise the point at infinity" }
+        fun b32(v: java.math.BigInteger): ByteArray {
+            val b = v.toByteArray(); val out = ByteArray(32)
+            val src = if (b.size > 32) b.copyOfRange(b.size - 32, b.size) else b
+            System.arraycopy(src, 0, out, 32 - src.size, src.size); return out
+        }
+        return byteArrayOf(0x04) + b32(point.x!!) + b32(point.y!!)
+    }
+
     /** Serialise a point as a 33-byte compressed SEC pubkey. */
     fun compress(point: Point): ByteArray {
         require(!point.isInfinity) { "cannot serialise the point at infinity" }

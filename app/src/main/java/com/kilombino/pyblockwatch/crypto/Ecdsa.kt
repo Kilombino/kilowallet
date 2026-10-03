@@ -41,9 +41,10 @@ object Ecdsa {
      * RFC 6979 deterministic nonce generation with HMAC-SHA256, specialised to the
      * 32-byte hash / 256-bit order case (no bit-length juggling needed).
      */
-    private fun deterministicK(privateKey: BigInteger, hash: ByteArray): BigInteger {
+    private fun deterministicK(privateKey: BigInteger, hash: ByteArray, extra: ByteArray = ByteArray(0)): BigInteger {
         val x = int2octets(privateKey)
-        val h1 = bits2octets(hash)
+        // libsecp256k1 appends 32 bytes of extra data (Core's low-R counter) after the hash.
+        val h1 = bits2octets(hash) + extra
         var v = ByteArray(32) { 0x01 }
         var k = ByteArray(32) { 0x00 }
 
@@ -65,12 +66,29 @@ object Ecdsa {
      * Sign a 32-byte message hash with [privateKey]. The nonce is RFC 6979; the result
      * is low-S. Returns (r, s).
      */
-    fun sign(privateKey: BigInteger, hash: ByteArray): Signature {
+    fun sign(privateKey: BigInteger, hash: ByteArray, grindLowR: Boolean = false): Signature {
         require(hash.size == 32) { "message hash must be 32 bytes" }
         require(privateKey.signum() > 0 && privateKey < N) { "private key out of range" }
+        if (grindLowR) {
+            // Bitcoin Core's grind: retry with a 32-byte little-endian counter as extra nonce
+            // data until r fits in 32 DER bytes (r < 2^255), so the signature is a byte shorter
+            // and identical to what Core produces for the same key and message.
+            var counter = 0L
+            while (true) {
+                val extra = if (counter == 0L) ByteArray(0)
+                    else ByteArray(32).also { for (i in 0 until 4) it[i] = (counter ushr (8 * i)).toByte() }
+                val sig = signWithNonce(privateKey, hash, deterministicK(privateKey, hash, extra))
+                if (sig.r.bitLength() <= 255) return sig
+                counter++
+            }
+        }
+        return signWithNonce(privateKey, hash, deterministicK(privateKey, hash))
+    }
+
+    private fun signWithNonce(privateKey: BigInteger, hash: ByteArray, nonce: BigInteger): Signature {
         val z = BigInteger(1, hash)
         while (true) {
-            val k = deterministicK(privateKey, hash)
+            val k = nonce
             val point = Secp256k1.multiply(k, Secp256k1.G)
             val r = point.x!!.mod(N)
             if (r.signum() == 0) continue

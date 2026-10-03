@@ -47,6 +47,36 @@ data class SendDraft(
     val silentRecipient: com.kilombino.pyblockwatch.crypto.SilentPayment.Recipient? = null,
 )
 
+/** One coin found on a private key being swept, with the address form it sits in. */
+data class SweepCoin(
+    val type: com.kilombino.pyblockwatch.crypto.ScriptType,
+    val address: String,
+    val txid: String, val vout: Int, val value: Long, val height: Int,
+)
+
+/** A prepared sweep: every coin of the key, moved whole to this wallet's next address. */
+data class SweepDraft(
+    val key: com.kilombino.pyblockwatch.crypto.Wif.Key,
+    val coins: List<SweepCoin>,
+    val toAddress: String,
+    val fee: Long,
+    val chain: Chain,
+    /** Coins the same key holds on the other chain, swept separately from that chain. */
+    val otherChainSats: Long?,
+) {
+    val total: Long get() = coins.sumOf { it.value }
+    val received: Long get() = total - fee
+}
+
+sealed interface SweepPhase {
+    data object Idle : SweepPhase
+    data object Scanning : SweepPhase
+    data class Review(val draft: SweepDraft) : SweepPhase
+    data object Broadcasting : SweepPhase
+    data class Sent(val txid: String, val chain: Chain) : SweepPhase
+    data class Failed(val message: String) : SweepPhase
+}
+
 /** Where the send flow is, so the UI can move from editing → review → broadcast → done. */
 sealed interface SendPhase {
     data object Editing : SendPhase
@@ -440,6 +470,99 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ------------------------------------------------------------------ sweep a private key
+
+    private val _sweep = MutableStateFlow<SweepPhase>(SweepPhase.Idle)
+    val sweep: StateFlow<SweepPhase> = _sweep.asStateFlow()
+
+    fun resetSweep() { _sweep.value = SweepPhase.Idle }
+
+    /**
+     * Find every coin a WIF private key holds on the current chain, in each address form this
+     * wallet can spend (native SegWit, Taproot, nested SegWit and legacy for a compressed key,
+     * legacy for an uncompressed one), and draft one transaction moving them all to this wallet's next
+     * receive address. Nothing is signed or sent until [confirmSweep].
+     */
+    fun prepareSweep(wif: String, feeRatePerVb: Double) {
+        val chain = _state.value.selected
+        _sweep.value = SweepPhase.Scanning
+        viewModelScope.launch {
+            runCatching {
+                val key = com.kilombino.pyblockwatch.crypto.Wif.decode(wif)
+                val (to, _) = receiveAddress(nextReceiveIndex()) ?: error("No wallet to sweep into.")
+                val rate = feeRatePerVb.coerceIn(0.1, 1000.0)
+                fun scanKey(c: Chain, types: List<com.kilombino.pyblockwatch.crypto.ScriptType>): List<SweepCoin> {
+                    val endpoint = store.endpoint(c)
+                    val client = com.kilombino.pyblockwatch.chain.ElectrumClient(endpoint, store.pinnedFingerprint(endpoint))
+                    return try {
+                        client.connect()
+                        types.flatMap { t ->
+                            val addr = com.kilombino.pyblockwatch.crypto.Address.encode(key.pubkey, t)
+                            client.listUnspent(com.kilombino.pyblockwatch.crypto.Address.scriptHashFor(key.pubkey, t))
+                                .map { SweepCoin(t, addr, it.txid, it.vout, it.value, it.height) }
+                        }
+                    } finally { client.close() }
+                }
+                val coins = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    scanKey(chain, key.sweepableTypes)
+                }
+                val other = Chain.entries.firstOrNull { it != chain }
+                val otherSats = other?.let { c ->
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching { scanKey(c, key.sweepableTypes).sumOf { it.value } }.getOrNull()
+                    }
+                }
+                require(coins.isNotEmpty()) {
+                    "This key has no coins on this chain." +
+                        (if ((otherSats ?: 0) > 0) " It has ${otherSats} sats on the other chain: switch chain and sweep again." else "")
+                }
+                val toScript = com.kilombino.pyblockwatch.crypto.Address.decodeToScriptPubKey(to)
+                val total = coins.sumOf { it.value }
+                // Size the fee from a real signature of the same shape, then rebuild at confirm.
+                val probe = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    buildSweep(key, coins, toScript, total, chain)
+                }
+                val fee = kotlin.math.ceil(probe.vbytes * rate).toLong()
+                require(total - fee > DUST_SATS) { "The coins on this key (${total} sats) do not cover the fee (${fee} sats)." }
+                _sweep.value = SweepPhase.Review(SweepDraft(key, coins, to, fee, chain, otherSats))
+            }.onFailure { e -> _sweep.value = SweepPhase.Failed(e.message ?: "Could not read that key.") }
+        }
+    }
+
+    private fun buildSweep(
+        key: com.kilombino.pyblockwatch.crypto.Wif.Key, coins: List<SweepCoin>, toScript: ByteArray,
+        amount: Long, chain: Chain,
+    ) = com.kilombino.pyblockwatch.crypto.TxBuilder.build(
+        coins.map { c ->
+            com.kilombino.pyblockwatch.crypto.TxBuilder.Input(
+                c.txid, c.vout, c.value, key.privateKey, key.pubkey, 0xfffffffdL, c.type,
+            )
+        },
+        listOf(com.kilombino.pyblockwatch.crypto.TxBuilder.Output(toScript, amount)),
+        // Unified sighash on BLAKE2b, as for every spend there, so it cannot be replayed.
+        unified = chain == Chain.BLAKE2B, grindLowR = true,
+    )
+
+    /** Sign the reviewed sweep with the key and broadcast it on the chain it was drafted for. */
+    fun confirmSweep() {
+        val draft = (_sweep.value as? SweepPhase.Review)?.draft ?: return
+        _sweep.value = SweepPhase.Broadcasting
+        viewModelScope.launch {
+            runCatching {
+                val toScript = com.kilombino.pyblockwatch.crypto.Address.decodeToScriptPubKey(draft.toAddress)
+                val signed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    buildSweep(draft.key, draft.coins, toScript, draft.received, draft.chain)
+                }
+                val endpoint = store.endpoint(draft.chain)
+                val txid = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    scanner.broadcast(signed.rawHex, endpoint, store.pinnedFingerprint(endpoint))
+                }
+                _sweep.value = SweepPhase.Sent(txid, draft.chain)
+                scan(draft.chain)
+            }.onFailure { e -> _sweep.value = SweepPhase.Failed(e.message ?: "The broadcast failed.") }
+        }
+    }
+
     // ------------------------------------------------------------------ hot wallet: send
 
     fun resetSend() = _state.update { it.copy(sendPhase = SendPhase.Editing, utxos = null, utxosChain = null) }
@@ -531,6 +654,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 }
 
                 var fee = estimateFee(chosen.size, 2, rate)
+                // Sending everything (MAX) has no change output: size the fee for one output.
+                if (sum < amountSats + fee) fee = estimateFee(chosen.size, 1, rate)
                 require(sum >= amountSats + fee) {
                     if (selected.isNotEmpty()) "The chosen coins don't cover the amount plus fee."
                     else "Not enough funds for the amount plus fee."

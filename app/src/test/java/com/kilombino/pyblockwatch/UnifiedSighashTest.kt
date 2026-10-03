@@ -11,9 +11,9 @@ import org.junit.Test
  * The unified opt-in sighash (`doc/unified-sighash.md`, Knots v29.4.1) is what protects a BLAKE2b
  * spend from being replayed onto the shared-history SHA-256 chain. Its message must be byte-for-byte
  * what the reference implementation produces, so this pins [TxBuilder.unifiedMessage] against every
- * script-type-0 and script-type-1 vector in `unified_sighash.json` (142 of the 166; the four taproot
- * vectors are excluded because this wallet never spends taproot). A single wrong byte moves the
- * digest and the test fails.
+ * script-type-0, -1 and -2 vector in `unified_sighash.json` (154 of the 166; the twelve tapscript
+ * vectors are excluded because this wallet spends taproot by key path only). A single wrong byte
+ * moves the digest and the test fails.
  *
  * The vectors are carried in `app/src/test/resources/unified_sighash_type01.tsv`; each line gives the
  * scriptCode, raw transaction, input index, hash type, script type, the spent outputs, and the
@@ -68,8 +68,8 @@ class UnifiedSighashTest {
         return ParsedTx(version, prevouts, sequences, outputs, r.u32())
     }
 
-    private fun vectors(): List<String> =
-        javaClass.getResourceAsStream("/unified_sighash_type01.tsv")!!
+    private fun vectors(file: String = "/unified_sighash_type01.tsv"): List<String> =
+        javaClass.getResourceAsStream(file)!!
             .bufferedReader().readLines()
             .filter { it.isNotBlank() && !it.startsWith("#") }
 
@@ -103,6 +103,28 @@ class UnifiedSighashTest {
         }
         assertEquals(76, byType[0])
         assertEquals(66, byType[1])
+    }
+
+    @Test
+    fun `unified message matches every taproot key-path vector`() {
+        val rows = vectors("/unified_sighash_type2.tsv")
+        assertEquals(12, rows.size)
+        for (line in rows) {
+            val col = line.split("\t")
+            val spent = col[5].split("|").map {
+                val (v, spk) = it.split(":")
+                v.toLong() to Hashes.hexToBytes(spk)
+            }
+            val tx = parseTx(col[1])
+            val got = TxBuilder.unifiedMessage(
+                version = tx.version, locktime = tx.locktime,
+                hashType = col[3].toInt(), scriptType = 2,
+                prevouts = tx.prevouts, amounts = spent.map { it.first },
+                spentScripts = spent.map { it.second }, sequences = tx.sequences,
+                outputs = tx.outputs, index = col[2].toInt(), scriptCode = ByteArray(0),
+            )
+            assertEquals("taproot vector (hashType ${col[3]}, in ${col[2]})", col[6], got.toHex())
+        }
     }
 
     @Test

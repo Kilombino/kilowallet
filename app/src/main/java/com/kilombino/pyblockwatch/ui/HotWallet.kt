@@ -653,6 +653,11 @@ fun ReceiveSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     var index by remember { mutableStateOf(vm.nextReceiveIndex()) }
     val pair = remember(index) { vm.receiveAddress(index) }
+    var sweeping by remember { mutableStateOf(false) }
+    if (sweeping) {
+        SweepSheet(vm, accent) { sweeping = false; vm.resetSweep() }
+        return
+    }
 
     Panel(accent = accent) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -700,6 +705,140 @@ fun ReceiveSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                 TextButton(onClick = { index = vm.nextReceiveIndex() }, modifier = Modifier.fillMaxWidth()) {
                     Text("back to first unused", color = TextFaint, style = MaterialTheme.typography.bodySmall)
                 }
+            }
+            TextButton(onClick = { sweeping = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("🔑  sweep a private key into this wallet", color = accent,
+                     style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------------- sweep a private key
+
+/**
+ * Sweep a private key (WIF: a paper wallet, an exported key) into this wallet: find its coins
+ * on the current chain, show what arrives and the fee, then move them all in one transaction
+ * to this wallet's next receive address. The key is used for this transaction only and is
+ * not stored.
+ */
+@Composable
+fun SweepSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
+    val state by vm.state.collectAsState()
+    val phase by vm.sweep.collectAsState()
+    var wif by remember { mutableStateOf("") }
+    var feeRate by remember { mutableStateOf("2") }
+    var showKey by remember { mutableStateOf(false) }
+    var showScanner by remember { mutableStateOf(false) }
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    val context = LocalContext.current
+    val cameraPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> if (granted) showScanner = true }
+    if (showScanner) {
+        QrScannerDialog(
+            onResult = { raw -> wif = raw.trim(); showScanner = false; vm.resetSweep() },
+            onDismiss = { showScanner = false },
+        )
+    }
+
+    Panel(accent = accent) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionLabel("sweep a private key", accent)
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = onClose) {
+                Text("close", color = TextSoft, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        when (val p = phase) {
+            is SweepPhase.Sent -> {
+                Text("Swept ✓", color = Good, style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(6.dp))
+                SelectionContainer { Text(p.txid, color = TextSoft,
+                    style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
+                Spacer(Modifier.height(6.dp))
+                Explain("The coins arrive in this wallet when the transaction confirms. The old key " +
+                    "is empty now: do not use it again.")
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = onClose,
+                    colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
+                    shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
+                ) { Text("DONE", style = MaterialTheme.typography.titleMedium) }
+            }
+            is SweepPhase.Review -> {
+                val d = p.draft
+                Text("Found on the ${d.chain.display} chain:", color = TextSoft, style = MaterialTheme.typography.bodySmall)
+                d.coins.forEach { c ->
+                    RowLine("${c.type.label} · ${shortAddress(c.address)}" +
+                        (if (c.height <= 0) " · 0 conf" else ""), "${groupSats(c.value)} sats", accent)
+                }
+                Spacer(Modifier.height(6.dp))
+                RowLine("Total", "${groupSats(d.total)} sats", accent)
+                RowLine("Network fee", "${groupSats(d.fee)} sats", accent)
+                RowLine("You receive", "${groupSats(d.received)} sats", Good)
+                RowLine("To", shortAddress(d.toAddress), accent)
+                if ((d.otherChainSats ?: 0) > 0) Text(
+                    "This key also has ${groupSats(d.otherChainSats!!)} sats on the other chain: switch chain " +
+                        "and sweep again to move those.", color = Warn, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(10.dp))
+                Button(onClick = { vm.confirmSweep() },
+                    colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
+                    shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
+                ) { Text("SWEEP INTO THIS WALLET", style = MaterialTheme.typography.titleMedium) }
+                TextButton(onClick = { vm.resetSweep() }, modifier = Modifier.fillMaxWidth()) {
+                    Text("edit", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            SweepPhase.Scanning, SweepPhase.Broadcasting -> {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    PulseDot(accent); Spacer(Modifier.width(10.dp))
+                    Text(if (p is SweepPhase.Broadcasting) "signing & broadcasting…" else "looking for the key's coins…",
+                         color = accent, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            else -> { // Idle or Failed
+                Explain("Paste or scan a private key (WIF: starts with 5, K or L), from a paper wallet " +
+                    "or another wallet's export. Its coins on the ${state.selected.display} chain move to " +
+                    "this wallet in one transaction, after you see the fee. The key is not stored.")
+                Spacer(Modifier.height(8.dp))
+                if (p is SweepPhase.Failed) {
+                    Text(p.message, color = Bad, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(6.dp))
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = wif, onValueChange = { wif = it.trim(); vm.resetSweep() },
+                        label = { Text("private key (WIF)", style = MaterialTheme.typography.bodySmall) },
+                        textStyle = MaterialTheme.typography.bodySmall, singleLine = true,
+                        visualTransformation = if (showKey) androidx.compose.ui.text.input.VisualTransformation.None
+                            else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = {
+                        clipboard.getText()?.text?.trim()?.let { if (it.isNotBlank()) { wif = it; vm.resetSweep() } }
+                    }) { Text("PASTE", color = accent, style = MaterialTheme.typography.bodySmall) }
+                    TextButton(onClick = {
+                        if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) ==
+                            android.content.pm.PackageManager.PERMISSION_GRANTED
+                        ) showScanner = true else cameraPermission.launch(android.Manifest.permission.CAMERA)
+                    }) { Text("📷", color = accent, style = MaterialTheme.typography.titleMedium) }
+                }
+                if (wif.isNotEmpty()) TextButton(onClick = { showKey = !showKey }) {
+                    Text(if (showKey) "hide key" else "show key", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedTextField(
+                    value = feeRate, onValueChange = { feeRate = it.filter { c -> c.isDigit() || c == '.' } },
+                    label = { Text("fee, sat/vB", style = MaterialTheme.typography.bodySmall) },
+                    textStyle = MaterialTheme.typography.bodySmall, singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                Button(onClick = { vm.prepareSweep(wif, feeRate.toDoubleOrNull() ?: 2.0) },
+                    enabled = wif.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
+                    shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
+                ) { Text("FIND COINS", style = MaterialTheme.typography.titleMedium) }
             }
         }
     }
