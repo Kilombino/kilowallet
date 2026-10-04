@@ -112,15 +112,18 @@ class Notifier(private val context: Context) {
     fun arkWithdrawn(amount: Long, key: String) =
         post(arkId("out", key), "Ark: withdrawal done", "${sats(kotlin.math.abs(amount))} sats left Ark on-chain")
 
+    /** "payment" for an Ark payment, "Lightning payment" for Lightning: reads right after "Ark:". */
+    private fun what(kind: String) = if (kind == "Ark payment") "payment" else kind
+
     fun arkBoarding(amount: Long, key: String) =
         post(arkId("boarding", key), "Ark: moving funds in",
              "${sats(kotlin.math.abs(amount))} sats on their way into Ark; spendable after 3 confirmations")
 
     fun arkSent(kind: String, amount: Long, key: String) =
-        post(arkId("sent", key), "Ark: ${kind.lowercase()} sent", "${sats(-kotlin.math.abs(amount))} sats")
+        post(arkId("sent", key), "Ark: ${what(kind)} sent", "${sats(-kotlin.math.abs(amount))} sats")
 
     fun arkFailed(kind: String, amount: Long, key: String) =
-        post(arkId("failed", key), "Ark: ${kind.lowercase()} failed",
+        post(arkId("failed", key), "Ark: ${what(kind)} failed",
              "${sats(kotlin.math.abs(amount))} sats did not go out; the coins are still yours")
 
     fun arkRenewed(cost: Long, key: String) =

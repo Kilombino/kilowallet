@@ -775,7 +775,7 @@ fun ArkWarnings() {
             "Minimum to move funds into Ark: ${groupSats(Ark.MIN_BOARD_SAT)} sats.",
             "Maximum per Ark coin: ${groupSats(Ark.MAX_VTXO_SAT)} sats.",
             "Lightning: up to ${groupSats(Ark.MAX_LIGHTNING_SAT)} sats per payment, no channels needed.",
-            "Every Ark payment pre-pays recovery reserves for each coin it uses: 4 000 sats for a coin spent whole, 6 000 for one with change, which must leave at least 1 330 sats. Small balances can only leave Ark on-chain. The wallet shows the exact cost before you confirm.",
+            "Every Ark payment pre-pays recovery reserves for each coin it uses: about 2 700 sats for a coin spent whole and 4 000 for one with change (4 000 and 6 000 where the server has not enabled its smaller anchors); change must be at least 1 330 sats. Small balances can only leave Ark on-chain. The wallet shows the exact cost before you confirm.",
             "Rounds every 60 seconds; moving funds in needs 3 confirmations.",
             "Back up Ark twice: write down its words, and save a backup file after each movement (BACKUP panel). With neither, uninstalling the app or losing the phone loses the funds.",
             "Ark is beta software, through the Paperclip Ark server (ark.paperclippool.xyz).",
