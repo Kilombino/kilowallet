@@ -201,12 +201,38 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
             }
         }
 
-        if (cs.phase !is ScanPhase.Complete) {
-            Text("Updating your balance…", style = MaterialTheme.typography.bodySmall, color = TextFaint)
-        }
         AddWidgetButton(accent)
         Spacer(Modifier.height(30.dp))
     }
+    }
+}
+
+/** What the balance check is doing, in the same terms as advanced mode. */
+@Composable
+private fun SimpleScanStatus(phase: ScanPhase, accent: Color) {
+    when (phase) {
+        is ScanPhase.Idle, is ScanPhase.Complete -> Row(verticalAlignment = Alignment.CenterVertically) {
+            PulseDot(accent); Spacer(Modifier.width(10.dp))
+            Text("Updating your balance…", style = MaterialTheme.typography.bodySmall, color = TextSoft)
+        }
+        is ScanPhase.Connecting -> Row(verticalAlignment = Alignment.CenterVertically) {
+            PulseDot(accent); Spacer(Modifier.width(10.dp))
+            Text("Updating your balance: connecting to ${phase.endpoint}…",
+                 style = MaterialTheme.typography.bodySmall, color = TextSoft)
+        }
+        is ScanPhase.Scanning -> Row(verticalAlignment = Alignment.CenterVertically) {
+            GapRing(phase.gapUsed, phase.gapLimit, accent)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Updating your balance: checking your addresses", style = MaterialTheme.typography.bodySmall, color = TextSoft)
+                DerivationTicker(phase.path, accent)
+                Text((if (phase.chainIndex == 0) "receive" else "change") + " addresses · " +
+                     "${phase.gapUsed}/${phase.gapLimit} empty in a row",
+                     style = MaterialTheme.typography.bodySmall, color = TextFaint)
+            }
+        }
+        is ScanPhase.Error -> Text("Could not update the balance: ${phase.message}. Pull down to try again.",
+                                   style = MaterialTheme.typography.bodySmall, color = Bad)
     }
 }
 
@@ -231,13 +257,21 @@ private fun SimpleBalance(
     Panel(accent = accent) {
         SectionLabel("Your XBT", accent)
         Spacer(Modifier.height(6.dp))
+        // Until the first check of this launch finishes, a 0 would look like an empty wallet:
+        // show the last known figure dimmed, or "…" when there is none, and say what is going on.
+        val checking = cs.phase !is ScanPhase.Complete
         Row(verticalAlignment = Alignment.Bottom) {
-            Text(groupSats(cs.total), style = MaterialTheme.typography.displayLarge, color = accent)
+            Text(if (checking && cs.total == 0L) "…" else groupSats(cs.total), style = MaterialTheme.typography.displayLarge,
+                 color = if (checking) accent.copy(alpha = 0.45f) else accent)
             Spacer(Modifier.width(8.dp))
             Text("sats", style = MaterialTheme.typography.titleLarge, color = accent.copy(alpha = 0.7f))
         }
         Text("%.8f XBT".format(Locale.US, cs.total / 100_000_000.0),
              style = MaterialTheme.typography.bodySmall, color = TextFaint)
+        if (checking) {
+            Spacer(Modifier.height(8.dp))
+            SimpleScanStatus(cs.phase, accent)
+        }
 
         Spacer(Modifier.height(10.dp))
         val value = market?.fiatValue(cs.total, fiat)

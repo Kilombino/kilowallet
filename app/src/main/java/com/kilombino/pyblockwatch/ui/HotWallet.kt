@@ -232,10 +232,14 @@ fun PassphraseFields(
     Panel(accent = Orange) {
         SectionLabel("Passphrase (optional)", Orange)
         Spacer(Modifier.height(6.dp))
-        Explain("Leave it EMPTY for a wallet without a passphrase, the usual choice. With one, " +
-            "the words alone are not enough: the same words with a different passphrase open a " +
-            "different, empty wallet, and a forgotten passphrase cannot be recovered. Write it " +
-            "down apart from the words. Upper and lower case, spaces and accents all count.")
+        Explain("Leave it EMPTY for a wallet without a passphrase, the usual choice. If you add one, read this first:")
+        Spacer(Modifier.height(4.dp))
+        listOf(
+            "Without the passphrase, your words open a different wallet: an empty one. Words alone are no longer a backup.",
+            "If you lose the passphrase, you lose the funds. Nobody can recover it, not even with the words.",
+            "Write it down, and keep it apart from the words: whoever finds both has everything.",
+            "Every character counts: upper and lower case, spaces (also at the start or the end) and accents.",
+        ).forEach { Text("•  $it", style = MaterialTheme.typography.bodySmall, color = TextSoft) }
         Spacer(Modifier.height(8.dp))
         val transform = if (visible) androidx.compose.ui.text.input.VisualTransformation.None
             else androidx.compose.ui.text.input.PasswordVisualTransformation()
@@ -259,6 +263,21 @@ fun PassphraseFields(
                 modifier = Modifier.fillMaxWidth(),
             )
         }
+        if (repeat != null && passphrase.isNotEmpty()) Text(
+            when {
+                repeat.isEmpty() -> "Type it again to confirm it. The wallet is not created until both match."
+                repeat != passphrase -> "The two passphrases do not match."
+                else -> "Both match."
+            },
+            color = if (repeat.isNotEmpty() && repeat != passphrase) Bad else if (repeat == passphrase) Good else TextFaint,
+            style = MaterialTheme.typography.bodySmall)
+        if (passphrase.isNotEmpty() && passphrase.length < 12) Text(
+            "Short passphrase (${passphrase.length} characters): someone who finds your words could guess it. " +
+                "Use at least 12 characters, or several words.",
+            color = Warn, style = MaterialTheme.typography.bodySmall)
+        if (passphrase.isNotEmpty() && passphrase != passphrase.trim()) Text(
+            "It starts or ends with a space. That space is part of the passphrase and you will have to type it every time.",
+            color = Warn, style = MaterialTheme.typography.bodySmall)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(if (passphrase.isEmpty()) "No passphrase." else "${passphrase.length} characters",
                  color = TextFaint, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))

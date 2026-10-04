@@ -5,10 +5,12 @@ import com.kilombino.pyblockwatch.ark.Ark
 import org.json.JSONObject
 
 /**
- * Ark alerts for the background watcher: payments that arrive, moves into Ark that become
- * spendable, withdrawals that complete, on-chain deposits waiting to be moved in, and coins
- * close to expiry. It compares the engine's movements (id → status) and deposit balance with
- * what it saw last time; the first run only records a baseline, so old history never alerts.
+ * Ark alerts, for the background watcher and for the Ark tab while it is open: payments that
+ * arrive or go out (Ark and Lightning), moves into Ark when they start and when they become
+ * spendable, renewals, withdrawals, and the deposit's own on-chain transactions in the mempool
+ * and at their first confirmation, plus coins close to expiry. It compares every movement's
+ * status with what it saw last time; the first run only records a baseline, so old history
+ * never alerts.
  */
 object ArkWatch {
     private const val PREFS = "kilombino_ark_watch"
@@ -16,29 +18,40 @@ object ArkWatch {
     private const val EXPIRY_WARN_BLOCKS = 1008
     private const val EXPIRY_REPEAT_MS = 24 * 3600 * 1000L
 
+    @Synchronized
     fun evaluate(ctx: Context, notifier: Notifier) {
         val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val movements = Ark.history()
-        val balance = runCatching { Ark.balance() }.getOrNull() ?: return
-        val deposit = balance.onchainConfirmed + balance.onchainPending
+        runCatching { Ark.balance() }.getOrNull() ?: return
+        val movements = Ark.activity()
 
-        val seen = prefs.getString("seen", null)?.let { JSONObject(it) }
+        // "seen2": since 0.15 the list also holds the deposit's transactions, so the old
+        // baseline would announce every past deposit. A fresh key starts a fresh baseline.
+        val seen = prefs.getString("seen2", null)?.let { JSONObject(it) }
         val now = JSONObject()
         movements.forEach { now.put(it.id, it.status) }
 
         if (seen != null) {
             for (m in movements) {
                 val before = if (seen.has(m.id)) seen.getString(m.id) else null
+                if (before == m.status) continue
                 val done = m.status == "successful"
-                if (!done || before == "successful") continue
+                val failed = m.status == "failed" || m.status == "canceled" || m.status == "cancelled"
                 when (m.kind) {
-                    "Ark received", "Lightning received" -> if (m.amount > 0) notifier.arkReceived(m.kind, m.amount, m.id)
-                    "move into Ark" -> notifier.arkBoarded(m.amount, m.id)
-                    "withdrawal" -> notifier.arkWithdrawn(m.amount, m.id)
+                    "Ark received", "Lightning received" -> if (done && m.amount > 0) notifier.arkReceived(m.kind, m.amount, m.id)
+                    "move into Ark" -> when {
+                        done -> notifier.arkBoarded(m.amount, m.id)
+                        before == null && !failed -> notifier.arkBoarding(m.amount, m.id)
+                    }
+                    "withdrawal" -> if (done) notifier.arkWithdrawn(m.amount, m.id)
+                    "Ark payment", "Lightning payment" -> when {
+                        done -> notifier.arkSent(m.kind, m.amount, m.id)
+                        failed -> notifier.arkFailed(m.kind, m.amount, m.id)
+                    }
+                    "renewal" -> if (done) notifier.arkRenewed(maxOf(m.fee, -m.amount), m.id)
+                    "deposit received" -> notifier.arkDeposit(m.amount, m.id, m.status == "confirmed")
+                    "sent from deposit" -> notifier.arkDepositSent(m.amount, m.id, m.status == "confirmed")
                 }
             }
-            val lastDeposit = prefs.getLong("deposit", 0)
-            if (deposit > lastDeposit) notifier.arkDeposit(deposit - lastDeposit)
         }
 
         Ark.blocksToNearestExpiry()?.let { blocks ->
@@ -49,6 +62,6 @@ object ArkWatch {
             }
         }
 
-        prefs.edit().putString("seen", now.toString()).putLong("deposit", deposit).apply()
+        prefs.edit().putString("seen2", now.toString()).apply()
     }
 }

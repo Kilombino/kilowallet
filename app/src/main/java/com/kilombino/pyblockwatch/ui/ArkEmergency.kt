@@ -35,7 +35,8 @@ import kotlinx.coroutines.withContext
  */
 
 @Composable
-fun ArkEmergencyPanel(accent: androidx.compose.ui.graphics.Color, onMessage: (String) -> Unit) {
+fun ArkEmergencyPanel(accent: androidx.compose.ui.graphics.Color, activity: androidx.fragment.app.FragmentActivity,
+                      onMessage: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     var open by remember { mutableStateOf(false) }
     var exits by remember { mutableStateOf<List<Ark.ExitState>>(emptyList()) }
@@ -74,13 +75,15 @@ fun ArkEmergencyPanel(accent: androidx.compose.ui.graphics.Color, onMessage: (St
             confirmButton = {
                 TextButton(enabled = typed == "EXIT" && busy == null, onClick = {
                     confirm = false; typed = ""
-                    scope.launch {
-                        busy = "Starting the emergency exit…"
-                        val r = withContext(Dispatchers.IO) { runCatching { Ark.startExitAll() } }
-                        busy = null
-                        onMessage(r.fold({ "Emergency exit started: $it" }, { "Error: ${it.message}" }))
-                        reload()
-                    }
+                    Biometric.confirm(activity, "Emergency exit", "Confirm it is you", onSuccess = {
+                        scope.launch {
+                            busy = "Starting the emergency exit…"
+                            val r = withContext(Dispatchers.IO) { runCatching { Ark.startExitAll() } }
+                            busy = null
+                            onMessage(r.fold({ "Emergency exit started: $it" }, { "Error: ${it.message}" }))
+                            reload()
+                        }
+                    }, onError = { onMessage("Error: $it") })
                 }) { Text("START EXIT", color = Bad) }
             },
             dismissButton = { TextButton(onClick = { confirm = false; typed = "" }) { Text("CANCEL", color = TextSoft) } },
@@ -132,13 +135,15 @@ fun ArkEmergencyPanel(accent: androidx.compose.ui.graphics.Color, onMessage: (St
                 Button(
                     enabled = dest.isNotBlank() && busy == null,
                     onClick = {
-                        scope.launch {
-                            busy = "Claiming…"
-                            val r = withContext(Dispatchers.IO) { runCatching { Ark.claimExits(dest) } }
-                            busy = null
-                            onMessage(r.fold({ it }, { "Error: ${it.message}" }))
-                            reload()
-                        }
+                        Biometric.confirm(activity, "Claim the exit", "Confirm it is you", onSuccess = {
+                            scope.launch {
+                                busy = "Claiming…"
+                                val r = withContext(Dispatchers.IO) { runCatching { Ark.claimExits(dest) } }
+                                busy = null
+                                onMessage(r.fold({ it }, { "Error: ${it.message}" }))
+                                reload()
+                            }
+                        }, onError = { onMessage("Error: $it") })
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
                     shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),

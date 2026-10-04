@@ -112,9 +112,31 @@ class Notifier(private val context: Context) {
     fun arkWithdrawn(amount: Long, key: String) =
         post(arkId("out", key), "Ark: withdrawal done", "${sats(kotlin.math.abs(amount))} sats left Ark on-chain")
 
-    fun arkDeposit(amount: Long) =
-        post(arkId("deposit", amount.toString()), "Ark: deposit detected",
-             "+${sats(amount)} sats on-chain, not in Ark yet. Open the Ark tab and tap MOVE INTO ARK.")
+    fun arkBoarding(amount: Long, key: String) =
+        post(arkId("boarding", key), "Ark: moving funds in",
+             "${sats(kotlin.math.abs(amount))} sats on their way into Ark; spendable after 3 confirmations")
+
+    fun arkSent(kind: String, amount: Long, key: String) =
+        post(arkId("sent", key), "Ark: ${kind.lowercase()} sent", "${sats(-kotlin.math.abs(amount))} sats")
+
+    fun arkFailed(kind: String, amount: Long, key: String) =
+        post(arkId("failed", key), "Ark: ${kind.lowercase()} failed",
+             "${sats(kotlin.math.abs(amount))} sats did not go out; the coins are still yours")
+
+    fun arkRenewed(cost: Long, key: String) =
+        post(arkId("renew", key), "Ark: coins renewed",
+             "Good for about 30 more days" + (if (cost > 0) " · cost ${sats(cost)} sats" else ""))
+
+    fun arkDeposit(amount: Long, key: String, confirmed: Boolean) =
+        post(arkId(if (confirmed) "deposit-conf" else "deposit", key),
+             if (confirmed) "Ark: deposit confirmed" else "Ark: deposit in the mempool",
+             "+${sats(amount)} sats on-chain" + (if (confirmed) "" else " (0 conf)") +
+                 ", not in Ark yet. Open the Ark tab and tap MOVE INTO ARK.")
+
+    fun arkDepositSent(amount: Long, key: String, confirmed: Boolean) =
+        post(arkId(if (confirmed) "dsent-conf" else "dsent", key),
+             if (confirmed) "Ark: on-chain send confirmed" else "Ark: on-chain send in the mempool",
+             "${sats(-kotlin.math.abs(amount))} sats from the deposit" + (if (confirmed) "" else " (0 conf)"))
 
     fun arkExpiring(blocks: Int) =
         post(arkId("expiry", ""), "Ark: a coin expires soon",

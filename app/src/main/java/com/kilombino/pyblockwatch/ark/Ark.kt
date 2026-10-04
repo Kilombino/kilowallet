@@ -20,6 +20,8 @@ object Ark {
     // /wallet/ark-info when the engine is up; these are only for text shown before that.
     const val VTXO_LIFETIME_BLOCKS = 4320
     const val MIN_BOARD_SAT = 20_000L
+    /** Confirmations the server needs on a move into Ark before the coin is spendable. */
+    const val BOARD_CONFIRMATIONS = 3
     const val MAX_VTXO_SAT = 1_000_000L
     const val MAX_LIGHTNING_SAT = 250_000L
     // Paperclip funded recovery profile 2: reserve per recovery transaction, and the
@@ -252,11 +254,43 @@ object Ark {
     /** On-chain XBT address to fund the wallet before moving the funds into Ark. */
     fun onchainAddress(): String = JSONObject(call("POST", "/onchain/addresses/next")).getString("address")
 
-    /** Moves [sats] of on-chain XBT into Ark (needs 3 confirmations to become spendable). */
-    fun board(sats: Long) { call("POST", "/boards/board-amount", JSONObject().put("amount_sat", sats), 180_000) }
+    /**
+     * Moves [sats] of on-chain XBT into Ark (needs [BOARD_CONFIRMATIONS] confirmations to become
+     * spendable). [feeRate] in sat/vB pays the funding transaction at that rate; null uses the
+     * wallet's regular estimate.
+     */
+    fun board(sats: Long, feeRate: Double? = null) {
+        val req = JSONObject().put("amount_sat", sats)
+        if (feeRate != null) req.put("fee_rate_sat_per_vb", feeRate)
+        call("POST", "/boards/board-amount", req, 180_000)
+    }
 
-    /** Moves all the on-chain XBT into Ark. */
-    fun boardAll() { call("POST", "/boards/board-all", JSONObject(), 180_000) }
+    /** Moves all the on-chain XBT into Ark, at [feeRate] sat/vB or the regular estimate. */
+    fun boardAll(feeRate: Double? = null) {
+        val req = JSONObject()
+        if (feeRate != null) req.put("fee_rate_sat_per_vb", feeRate)
+        call("POST", "/boards/board-all", req, 180_000)
+    }
+
+    /** The chain source's current fee rates in sat/vB: fast (~1 block), regular (~3), slow (~6). */
+    data class FeeRates(val fast: Long, val regular: Long, val slow: Long)
+
+    fun onchainFeeRates(): FeeRates? = runCatching {
+        val r = JSONObject(call("GET", "/fees/onchain"))
+        FeeRates(r.optLong("fast_sat_per_vb"), r.optLong("regular_sat_per_vb"), r.optLong("slow_sat_per_vb"))
+    }.getOrNull()
+
+    /**
+     * Network fee of a move into Ark at [rate] sat/vB: a taproot transaction spending every
+     * deposit coin (the worst case of the wallet's coin selection) into the board output and
+     * change, or no change when [all] of it moves. An estimate; the wallet computes the exact figure when it signs.
+     */
+    fun estimateBoardNetworkFee(rate: Double, all: Boolean): Long {
+        val inputs = runCatching { JSONArray(call("GET", "/onchain/utxos")).length() }.getOrDefault(1).coerceAtLeast(1)
+        // Moving everything has no change output.
+        val vbytes = 10.5 + 57.5 * inputs + 43.0 * (if (all) 1 else 2)
+        return kotlin.math.ceil(vbytes * rate).toLong()
+    }
 
     /**
      * Pays an Ark address, a Lightning invoice / address / offer, a Bitcoin address or a
@@ -442,13 +476,21 @@ object Ark {
      * On-chain entries have no clock time, only a block, so their time is estimated from it.
      */
     fun activity(): List<Movement> {
-        val moves = history()
-        val anchored = moves.mapNotNull { it.onchainTxid }.toSet()
+        val txs = depositTxs()
         val tip = runCatching { JSONObject(call("GET", "/bitcoin/tip")).optInt("tip_height", -1) }.getOrDefault(-1)
+        // How many blocks deep an on-chain transaction is: 0 in the mempool, null if unknown.
+        fun confs(txid: String?): Int? {
+            val t = txs.firstOrNull { it.txid == txid } ?: return null
+            return if (t.height == null) 0 else if (tip < 0) null else (tip - t.height + 1).coerceAtLeast(1)
+        }
+        val moves = history().map { m ->
+            if (m.kind == "move into Ark" && m.status != "successful") m.copy(confirmations = confs(m.onchainTxid)) else m
+        }
+        val anchored = moves.mapNotNull { it.onchainTxid }.toSet()
         val now = System.currentTimeMillis()
         val iso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
             .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
-        val deposits = depositTxs().filter { it.txid !in anchored && it.change != 0L }.map { t ->
+        val deposits = txs.filter { it.txid !in anchored && it.change != 0L }.map { t ->
             val ms = if (t.height == null || tip < 0) now else now - (tip - t.height).coerceAtLeast(0) * 600_000L
             Movement(
                 id = "tx:" + t.txid,
@@ -456,6 +498,7 @@ object Ark {
                 kind = if (t.change > 0) "deposit received" else "sent from deposit",
                 amount = t.change, time = iso.format(java.util.Date(ms)),
                 fee = t.fee ?: 0, onchainTxid = t.txid,
+                confirmations = if (t.height == null) 0 else null,
             )
         }
         return (moves + deposits).sortedByDescending { it.time }
@@ -631,6 +674,8 @@ object Ark {
         val vtxos: List<String> = emptyList(),
         val paymentHash: String? = null,
         val preimage: String? = null,
+        /** For a move into Ark still waiting, or a deposit in the mempool: blocks deep so far. */
+        val confirmations: Int? = null,
     )
 
     /** Plain names for the engine's movement subsystems. */

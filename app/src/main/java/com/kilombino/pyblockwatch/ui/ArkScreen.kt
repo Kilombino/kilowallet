@@ -107,7 +107,8 @@ fun ArkScreen(vm: WalletViewModel, accent: Color, pull: Int = 0) {
 
 @Composable
 private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
-    val ctx = LocalContext.current.applicationContext
+    val activity = LocalContext.current as FragmentActivity
+    val ctx = activity.applicationContext
     val scope = rememberCoroutineScope()
     var view by remember { mutableStateOf<ArkView>(ArkView.Starting) }
     var balance by remember { mutableStateOf<Ark.Balance?>(null) }
@@ -128,6 +129,11 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
         expiry = withContext(Dispatchers.IO) { Ark.blocksToNearestExpiry() }
         history = withContext(Dispatchers.IO) { runCatching { Ark.activity() }.getOrDefault(emptyList()) }
         fingerprint = withContext(Dispatchers.IO) { Ark.stateFingerprint() }
+        // The same alerts as the background watcher, so a movement pops up while the app is open.
+        withContext(Dispatchers.IO) {
+            if (com.kilombino.pyblockwatch.data.Store(ctx).notificationsEnabled)
+                runCatching { com.kilombino.pyblockwatch.data.ArkWatch.evaluate(ctx, com.kilombino.pyblockwatch.data.Notifier(ctx)) }
+        }
     }
 
     fun run(label: String, block: suspend () -> String?) {
@@ -138,6 +144,13 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
             runCatching { reload() }
         }
     }
+
+    // Anything that moves funds asks for the fingerprint (or screen lock) first, as on the
+    // XBT side. A phone without any screen lock has nothing to ask and goes straight on.
+    fun secured(what: String, label: String, block: suspend () -> String?) =
+        Biometric.confirm(activity, what, "Confirm it is you",
+            onSuccess = { run(label, block) },
+            onError = { message = "Error: $it" })
 
     LaunchedEffect(Unit) {
         view = try {
@@ -186,7 +199,8 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
             }
         }
         ArkView.Ready -> {
-            ArkBalancePanel(balance, expiry, accent, onFiat = vm::setFiat)
+            ArkBalancePanel(balance, expiry, history.firstOrNull { it.kind == "move into Ark" && it.confirmations != null }?.confirmations,
+                            accent, onFiat = vm::setFiat)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ArkButton("RECEIVE", sheet == "receive", accent, Modifier.weight(1f)) { sheet = if (sheet == "receive") null else "receive" }
                 ArkButton("SEND", sheet == "send", accent, Modifier.weight(1f)) { sheet = if (sheet == "send") null else "send" }
@@ -206,7 +220,7 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
                 ArkRenewDialog(e, accent,
                     onConfirm = { chosen ->
                         renew = null
-                        run("Renewing coins…") {
+                        secured("Renew Ark coins", "Renewing coins…") {
                             withContext(Dispatchers.IO) { if (chosen == null) Ark.refreshAll() else Ark.renewCoins(chosen) }
                             "Renewal requested; it completes in the next round."
                         }
@@ -218,7 +232,7 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
                     run(action.first) { val r = withContext(Dispatchers.IO) { action.second() }; done(r); null }
                 }
                 "send" -> ArkSendSheet(accent, (balance?.onchainConfirmed ?: 0)) { dest, sats, approved, fromDeposit, coins ->
-                    run("Sending…") {
+                    secured("Send from Ark", "Sending…") {
                         withContext(Dispatchers.IO) {
                             when {
                                 coins.isNotEmpty() && fromDeposit -> Ark.sendDepositCoins(dest, sats, coins)
@@ -232,10 +246,10 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
                     }
                     sheet = null
                 }
-                "board" -> ArkBoardSheet(balance, accent) { sats ->
-                    run("Moving funds into Ark…") {
-                        withContext(Dispatchers.IO) { if (sats == null) Ark.boardAll() else Ark.board(sats) }
-                        "Moving into Ark. It becomes spendable after 3 confirmations."
+                "board" -> ArkBoardSheet(balance, accent) { sats, rate ->
+                    secured("Move into Ark", "Moving funds into Ark…") {
+                        withContext(Dispatchers.IO) { if (sats == null) Ark.boardAll(rate) else Ark.board(sats, rate) }
+                        "Moving into Ark. It becomes spendable after ${Ark.BOARD_CONFIRMATIONS} confirmations."
                     }
                     sheet = null
                 }
@@ -243,7 +257,7 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
             }
             if (history.isNotEmpty()) ArkHistory(history, accent, vm.explorerFor(com.kilombino.pyblockwatch.chain.Chain.BLAKE2B))
             ArkBackupPanel(fingerprint, accent) { message = it }
-            ArkEmergencyPanel(accent) { message = it }
+            ArkEmergencyPanel(accent, activity) { message = it }
             ArkWarnings()
         }
     }
@@ -262,7 +276,7 @@ private fun ArkButton(label: String, selected: Boolean, accent: Color, modifier:
 }
 
 @Composable
-private fun ArkBalancePanel(b: Ark.Balance?, expiry: Int?, accent: Color, onFiat: (String) -> Unit) {
+private fun ArkBalancePanel(b: Ark.Balance?, expiry: Int?, boardConfs: Int?, accent: Color, onFiat: (String) -> Unit) {
     Panel(accent = accent) {
         SectionLabel("Your Ark wallet", accent)
         Spacer(Modifier.height(6.dp))
@@ -283,7 +297,9 @@ private fun ArkBalancePanel(b: Ark.Balance?, expiry: Int?, accent: Color, onFiat
             FiatChip("EUR", code == "EUR", accent) { onFiat("EUR") }
         }
         if (b == null) { Text("Loading…", style = MaterialTheme.typography.bodySmall, color = TextFaint); return@Panel }
-        if (b.pendingBoard > 0) Text("entering Ark: ${groupSats(b.pendingBoard)} sats (needs 3 confirmations)",
+        if (b.pendingBoard > 0) Text("entering Ark: ${groupSats(b.pendingBoard)} sats · " +
+                                     (boardConfs?.let { "$it of ${Ark.BOARD_CONFIRMATIONS} confirmations" }
+                                         ?: "needs ${Ark.BOARD_CONFIRMATIONS} confirmations"),
                                      style = MaterialTheme.typography.bodySmall, color = Warn)
         if (b.pendingRound > 0) Text("in the next round: ${groupSats(b.pendingRound)} sats",
                                      style = MaterialTheme.typography.bodySmall, color = Warn)
@@ -545,34 +561,71 @@ private fun CostBreakdown(e: Ark.Estimate, amountLabel: String, totalLabel: Stri
 }
 
 @Composable
-private fun ArkBoardSheet(b: Ark.Balance?, accent: Color, onBoard: (Long?) -> Unit) {
+private fun ArkBoardSheet(b: Ark.Balance?, accent: Color, onBoard: (Long?, Double?) -> Unit) {
     var amount by remember { mutableStateOf("") }
     val available = (b?.onchainConfirmed ?: 0)
+    // Network fee of the funding transaction: the wallet's estimate, or one chosen here.
+    var rates by remember { mutableStateOf<Ark.FeeRates?>(null) }
+    var rateText by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        rates = withContext(Dispatchers.IO) { Ark.onchainFeeRates() }
+        if (rateText.isEmpty()) rates?.let { rateText = it.regular.coerceAtLeast(1).toString() }
+    }
+    val rate = rateText.replace(',', '.').toDoubleOrNull()
+    val rateOk = rate != null && rate >= 0.1 && rate <= 10_000
     Panel(accent = accent) {
         SectionLabel("Move into Ark", accent)
         Spacer(Modifier.height(6.dp))
         Explain("Moves confirmed XBT from this wallet's deposit address into Ark. Minimum " +
-            "${groupSats(Ark.MIN_BOARD_SAT)} sats; spendable after 3 confirmations. Available: ${groupSats(available)} sats.")
+            "${groupSats(Ark.MIN_BOARD_SAT)} sats; spendable after ${Ark.BOARD_CONFIRMATIONS} confirmations. Available: ${groupSats(available)} sats.")
         OutlinedTextField(value = amount, onValueChange = { amount = it.filter(Char::isDigit) },
             label = { Text("sats (empty = everything)") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Network fee", style = MaterialTheme.typography.bodySmall, color = TextSoft, modifier = Modifier.weight(1f))
+            rates?.let { r ->
+                listOf("slow" to r.slow, "normal" to r.regular, "fast" to r.fast).forEach { (name, v) ->
+                    val value = v.coerceAtLeast(1).toString()
+                    FiatChip(name, rateText == value, accent) { rateText = value }
+                    Spacer(Modifier.width(4.dp))
+                }
+            }
+        }
+        OutlinedTextField(value = rateText, onValueChange = { t -> rateText = t.filter { it.isDigit() || it == '.' || it == ',' } },
+            label = { Text("sat/vB (decimals allowed, at least 0.1)") }, singleLine = true,
+            isError = rateText.isNotEmpty() && !rateOk,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+        if (rate != null && rate < 1.0 && rateOk) Text(
+            "Below 1 sat/vB most XBT pools do not mine it yet, so it can take a long time to confirm. " +
+                "The move only counts from its ${Ark.BOARD_CONFIRMATIONS}rd confirmation, and the new coin's " +
+                "30 days start when you send it: a long wait shortens them.",
+            style = MaterialTheme.typography.bodySmall, color = Warn)
         Spacer(Modifier.height(8.dp))
         val sats = amount.toLongOrNull()
         var est by remember { mutableStateOf<Ark.Estimate?>(null) }
-        LaunchedEffect(sats, available) {
-            val target = sats ?: available
+        var netFee by remember { mutableStateOf<Long?>(null) }
+        LaunchedEffect(sats, available, rate) {
+            netFee = if (rateOk) withContext(Dispatchers.IO) { runCatching { Ark.estimateBoardNetworkFee(rate!!, sats == null) }.getOrNull() } else null
+            // Moving everything: the network fee comes out of the deposit first.
+            val target = sats ?: (available - (netFee ?: 0))
             est = if (target >= Ark.MIN_BOARD_SAT) withContext(Dispatchers.IO) { runCatching { Ark.estimateBoard(target) }.getOrNull() } else null
         }
         est?.let {
             CostBreakdown(it, "Added to Ark", "From your deposit", accent)
+            netFee?.let { f ->
+                Text("Plus the network fee of the move: about ${groupSats(f)} sats at $rateText sat/vB" +
+                    (fiatOf(f)?.let { " ($it)" } ?: "") + ", paid from the deposit" + (if (sats == null) " before the rest moves in." else "."),
+                    style = MaterialTheme.typography.bodySmall, color = TextSoft)
+            }
             Text("Your Ark balance after: " + groupSats((b?.spendable ?: 0) + it.amount) + " sats " +
                 "(now ${groupSats(b?.spendable ?: 0)} + ${groupSats(it.amount)}).",
                 style = MaterialTheme.typography.bodySmall, color = TextSoft)
             Spacer(Modifier.height(8.dp))
         }
         Button(
-            enabled = available >= Ark.MIN_BOARD_SAT && (sats == null || sats >= Ark.MIN_BOARD_SAT),
-            onClick = { onBoard(sats) },
+            enabled = available >= Ark.MIN_BOARD_SAT && (sats == null || sats >= Ark.MIN_BOARD_SAT) && rateOk,
+            onClick = { onBoard(sats, rate) },
             colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
             shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
         ) { Text("MOVE INTO ARK", style = MaterialTheme.typography.titleMedium) }
@@ -593,11 +646,17 @@ private fun ArkHistory(items: List<Ark.Movement>, accent: Color, explorer: Strin
                 Text((if (m.amount >= 0) "+" else "") + groupSats(m.amount) + " sats",
                      style = MaterialTheme.typography.bodySmall,
                      color = if (m.amount >= 0) Good else TextMain, modifier = Modifier.weight(1f))
-                Text("${m.kind} · ${m.status}", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+                Text("${m.kind} · ${statusOf(m)}", style = MaterialTheme.typography.bodySmall, color = TextFaint)
             }
             Spacer(Modifier.height(4.dp))
         }
     }
+}
+
+/** The status, with the confirmations so far while a move into Ark or a deposit waits. */
+private fun statusOf(m: Ark.Movement): String {
+    val c = m.confirmations ?: return m.status
+    return if (m.kind == "move into Ark") "${m.status} · $c/${Ark.BOARD_CONFIRMATIONS} conf" else "${m.status} · $c conf"
 }
 
 /** One movement in full, and its blockchain transaction when it has one. */
@@ -615,7 +674,7 @@ private fun ArkMovementDialog(m: Ark.Movement, accent: Color, explorer: String, 
                 Text(line("Amount", (if (m.amount >= 0) "+" else "") + groupSats(m.amount) + " sats") +
                     (fiatOf(m.amount)?.let { "  $it" } ?: ""))
                 if (m.fee > 0) Text(line("Cost", groupSats(m.fee) + " sats") + (fiatOf(m.fee)?.let { "  $it" } ?: ""))
-                Text(line("Status", m.status))
+                Text(line("Status", statusOf(m)))
                 if (m.time.isNotEmpty()) Text(line("Date", m.time.substringBefore('.').replace('T', ' ') + " UTC"))
                 m.destinations.forEach { d ->
                     Text(line("To", d.take(24) + "…" + d.takeLast(8)), style = MaterialTheme.typography.bodySmall)
@@ -716,7 +775,7 @@ fun ArkWarnings() {
             "Minimum to move funds into Ark: ${groupSats(Ark.MIN_BOARD_SAT)} sats.",
             "Maximum per Ark coin: ${groupSats(Ark.MAX_VTXO_SAT)} sats.",
             "Lightning: up to ${groupSats(Ark.MAX_LIGHTNING_SAT)} sats per payment, no channels needed.",
-            "Every Ark payment pre-pays recovery reserves for each coin it uses (about 6 000 sats for one coin with change) and must leave at least 1 330 sats of change. Small balances can only leave Ark on-chain. The wallet shows the exact cost before you confirm.",
+            "Every Ark payment pre-pays recovery reserves for each coin it uses: 4 000 sats for a coin spent whole, 6 000 for one with change, which must leave at least 1 330 sats. Small balances can only leave Ark on-chain. The wallet shows the exact cost before you confirm.",
             "Rounds every 60 seconds; moving funds in needs 3 confirmations.",
             "Back up Ark twice: write down its words, and save a backup file after each movement (BACKUP panel). With neither, uninstalling the app or losing the phone loses the funds.",
             "Ark is beta software, through the Paperclip Ark server (ark.paperclippool.xyz).",
