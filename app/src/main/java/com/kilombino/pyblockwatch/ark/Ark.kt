@@ -312,7 +312,30 @@ object Ark {
                 "Withdrawal requested: it leaves Ark in the next round."
             }
         }
-        return JSONObject(call("POST", "/wallet/send", req, 180_000)).optString("message")
+        val r = JSONObject(call("POST", "/wallet/send", req, 180_000))
+        val hash = r.optString("payment_hash").takeIf { it.length == 64 }
+        // The engine answers "Payment sent successfully" as soon as a Lightning payment
+        // STARTS. Wait for its real outcome instead of telling the user it worked.
+        if (hash == null || !d.startsWith("ln", ignoreCase = true)) return r.optString("message")
+        return lightningOutcome(hash)
+    }
+
+    /**
+     * Follows a Lightning payment's movement until it settles or fails, for up to [waitMs].
+     * A failed payment returns the coins, but the recovery reserve it funded is not refunded.
+     */
+    fun lightningOutcome(hash: String, waitMs: Long = 90_000): String {
+        val deadline = System.currentTimeMillis() + waitMs
+        while (System.currentTimeMillis() < deadline) {
+            val m = history().firstOrNull { it.paymentHash == hash }
+            when (m?.status) {
+                "successful" -> return "Lightning payment completed."
+                "failed", "canceled", "cancelled" -> return "Error: the Lightning payment failed. The coins came back to " +
+                    "Ark, but the recovery reserve it pre-paid (${kotlin.math.abs(m.amount)} sats) is not refunded."
+            }
+            Thread.sleep(3_000)
+        }
+        return "The Lightning payment is still in progress. Its result will show in Ark activity."
     }
 
     /**
@@ -354,8 +377,11 @@ object Ark {
                 Estimate(0, 0, 0, false, "", "This is a reusable BOLT12 offer: enter the amount to pay.")
             d.startsWith("ln", ignoreCase = true) -> {
                 val amt = sats ?: invoiceSats(d) ?: return null
-                feeQuery("/fees/lightning/pay?amount_sat=$amt")?.copy(
-                    note = "Lightning: the server's fee plus the recovery reserve of the transfer.")
+                feeQuery("/fees/lightning/pay?amount_sat=$amt")?.let {
+                    it.copy(note = "Lightning: the server's fee plus the recovery reserve of the transfer. If the " +
+                        "payment fails, the amount comes back but the recovery reserve is NOT refunded, so " +
+                        "each failed attempt costs about ${kotlin.math.max(it.fee, 0)} sats.")
+                }
             }
             d.startsWith("ark1", ignoreCase = true) -> estimateArkPayment(d, sats ?: return null, null)
             else -> {
