@@ -341,6 +341,13 @@ private fun ArkReceiveSheet(
     val clip = LocalClipboardManager.current
     var shown by remember { mutableStateOf<Pair<String, String>?>(null) }  // label, text
     var amount by remember { mutableStateOf("") }
+    // The invoice is made here rather than through run(): its progress and any error belong
+    // next to the button. Through run() they went to the foot of the screen, out of sight,
+    // while the previous invoice stayed up and looked like the "new" one.
+    val scope = rememberCoroutineScope()
+    var invoicing by remember { mutableStateOf(false) }
+    var invoiceError by remember { mutableStateOf<String?>(null) }
+    var lnState by remember { mutableStateOf<String?>(null) }
     Panel(accent = accent) {
         SectionLabel("Receive", accent)
         Spacer(Modifier.height(8.dp))
@@ -367,20 +374,37 @@ private fun ArkReceiveSheet(
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(6.dp))
-            ArkButton("⚡ INVOICE", false, accent, Modifier.width(130.dp)) {
-                val sats = amount.toLongOrNull() ?: return@ArkButton
-                run("Creating a Lightning invoice…" to {
-                    // The engine would make an invoice whose payment can never be claimed: the
-                    // payer's HTLC is refused and the payment fails. Refuse it here instead.
-                    val net = Ark.estimateLightningReceive(sats)?.amount
-                    require(net == null || net >= Ark.MIN_OUTPUT_SAT) {
-                        "An invoice of $sats sats leaves you ${net ?: 0} after the receive cost, below the " +
-                            "${Ark.MIN_OUTPUT_SAT}-sat minimum, so the payment would fail. Ask for at least about 5 500 sats."
-                    }
-                    Ark.lightningInvoice(sats, null)
-                }) { shown = "Lightning invoice ($sats sats)" to it }
+            ArkButton(if (invoicing) "…" else "⚡ INVOICE", false, accent, Modifier.width(130.dp)) {
+                if (invoicing) return@ArkButton
+                val sats = amount.toLongOrNull()
+                if (sats == null || sats <= 0) { invoiceError = "Type the amount in sats first."; return@ArkButton }
+                // Each press is a new invoice: the old one goes away at once, so it can't be
+                // taken for the new one (or paid twice) while the engine is still working.
+                shown = null; invoiceError = null; invoicing = true
+                scope.launch {
+                    try {
+                        val inv = withContext(Dispatchers.IO) {
+                            // The engine would make an invoice whose payment can never be claimed: the
+                            // payer's HTLC is refused and the payment fails. Refuse it here instead.
+                            val net = Ark.estimateLightningReceive(sats)?.amount
+                            require(net == null || net >= Ark.MIN_OUTPUT_SAT) {
+                                "An invoice of $sats sats leaves you ${net ?: 0} after the receive cost, below the " +
+                                    "${Ark.MIN_OUTPUT_SAT}-sat minimum, so the payment would fail. Ask for at least about 5 500 sats."
+                            }
+                            Ark.lightningInvoice(sats, null)
+                        }
+                        lnState = null
+                        shown = "Lightning invoice ($sats sats)" to inv
+                    } catch (e: Exception) {
+                        invoiceError = "Could not create the invoice: " + (e.message ?: e.toString())
+                    } finally { invoicing = false }
+                }
             }
         }
+        if (invoicing) Text("Creating a new Lightning invoice… It can take a minute while the wallet " +
+            "finishes other work, such as claiming an earlier payment.",
+            style = MaterialTheme.typography.bodySmall, color = Warn)
+        invoiceError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Bad) }
         Text("Lightning: up to ${groupSats(Ark.MAX_LIGHTNING_SAT)} sats per payment. Deposits become Ark funds with MOVE INTO ARK (minimum ${groupSats(Ark.MIN_BOARD_SAT)} sats).",
              style = MaterialTheme.typography.bodySmall, color = TextFaint)
         // Before creating a Lightning invoice, show what will actually arrive.
@@ -396,11 +420,31 @@ private fun ArkReceiveSheet(
                 "sats, below the ${groupSats(Ark.MIN_OUTPUT_SAT)}-sat minimum, so the payer's payment would fail.",
                 style = MaterialTheme.typography.bodySmall, color = Bad)
         }
+        // Follow the invoice on screen until it is paid, so nobody pays it a second time:
+        // a paid invoice can't be paid again and the payer only sees a failure.
+        val isInvoice = shown?.first?.startsWith("Lightning invoice") == true
+        LaunchedEffect(shown) {
+            val inv = shown?.second
+            if (!isInvoice || inv == null) return@LaunchedEffect
+            while (lnState != "settled") {
+                lnState = withContext(Dispatchers.IO) { Ark.lightningReceiveState(inv) } ?: lnState
+                delay(4_000)
+            }
+        }
         shown?.let { (label, text) ->
+            val paid = isInvoice && lnState == "settled"
             Spacer(Modifier.height(10.dp))
             Text(label, style = MaterialTheme.typography.bodySmall, color = accent)
+            if (isInvoice) {
+                val (st, col) = when (lnState) {
+                    "settled" -> "✅ Paid: this invoice is done, it can't be paid again. Create a new one for another payment." to Good
+                    "htlcs-ready", "preimage-revealed", "delivering" -> "⏳ Payment arriving…" to Warn
+                    else -> "Waiting for payment. Valid for one payment only." to TextFaint
+                }
+                Text(st, style = MaterialTheme.typography.bodySmall, color = col)
+            }
             Spacer(Modifier.height(6.dp))
-            QrImage(if (label.contains("Lightning")) text.uppercase() else text, 230)
+            if (!paid) QrImage(if (label.contains("Lightning")) text.uppercase() else text, 230)
             Spacer(Modifier.height(6.dp))
             SelectionContainer { Text(text, style = MaterialTheme.typography.bodySmall, color = TextMain) }
             Row {

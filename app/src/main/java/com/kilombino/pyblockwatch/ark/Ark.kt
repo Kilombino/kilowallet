@@ -672,6 +672,12 @@ object Ark {
         return r.optString("invoice", r.toString())
     }
 
+    /** Where a Lightning invoice made by this wallet stands: awaiting-payment, htlcs-ready,
+     *  preimage-revealed, delivering or settled; null if the engine does not know it. */
+    fun lightningReceiveState(invoice: String): String? = runCatching {
+        JSONObject(call("GET", "/lightning/receives/$invoice")).optString("state").ifBlank { null }
+    }.getOrNull()
+
     /** What renewing every coin costs now: the round fee, and what the new coin holds. */
     fun estimateRenew(): Estimate? = runCatching {
         val r = JSONObject(call("GET", "/fees/refresh-all"))
