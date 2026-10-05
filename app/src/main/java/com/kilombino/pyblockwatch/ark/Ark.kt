@@ -1,6 +1,7 @@
 package com.kilombino.pyblockwatch.ark
 
 import android.content.Context
+import com.kilombino.pyblockwatch.data.Contacts
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -39,6 +40,7 @@ object Ark {
     /** Starts the engine once per process. Blocking: call off the main thread. */
     @Synchronized
     fun ensureStarted(ctx: Context) {
+        Contacts.attach(ctx)
         if (token != null || !available) return
         val datadir = datadir(ctx)
         val seed = ArkSeed(ctx)
@@ -152,7 +154,10 @@ object Ark {
         val ids = (0 until vtxos.length()).map { vtxos.getJSONObject(it).optString("id") }.sorted()
         val moves = history().map { "${it.id}:${it.status}" }.sorted()
         val md = java.security.MessageDigest.getInstance("SHA-256")
-        md.digest((ids + "|" + moves).joinToString(",").toByteArray())
+        // Contacts count too, so adding one asks for a fresh backup file. Without any, the
+        // fingerprint stays what it was before contacts existed.
+        val contacts = Contacts.digest().let { if (it.isEmpty()) emptyList() else listOf("|contacts", it) }
+        md.digest((ids + "|" + moves + contacts).joinToString(",").toByteArray())
             .joinToString("") { "%02x".format(it) }
     }.getOrNull()
 
@@ -180,6 +185,7 @@ object Ark {
                 dbWal = File(dir, "db.sqlite-wal").takeIf { it.exists() && it.length() > 0 }?.readBytes(),
                 movements = movements,
                 created = System.currentTimeMillis(),
+                contacts = Contacts.export(ctx),
             )
         } finally {
             ensureStarted(ctx)
@@ -215,6 +221,7 @@ object Ark {
         File(dir, "db.sqlite").writeBytes(s.db)
         s.dbWal?.let { File(dir, "db.sqlite-wal").writeBytes(it) }
         ArkSeed(ctx).save(s.words, s.passphrase)
+        Contacts.merge(ctx, s.contacts)
         ensureStarted(ctx)
         // The restored wallet is exactly what the file holds.
         markBackedUp(ctx, stateFingerprint())

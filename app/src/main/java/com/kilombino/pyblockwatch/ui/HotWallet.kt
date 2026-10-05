@@ -412,6 +412,7 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
     val activity = LocalContext.current as FragmentActivity
     val state by vm.state.collectAsState()
     var to by remember { mutableStateOf("") }
+    var askedSave by remember { mutableStateOf(false) }
     var amount by remember { mutableStateOf("") }
     var feeRate by remember { mutableStateOf("2") }
     var coinControl by remember { mutableStateOf(false) }
@@ -423,6 +424,9 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
         ActivityResultContracts.RequestPermission(),
     ) { granted -> if (granted) showScanner = true }
     LaunchedEffect(state.selected) { vm.loadUtxos() }
+    // Each payment gets its own offer to save the destination.
+    val sent = state.sendPhase is SendPhase.Sent
+    LaunchedEffect(sent) { if (!sent) askedSave = false }
     if (showScanner) {
         QrScannerDialog(
             onResult = { raw ->
@@ -450,6 +454,7 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
 
         when (val phase = state.sendPhase) {
             is SendPhase.Sent -> {
+                if (!askedSave) SaveContactPrompt(to.trim(), accent) { askedSave = true }
                 Text("Broadcast ✓", color = Good, style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
                 SelectionContainer { Text(phase.txid, color = TextSoft,
@@ -528,8 +533,14 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                         ) showScanner = true else cameraPermission.launch(android.Manifest.permission.CAMERA)
                     }) { Text("📷", color = accent, style = MaterialTheme.typography.titleMedium) }
                 }
-                Text("address · sp1… (silent payment) · user@domain",
-                     style = MaterialTheme.typography.bodySmall, color = TextFaint)
+                ContactName(to.trim(), accent)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("address · sp1… (silent payment) · user@domain",
+                         style = MaterialTheme.typography.bodySmall, color = TextFaint, modifier = Modifier.weight(1f))
+                    ContactsButton(accent, fits = { k ->
+                        k == com.kilombino.pyblockwatch.data.Contacts.Kind.XBT || k == com.kilombino.pyblockwatch.data.Contacts.Kind.HANDLE
+                    }) { to = it }
+                }
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(

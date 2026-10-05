@@ -1,6 +1,7 @@
 package com.kilombino.pyblockwatch.ark
 
 import android.util.Base64
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -19,7 +20,8 @@ import javax.crypto.spec.SecretKeySpec
  * recovery transactions. With it the coins can be withdrawn on-chain even if the Ark
  * server disappears; the words alone depend on the server to hand the coins back.
  *
- * The JSON holds the words and, only when there is one, their BIP-39 passphrase.
+ * The JSON holds the words and, only when there is one, their BIP-39 passphrase; and,
+ * when there are any, the saved contacts (an older app ignores them).
  *
  * Layout: "KARKBAK1", one flag byte (0 = plain, 1 = password), then for a password a
  * 16-byte salt and 12-byte IV, then gzip(JSON) — AES-256-GCM encrypted for a password,
@@ -38,6 +40,8 @@ object ArkBackup {
         val dbWal: ByteArray?,
         val movements: Int,
         val created: Long,
+        /** The contacts list as JSON, or null when there are none. */
+        val contacts: String? = null,
     )
 
     class WrongPassword : Exception("Wrong password.")
@@ -61,6 +65,7 @@ object ArkBackup {
             .put("config", s.config)
             .put("db", Base64.encodeToString(s.db, Base64.NO_WRAP))
             .apply { s.dbWal?.let { put("db_wal", Base64.encodeToString(it, Base64.NO_WRAP)) } }
+            .apply { s.contacts?.let { put("contacts", JSONArray(it)) } }
         val payload = gzip(json.toString().toByteArray(Charsets.UTF_8))
         val out = ByteArrayOutputStream()
         out.write(MAGIC)
@@ -104,6 +109,7 @@ object ArkBackup {
             dbWal = j.optString("db_wal").takeIf { it.isNotEmpty() }?.let { Base64.decode(it, Base64.NO_WRAP) },
             movements = j.optInt("movements"),
             created = j.optLong("created"),
+            contacts = j.optJSONArray("contacts")?.toString(),
         )
     }
 

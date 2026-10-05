@@ -63,6 +63,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
 import com.kilombino.pyblockwatch.ark.Ark
+import com.kilombino.pyblockwatch.data.Contacts
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -118,6 +119,7 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
     var busy by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var sheet by remember { mutableStateOf<String?>(null) }   // "receive" | "send" | "board"
+    var askSave by remember { mutableStateOf<String?>(null) }  // a destination just paid, to offer saving
     // The renewal quote, shown in a confirmation dialog before anything happens.
     var renew by remember { mutableStateOf<Ark.Estimate?>(null) }
     // New Ark words, shown once right after activation so they get written down.
@@ -233,7 +235,7 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
                 }
                 "send" -> ArkSendSheet(accent, (balance?.onchainConfirmed ?: 0)) { dest, sats, approved, fromDeposit, coins ->
                     secured("Send from Ark", "Sending…") {
-                        withContext(Dispatchers.IO) {
+                        val result = withContext(Dispatchers.IO) {
                             when {
                                 coins.isNotEmpty() && fromDeposit -> Ark.sendDepositCoins(dest, sats, coins)
                                 coins.isNotEmpty() && dest.startsWith("ark1", true) && sats != null && approved != null ->
@@ -243,6 +245,9 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
                                 else -> Ark.send(dest, sats, approved)
                             }
                         }.ifBlank { "Sent." }
+                        // Once it went out, offer to keep the destination for next time.
+                        if (!result.startsWith("Error")) askSave = dest
+                        result
                     }
                     sheet = null
                 }
@@ -261,6 +266,7 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
             ArkWarnings()
         }
     }
+    askSave?.let { d -> SaveContactPrompt(d, accent) { saved -> askSave = null; if (saved) scope.launch { runCatching { reload() } } } }
     busy?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Warn) }
     message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (it.startsWith("Error")) Bad else Good) }
 }
@@ -507,7 +513,14 @@ private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, L
         Spacer(Modifier.height(6.dp))
         OutlinedTextField(value = dest, onValueChange = { dest = it.trim(); review = null },
             label = { Text("Ark address, Lightning invoice or XBT address") }, modifier = Modifier.fillMaxWidth())
-        TextButton(onClick = { clip.getText()?.text?.let { dest = it.trim(); review = null } }) { Text("PASTE", color = accent) }
+        ContactName(dest, accent)
+        Row {
+            TextButton(onClick = { clip.getText()?.text?.let { dest = it.trim(); review = null } }) { Text("PASTE", color = accent) }
+            // From the deposit only XBT addresses; from Ark also Ark addresses and reusable offers.
+            ContactsButton(accent, fits = { k -> k == Contacts.Kind.XBT || (!fromDeposit && k != Contacts.Kind.HANDLE) }) {
+                dest = it; review = null
+            }
+        }
         OutlinedTextField(value = amount, onValueChange = { amount = it.filter(Char::isDigit); review = null },
             label = { Text("sats (empty: the invoice's amount, or everything to an XBT address)") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
