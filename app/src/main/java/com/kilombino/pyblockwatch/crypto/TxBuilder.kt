@@ -348,6 +348,21 @@ object TxBuilder {
         for (i in inputs.indices) {
             witnesses.add(witnessSignature(version, inputs, outputs, i, locktime, unified, grindLowR, auxRand))
         }
+        return assemble(inputs, outputs, witnesses, version, locktime)
+    }
+
+    /**
+     * Serialise a transaction from already-made signatures, one per input in [witnesses]. A
+     * coinjoin uses it: every participant signs only their own input, and anyone can then put
+     * the pieces together. The [Input.privateKey] of the inputs is not read here.
+     */
+    fun assemble(
+        inputs: List<Input>, outputs: List<Output>, witnesses: List<ByteArray>,
+        version: Long = 2, locktime: Long = 0,
+    ): Signed {
+        require(inputs.isNotEmpty()) { "a transaction needs at least one input" }
+        require(outputs.isNotEmpty()) { "a transaction needs at least one output" }
+        require(witnesses.size == inputs.size) { "one signature per input" }
         // P2WPKH proves everything in the witness; nested SegWit puts its redeem script in the
         // scriptSig; legacy P2PKH carries signature and key in the scriptSig and no witness.
         val scriptSigs = inputs.mapIndexed { i, inp ->

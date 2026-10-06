@@ -38,6 +38,18 @@ object XChaCha20Poly1305 {
         return out
     }
 
+    /** Plain ChaCha20 (RFC 8439) keystream XOR, starting at block [counter]. NIP-44 uses it. */
+    internal fun chacha20(key: ByteArray, nonce12: ByteArray, data: ByteArray, counter: Int = 0): ByteArray {
+        val out = ByteArray(data.size)
+        var off = 0; var c = counter
+        while (off < data.size) {
+            val ks = block(key, c++, nonce12)
+            for (i in 0 until minOf(64, data.size - off)) out[off + i] = (data[off + i].toInt() xor ks[i].toInt()).toByte()
+            off += 64
+        }
+        return out
+    }
+
     /** HChaCha20: the subkey for an extended nonce. */
     private fun hchacha(key: ByteArray, nonce16: ByteArray): ByteArray {
         val x = IntArray(16)

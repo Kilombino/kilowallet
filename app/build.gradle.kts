@@ -147,4 +147,6 @@ dependencies {
     // can read and rebuild. JSON comes from org.json, which is part of Android.
 
     testImplementation("junit:junit:4.13.2")
+    // The real org.json for JVM tests (Android's copy is only stubs off-device). Test-only: not in the APK.
+    testImplementation("org.json:json:20240303")
 }
