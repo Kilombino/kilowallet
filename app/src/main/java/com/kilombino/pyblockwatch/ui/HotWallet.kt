@@ -417,6 +417,10 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
     var feeRate by remember { mutableStateOf("2") }
     var coinControl by remember { mutableStateOf(false) }
     val selectedOutpoints = remember { androidx.compose.runtime.mutableStateListOf<String>() }
+    // More recipients in the same transaction (BTC only): address and amount per row.
+    val extraTo = remember { androidx.compose.runtime.mutableStateListOf<String>() }
+    val extraAmount = remember { androidx.compose.runtime.mutableStateListOf<String>() }
+    val multi = state.selected == com.kilombino.pyblockwatch.chain.Chain.BLAKE2B
     var showScanner by remember { mutableStateOf(false) }
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val context = LocalContext.current
@@ -475,6 +479,14 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                          style = MaterialTheme.typography.bodySmall)
                 }
                 RowLine("Amount", "${groupSats(d.amount)} sats", accent)
+                d.extra.forEachIndexed { i, (addr, sats) ->
+                    RowLine("To ${i + 2}", shortAddress(addr), accent)
+                    RowLine("Amount ${i + 2}", "${groupSats(sats)} sats", accent)
+                }
+                if (d.extra.isNotEmpty()) RowLine("Total sent", "${groupSats(d.totalSent)} sats", accent)
+                if (d.chain == com.kilombino.pyblockwatch.chain.Chain.BLAKE2B)
+                    Text("Signed with the unified sighash: valid only on BTC, it can't be replayed on the spamchain.",
+                         color = TextFaint, style = MaterialTheme.typography.bodySmall)
                 RowLine("Fee", "${groupSats(d.fee)} sats", accent)
                 RowLine("Change", if (d.change > 0) "${groupSats(d.change)} sats" else "—", accent)
                 RowLine("Inputs", "${d.inputs.size}", accent)
@@ -558,15 +570,58 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("fee 0.1–1000 sat/vB · MAX sends everything minus fee",
+                    Text(if (extraTo.isEmpty()) "fee 0.1–1000 sat/vB · MAX sends everything minus fee" else "fee 0.1–1000 sat/vB",
                          style = MaterialTheme.typography.bodySmall, color = TextFaint,
                          modifier = Modifier.weight(1f))
-                    TextButton(onClick = {
+                    if (extraTo.isEmpty()) TextButton(onClick = {
                         val sel = if (coinControl) {
                             (state.utxos ?: emptyList()).filter { "${it.txid}:${it.vout}" in selectedOutpoints }
                         } else emptyList()
                         amount = vm.maxSendable(feeRate.toDoubleOrNull() ?: 1.0, sel).toString()
                     }) { Text("MAX", color = accent, style = MaterialTheme.typography.bodyMedium) }
+                }
+
+                // More recipients, all paid by this one transaction.
+                if (multi) {
+                    extraTo.indices.forEach { i ->
+                        Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("recipient ${i + 2}", style = MaterialTheme.typography.bodySmall, color = TextSoft,
+                                 modifier = Modifier.weight(1f))
+                            TextButton(onClick = {
+                                val p = clipboard.getText()?.text?.trim()
+                                if (!p.isNullOrBlank()) {
+                                    var v = p; val sc = v.indexOf(':')
+                                    if (sc in 1..10 && v.substring(0, sc).lowercase() == "bitcoin") v = v.substring(sc + 1)
+                                    extraTo[i] = v.substringBefore("?").trim()
+                                }
+                            }) { Text("PASTE", color = accent, style = MaterialTheme.typography.bodySmall) }
+                            ContactsButton(accent, fits = { k ->
+                                k == com.kilombino.pyblockwatch.data.Contacts.Kind.XBT || k == com.kilombino.pyblockwatch.data.Contacts.Kind.HANDLE
+                            }) { extraTo[i] = it }
+                            TextButton(onClick = { extraTo.removeAt(i); extraAmount.removeAt(i) }) {
+                                Text("✕", color = Bad, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = extraTo[i], onValueChange = { extraTo[i] = it },
+                                label = { Text("address · user@domain", style = MaterialTheme.typography.bodySmall) },
+                                textStyle = MaterialTheme.typography.bodySmall, singleLine = true,
+                                modifier = Modifier.weight(2f),
+                            )
+                            OutlinedTextField(
+                                value = extraAmount[i], onValueChange = { extraAmount[i] = it.filter(Char::isDigit) },
+                                label = { Text("sats", style = MaterialTheme.typography.bodySmall) },
+                                textStyle = MaterialTheme.typography.bodySmall, singleLine = true,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        ContactName(extraTo[i].trim(), accent)
+                    }
+                    TextButton(onClick = { extraTo.add(""); extraAmount.add("") }) {
+                        Text("＋ ADD RECIPIENT", color = accent, style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
 
                 // Coin control: pick exactly which UTXOs to spend, or leave off for auto-select.
@@ -629,9 +684,11 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                             amount.toLongOrNull() ?: 0L,
                             feeRate.toDoubleOrNull() ?: 1.0,
                             sel,
+                            if (multi) extraTo.indices.map { extraTo[it].trim() to (extraAmount[it].toLongOrNull() ?: 0L) } else emptyList(),
                         )
                     },
                     enabled = to.isNotBlank() && (amount.toLongOrNull() ?: 0L) > 0 &&
+                        (!multi || extraTo.indices.all { extraTo[it].isNotBlank() && (extraAmount[it].toLongOrNull() ?: 0L) > 0 }) &&
                         (!coinControl || selectedOutpoints.isNotEmpty()),
                     colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
                     shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),

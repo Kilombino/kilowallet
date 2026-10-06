@@ -48,7 +48,12 @@ data class SendDraft(
     /** Set when this draft replaces an unconfirmed send (RBF): its txid and the fee it paid. */
     val replaces: String? = null,
     val replacedFee: Long = 0,
-)
+    /** More recipients after the first, in output order (address as typed, sats). */
+    val extra: List<Pair<String, Long>> = emptyList(),
+) {
+    /** Everything that leaves the wallet: the first recipient plus the extra ones. */
+    val totalSent: Long get() = amount + extra.sumOf { it.second }
+}
 
 /** One coin found on a private key being swept, with the address form it sits in. */
 data class SweepCoin(
@@ -831,6 +836,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun prepareSend(
         toAddress: String, amountSats: Long, feeRatePerVb: Double,
         selected: List<com.kilombino.pyblockwatch.data.Scanner.SpendableUtxo> = emptyList(),
+        extra: List<Pair<String, Long>> = emptyList(),
     ) {
         val chain = _state.value.selected
         val cs = _state.value.chains[chain] ?: return
@@ -855,11 +861,25 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     else com.kilombino.pyblockwatch.crypto.Address.decodeToScriptPubKey(effectiveTo)
                 require(amountSats > 0) { "Enter an amount." }
                 val rate = feeRatePerVb.coerceIn(0.1, 1000.0)
+                // Extra recipients (BTC only): plain addresses or user@domain, each its own output
+                // in the same transaction, so the whole batch is signed (and replay-protected) at once.
+                require(extra.isEmpty() || chain == Chain.BLAKE2B) { "Several recipients are only for BTC." }
+                val extraOuts = extra.mapIndexed { i, (addr, sats) ->
+                    require(sats > DUST_SATS) { "Recipient ${i + 2}: enter an amount above ${DUST_SATS} sats." }
+                    val a = if (addr.contains("@")) resolveBip353(addr) else addr
+                    require(!a.trim().lowercase().startsWith("sp1")) {
+                        "Recipient ${i + 2}: a silent payment can only be the first recipient."
+                    }
+                    com.kilombino.pyblockwatch.crypto.TxBuilder.Output(
+                        com.kilombino.pyblockwatch.crypto.Address.decodeToScriptPubKey(a.trim()), sats)
+                }
+                val totalOut = amountSats + extraOuts.sumOf { it.value }
 
                 val changeScript = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                     changeScriptPubKey(xpub, nextChangeIndex(cs.rows))
                 }
-                val withChange = listOf(toScript, changeScript)
+                val withChange = listOf(toScript) + extraOuts.map { it.scriptPubKey } + changeScript
+                val noChange = listOf(toScript) + extraOuts.map { it.scriptPubKey }
                 val chosen: List<com.kilombino.pyblockwatch.data.Scanner.SpendableUtxo>
                 var sum: Long
                 if (selected.isNotEmpty()) {
@@ -876,30 +896,33 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     var s = 0L
                     for (u in utxos.sortedByDescending { it.value }) {
                         acc += u; s += u.value
-                        if (s >= amountSats + estimateFee(acc.size, withChange, rate)) break
+                        if (s >= totalOut + estimateFee(acc.size, withChange, rate)) break
                     }
                     chosen = acc; sum = s
                 }
 
                 var fee = estimateFee(chosen.size, withChange, rate)
-                // Sending everything (MAX) has no change output: size the fee for one output.
-                if (sum < amountSats + fee) fee = estimateFee(chosen.size, listOf(toScript), rate)
-                require(sum >= amountSats + fee) {
+                // Sending everything (MAX) has no change output: size the fee without it.
+                if (sum < totalOut + fee) fee = estimateFee(chosen.size, noChange, rate)
+                require(sum >= totalOut + fee) {
                     if (selected.isNotEmpty()) "The chosen coins don't cover the amount plus fee."
                     else "Not enough funds for the amount plus fee."
                 }
-                var change = sum - amountSats - fee
+                var change = sum - totalOut - fee
 
+                // The first recipient stays at index 0: a silent payment's real output replaces it there.
                 val outputs = mutableListOf(
                     com.kilombino.pyblockwatch.crypto.TxBuilder.Output(toScript, amountSats),
                 )
+                outputs += extraOuts
                 if (change > DUST_SATS) {
                     outputs += com.kilombino.pyblockwatch.crypto.TxBuilder.Output(changeScript, change)
                 } else {
-                    fee = sum - amountSats // dust change folded into the fee
+                    fee = sum - totalOut // dust change folded into the fee
                     change = 0
                 }
-                val draft = SendDraft(toAddress, amountSats, fee, change, chosen, outputs, chain, silentRecipient)
+                val draft = SendDraft(toAddress, amountSats, fee, change, chosen, outputs, chain, silentRecipient,
+                    extra = extra)
                 _state.update { it.copy(sendPhase = SendPhase.Review(draft)) }
             }.onFailure { e ->
                 _state.update { it.copy(sendPhase = SendPhase.Failed(e.message ?: "Could not prepare the send.")) }
