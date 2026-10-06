@@ -126,7 +126,8 @@ data class UiState(
     val chains: Map<Chain, ChainState> = Chain.entries.associateWith { ChainState() },
     val notificationsEnabled: Boolean = false,
     val gapLimit: Int = 20,
-    val secondsUntilRefresh: Int = 30,
+    /** When the next foreground refresh is due (ms since the epoch). */
+    val nextRefreshAt: Long = 0,
     val inputError: String? = null,
     val isHot: Boolean = false,
     val sendPhase: SendPhase = SendPhase.Editing,
@@ -205,19 +206,24 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
      */
     private fun startRefreshLoop() {
         refreshJob?.cancel()
-        _state.update { it.copy(secondsUntilRefresh = REFRESH_SECONDS) }
         refreshJob = viewModelScope.launch {
-            var remaining = REFRESH_SECONDS
+            var visibleBefore = true
             while (true) {
-                delay(1_000)
-                if (_state.value.xpub.isNullOrBlank()) { remaining = REFRESH_SECONDS; continue }
-                remaining--
-                if (remaining <= 0) {
-                    refresh(_state.value.selected)
-                    refreshMarket() // cheap: MarketFeed only calls out when the server allows it
-                    remaining = REFRESH_SECONDS
+                _state.update { it.copy(nextRefreshAt = System.currentTimeMillis() + REFRESH_SECONDS * 1000L) }
+                // Sleep in short steps so coming back to the app refreshes at once.
+                var waited = 0
+                while (waited < REFRESH_SECONDS * 1000) {
+                    delay(1_000); waited += 1_000
+                    val visible = com.kilombino.pyblockwatch.ui.AppVisible.value
+                    if (visible && !visibleBefore) { visibleBefore = true; break }
+                    visibleBefore = visible
                 }
-                _state.update { it.copy(secondsUntilRefresh = remaining.coerceAtLeast(0)) }
+                // In the background the watcher service handles notifications; nobody is
+                // looking at these figures, so don't touch the network for them.
+                if (!com.kilombino.pyblockwatch.ui.AppVisible.value) continue
+                if (_state.value.xpub.isNullOrBlank()) continue
+                refresh(_state.value.selected)
+                refreshMarket() // cheap: MarketFeed only calls out when the server allows it
             }
         }
     }
@@ -231,7 +237,12 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun refresh(chain: Chain) {
         val xpub = _state.value.xpub ?: return
         val cs = _state.value.chains[chain] ?: return
-        if (cs.rows.isEmpty() || cs.phase !is ScanPhase.Complete) { scan(chain); return }
+        if (cs.rows.isEmpty() || cs.phase !is ScanPhase.Complete) {
+            // A scan still running is left alone: restarting it every 30 s meant a wallet with
+            // many addresses on a slow server never finished, and kept the radio busy for nothing.
+            if (jobs[chain]?.isActive == true) return
+            scan(chain); return
+        }
         viewModelScope.launch {
             runCatching {
                 val endpoint = store.endpoint(chain)

@@ -235,6 +235,14 @@ class ElectrumClient(
         return ScriptHashBalance(r.optLong("confirmed"), r.optLong("unconfirmed"))
     }
 
+    /**
+     * The Electrum status of a scripthash: a hash of its whole history, or null when it has
+     * none. It changes exactly when the history does, so one call tells whether anything
+     * happened since last time.
+     */
+    fun status(scriptHash: String): String? =
+        call("blockchain.scripthash.subscribe", JSONArray().put(scriptHash))?.takeIf { it != JSONObject.NULL }?.toString()
+
     /** One entry of an address's on-chain history. height <= 0 means still in the mempool. */
     data class HistoryItem(val txid: String, val height: Int)
 

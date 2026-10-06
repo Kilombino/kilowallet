@@ -41,3 +41,13 @@ fun StreetEye(color: Color) {
         Text(if (StreetMode.hidden) "👁 show" else "🙈 hide", style = MaterialTheme.typography.bodySmall, color = color)
     }
 }
+
+/**
+ * Whether the app is on screen. Loops meant for someone looking at the wallet (the 30 s
+ * refresh, the Ark tab's reload, an invoice's status) pause while it is not, so a wallet
+ * left in the background does not keep the radio busy. Background notifications have their
+ * own watcher and are not affected.
+ */
+object AppVisible {
+    var value by mutableStateOf(false)
+}

@@ -195,6 +195,10 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
             }
         }
 
+        if (!showSend && !showReceive && cs.transactions.isNotEmpty())
+            MovementsCard(cs.transactions, accent, vm.explorerFor(chain), vm, state.isHot,
+                if (chain == Chain.BLAKE2B) "sats" else "poolsats")
+
         AddWidgetButton(accent)
         Spacer(Modifier.height(30.dp))
     }

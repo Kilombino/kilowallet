@@ -166,7 +166,7 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
         var tick = 0
         while (true) {
             delay(30_000)
-            if (view != ArkView.Ready) continue
+            if (view != ArkView.Ready || !AppVisible.value) continue
             // A deposit should show up within a couple of minutes even between blocks.
             if (++tick % 4 == 0) withContext(Dispatchers.IO) { Ark.syncOnchain() }
             runCatching { reload() }
@@ -437,7 +437,7 @@ private fun ArkReceiveSheet(
             val inv = shown?.second
             if (!isInvoice || inv == null) return@LaunchedEffect
             while (lnState != "settled") {
-                lnState = withContext(Dispatchers.IO) { Ark.lightningReceiveState(inv) } ?: lnState
+                if (AppVisible.value) lnState = withContext(Dispatchers.IO) { Ark.lightningReceiveState(inv) } ?: lnState
                 delay(4_000)
             }
         }

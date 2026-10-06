@@ -7,6 +7,7 @@ import com.kilombino.pyblockwatch.chain.NodeEndpoint
 import com.kilombino.pyblockwatch.crypto.Address
 import com.kilombino.pyblockwatch.crypto.Bip32
 import com.kilombino.pyblockwatch.crypto.ScriptType
+import com.kilombino.pyblockwatch.crypto.TxParse
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -45,7 +46,8 @@ sealed interface ScanEvent {
 }
 
 /** A wallet transaction and how deep it is: pending (in the mempool) or N confirmations. */
-data class TxConf(val txid: String, val confirmations: Int, val pending: Boolean)
+/** A wallet transaction: its confirmations and, when known, what it did to this wallet (+ in, − out incl. fee). */
+data class TxConf(val txid: String, val confirmations: Int, val pending: Boolean, val amount: Long? = null)
 
 /**
  * Walks an xpub the way every wallet does: derive `chain/index`, ask the server
@@ -132,8 +134,9 @@ class Scanner(
                 }
             }
             // Confirmations from the tip: height <= 0 is still in the mempool (0 conf).
+            val amounts = netAmounts(client, txHeights.keys, rows.map { it.scriptHash }.toSet())
             val txs = txHeights.map { (id, h) ->
-                TxConf(id, if (h <= 0) 0 else height - h + 1, pending = h <= 0)
+                TxConf(id, if (h <= 0) 0 else height - h + 1, pending = h <= 0, amount = amounts[id])
             }.sortedWith(compareBy({ !it.pending }, { it.confirmations }))
             emit(ScanEvent.Done(rows, height, txs))
         } catch (e: Exception) {
@@ -178,18 +181,45 @@ class Scanner(
             client.connect()
             val tip = client.blockHeight()
             val txHeights = HashMap<String, Int>()
+            // One status call per address; history and balance only for those that changed
+            // since the last refresh (or were never seen). Most refreshes find nothing new,
+            // so this halves the round trips, and an unused address costs a single call.
             val updated = rows.map { r ->
-                val hist = client.history(r.scriptHash)
-                hist.forEach { txHeights[it.txid] = it.height }
-                val bal = client.balance(r.scriptHash)
-                r.copy(confirmed = bal.confirmed, unconfirmed = bal.unconfirmed, txCount = hist.size)
+                val key = endpoint.toString() + "|" + r.scriptHash
+                val status = client.status(r.scriptHash)
+                val known = statusCache[key]?.takeIf { it.status == status }
+                val entry = known ?: if (status == null) CachedAddress(null, emptyList(), ScriptHashBalance(0, 0))
+                    else CachedAddress(status, client.history(r.scriptHash), client.balance(r.scriptHash))
+                statusCache[key] = entry
+                entry.history.forEach { txHeights[it.txid] = it.height }
+                r.copy(confirmed = entry.balance.confirmed, unconfirmed = entry.balance.unconfirmed, txCount = entry.history.size)
             }
+            val amounts = netAmounts(client, txHeights.keys, rows.map { it.scriptHash }.toSet())
             val txs = txHeights.map { (id, h) ->
-                TxConf(id, if (h <= 0) 0 else tip - h + 1, pending = h <= 0)
+                TxConf(id, if (h <= 0) 0 else tip - h + 1, pending = h <= 0, amount = amounts[id])
             }.sortedWith(compareBy({ !it.pending }, { it.confirmations }))
             Triple(updated, txs, tip)
         } finally {
             client.close()
+        }
+    }
+
+    /**
+     * What each transaction did to the wallet: outputs to our scripts minus our outputs it
+     * spends (so a send includes its fee). Every coin we spend was paid to us by a transaction
+     * that is itself in our history, so the wallet's own transactions are enough. A
+     * transaction never changes, so each is fetched once per app run and then kept; a
+     * failure leaves that amount unknown rather than breaking the scan.
+     */
+    private fun netAmounts(client: ElectrumClient, txids: Collection<String>, ours: Set<String>): Map<String, Long> {
+        val txs = txids.mapNotNull { id ->
+            txCache[id]?.let { id to it }
+                ?: runCatching { TxParse.parse(client.transaction(id)) }.getOrNull()?.also { txCache[id] = it }?.let { id to it }
+        }.toMap()
+        fun mine(o: TxParse.Out?) = o != null && Address.electrumScriptHash(o.scriptPubKey) in ours
+        return txs.mapValues { (_, tx) ->
+            tx.outputs.filter { mine(it) }.sumOf { it.value } -
+                tx.inputs.sumOf { i -> txs[i.txid]?.outputs?.getOrNull(i.vout)?.takeIf { mine(it) }?.value ?: 0L }
         }
     }
 
@@ -244,6 +274,13 @@ class Scanner(
     }
 
     companion object {
+        /** What an address looked like at its last status, so an unchanged one needs no more calls. */
+        private class CachedAddress(val status: String?, val history: List<ElectrumClient.HistoryItem>, val balance: ScriptHashBalance)
+        private val statusCache = java.util.concurrent.ConcurrentHashMap<String, CachedAddress>()
+
+        /** Parsed wallet transactions by txid; a transaction never changes, so it is fetched once. */
+        private val txCache = java.util.concurrent.ConcurrentHashMap<String, TxParse.Tx>()
+
         /** The script type the xpub prefix implies (SLIP-132), or null for a plain xpub. */
         fun scriptTypeOf(xpub: String): ScriptType? =
             runCatching { Bip32.parseExtendedPubKey(xpub).scriptType }.getOrNull()

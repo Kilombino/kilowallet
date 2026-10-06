@@ -39,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.text.font.FontFamily
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
@@ -75,8 +76,14 @@ class MainActivity : FragmentActivity() {
     ) { /* result handled by the switch state itself */ }
 
     // Leaving the screen (home, another app, the phone locking) puts street mode back on.
+    override fun onStart() {
+        super.onStart()
+        AppVisible.value = true
+    }
+
     override fun onStop() {
         super.onStop()
+        AppVisible.value = false
         StreetMode.lock()
     }
 
@@ -309,7 +316,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
             return@Column
         }
 
-        BalanceCard(chain, cs, accent, state.scriptType, state.secondsUntilRefresh)
+        BalanceCard(chain, cs, accent, state.scriptType, state.nextRefreshAt)
 
         when {
             showSend -> SendSheet(vm, accent) { showSend = false }
@@ -343,7 +350,8 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
 
         ScanStatus(cs, accent, onRetry = { vm.scan(chain) })
 
-        if (cs.transactions.isNotEmpty()) MovementsCard(cs.transactions, accent, vm.explorerFor(chain), vm, state.isHot)
+        if (cs.transactions.isNotEmpty()) MovementsCard(cs.transactions, accent, vm.explorerFor(chain), vm, state.isHot,
+            if (chain == Chain.BLAKE2B) "sats" else "poolsats")
 
         if (cs.fingerprintChanged) {
             Panel(accent = Bad) {
@@ -414,8 +422,17 @@ private fun AdvancedTabs(chain: Chain, arkTab: Boolean, onBtc: () -> Unit, onArk
 
 @Composable
 private fun BalanceCard(
-    chain: Chain, cs: ChainState, accent: Color, scriptType: ScriptType?, secondsUntilRefresh: Int,
+    chain: Chain, cs: ChainState, accent: Color, scriptType: ScriptType?, nextRefreshAt: Long,
 ) {
+    // The countdown ticks here, only while this card is shown, instead of the whole screen
+    // being redrawn every second.
+    var secondsUntilRefresh by remember { mutableStateOf(0) }
+    LaunchedEffect(nextRefreshAt) {
+        while (true) {
+            secondsUntilRefresh = ((nextRefreshAt - System.currentTimeMillis()) / 1000).toInt().coerceAtLeast(0)
+            delay(1_000)
+        }
+    }
     Panel(accent = accent) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SectionLabel(if (chain == Chain.BLAKE2B) "BTC balance" else "Spamcoin balance", accent)
@@ -723,7 +740,7 @@ private fun DerivationSelector(current: ScriptType?, accent: Color, onSelect: (S
 }
 
 @Composable
-private fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, vm: WalletViewModel, isHot: Boolean) {
+internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, vm: WalletViewModel, isHot: Boolean, unit: String = "sats") {
     // Tapping a movement asks before leaving the app: opening it reveals the txid (and so
     // which addresses are yours) to whoever runs that explorer.
     var asking by remember { mutableStateOf<TxConf?>(null) }
@@ -746,11 +763,17 @@ private fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, vm
                 Modifier.fillMaxWidth().clickable { asking = t }.padding(vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    "${t.txid.take(8)}…${t.txid.takeLast(6)}",
-                    style = MaterialTheme.typography.bodySmall, color = TextSoft,
-                    modifier = Modifier.weight(1f),
-                )
+                Column(Modifier.weight(1f)) {
+                    // What it did to the wallet: + received, − sent (fee included).
+                    t.amount?.let { a ->
+                        Text(street((if (a >= 0) "+" else "−") + groupSats(kotlin.math.abs(a)) + " $unit"),
+                             style = MaterialTheme.typography.bodyMedium, color = if (a >= 0) Good else TextMain)
+                    }
+                    Text(
+                        "${t.txid.take(8)}…${t.txid.takeLast(6)}",
+                        style = MaterialTheme.typography.bodySmall, color = TextFaint,
+                    )
+                }
                 if (t.pending) {
                     Text("in mempool · 0 conf",
                          style = MaterialTheme.typography.bodySmall, color = Warn)
