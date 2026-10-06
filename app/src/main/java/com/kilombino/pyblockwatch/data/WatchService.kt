@@ -79,6 +79,11 @@ class WatchService : Service() {
                     ArkWatch.evaluate(this@WatchService, notifier)
                 }
             }
+            // A coinjoin round still running whose service died: start it again.
+            runCatching {
+                if (com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.hasActive(this@WatchService))
+                    com.kilombino.pyblockwatch.coinjoin.CoinjoinService.start(this@WatchService)
+            }
             // Coinjoin: tell about pools other people opened since the last look (BLAKE2b
             // spending wallets only, the ones that could join).
             if (com.kilombino.pyblockwatch.data.SeedVault(this@WatchService).hasSeed() && com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.supported(store)) {

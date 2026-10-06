@@ -96,6 +96,9 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (intent?.getBooleanExtra("open_coinjoin", false) == true) OpenCoinjoin.flow.value = true
+        // A coinjoin round left running (app killed, updated, phone restarted) picks up again.
+        if (com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.hasActive(this))
+            com.kilombino.pyblockwatch.coinjoin.CoinjoinService.start(this)
         enableEdgeToEdge()
         setContent {
             PyBlockWatchTheme {
