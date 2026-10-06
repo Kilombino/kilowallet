@@ -43,9 +43,13 @@ class ElectrumException(message: String, cause: Throwable? = null) : Exception(m
  *     timeout looks like "server down" when it is merely slow.
  */
 class ElectrumClient(
-    private val endpoint: NodeEndpoint,
+    private val requested: NodeEndpoint,
     private val pinnedFingerprint: String?,
 ) {
+    /** The server actually in use: [requested], or for the SHA-256 default one of [Chain.publicServers]. */
+    var endpoint: NodeEndpoint = requested
+        private set
+
     companion object {
         private const val CONNECT_TIMEOUT_MS = 20_000
         private const val READ_TIMEOUT_MS = 60_000
@@ -73,6 +77,26 @@ class ElectrumClient(
      * silently accepting are both wrong.
      */
     fun connect() {
+        // The SHA-256 chain is read from well-known public servers: try them in turn,
+        // starting with the one that answered last time.
+        if (requested != NodeEndpoint.default(Chain.SHA256)) return connectTo(requested, public = false)
+        var last: Exception? = null
+        for (candidate in Chain.publicServersInOrder()) {
+            try {
+                connectTo(candidate, public = true)
+                Chain.rememberWorking(candidate)
+                return
+            } catch (e: Exception) {
+                close(); last = e
+            }
+        }
+        throw ElectrumException("No public SHA-256 server answered: ${last?.message}", last)
+    }
+
+    private fun connectTo(target: NodeEndpoint, public: Boolean) {
+        endpoint = target
+        fingerprintChanged = false
+        if (public) return connectPublic()
         val raw = connectRaw()
         val ctx = SSLContext.getInstance("TLS")
         val capture = object : X509TrustManager {
@@ -101,6 +125,37 @@ class ElectrumClient(
 
         val version = call("server.version", JSONArray().put("PyBlockWatch").put("1.4"))
         serverVersion = (version as? JSONArray)?.optString(0) ?: version?.toString()
+    }
+
+    /**
+     * A public server has a normal certificate (Let's Encrypt and the like) that renews
+     * every few months, so it is checked like a browser would — signed by a trusted
+     * authority, for this hostname — instead of pinned. And it must really follow the
+     * SHA-256 chain: its tip header is 80 bytes there, 164 on BLAKE2b.
+     */
+    private fun connectPublic() {
+        val raw = connectRaw()
+        val ssl = (javax.net.ssl.SSLSocketFactory.getDefault() as javax.net.ssl.SSLSocketFactory)
+            .createSocket(raw, endpoint.host, endpoint.port, true) as SSLSocket
+        ssl.soTimeout = READ_TIMEOUT_MS
+        try {
+            ssl.startHandshake()
+            if (!javax.net.ssl.HttpsURLConnection.getDefaultHostnameVerifier().verify(endpoint.host, ssl.session)) {
+                throw ElectrumException("certificate is not for ${endpoint.host}")
+            }
+        } catch (e: Exception) {
+            runCatching { ssl.close() }
+            throw ElectrumException("Could not establish TLS with ${endpoint}: ${e.message}", e)
+        }
+        serverFingerprint = Hashes.sha256(ssl.session.peerCertificates[0].encoded).toHex()
+        socket = ssl
+        reader = BufferedReader(InputStreamReader(ssl.inputStream, Charsets.UTF_8))
+        writer = BufferedWriter(OutputStreamWriter(ssl.outputStream, Charsets.UTF_8))
+        val version = call("server.version", JSONArray().put("PyBlockWatch").put("1.4"))
+        serverVersion = (version as? JSONArray)?.optString(0) ?: version?.toString()
+        val tip = call("blockchain.headers.subscribe", JSONArray()) as? JSONObject
+        val headerHex = tip?.optString("hex").orEmpty()
+        if (headerHex.length != 160) throw ElectrumException("$endpoint does not follow the SHA-256 chain")
     }
 
     /**

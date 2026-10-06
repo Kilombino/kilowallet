@@ -36,7 +36,7 @@ enum class Chain(
         id = "sha256",
         display = "SHA-256",
         ticker = "₿",
-        defaultHost = "nobip110fulcrum.kilombino.com",
+        defaultHost = "electrum.blockstream.info",
         defaultPort = 50002,
         accent = 0xFFF7931A,
         blurb = "The classic SHA-256 chain. Spends here sign legacy, so they are not replay-protected.",
@@ -44,6 +44,27 @@ enum class Chain(
 
     /** Only BLAKE2b offers pointing at your own node; SHA-256 is a lookup service. */
     val allowsCustomNode: Boolean get() = this == BLAKE2B
+
+    companion object {
+        /**
+         * Well-known public Electrum servers for the SHA-256 chain, tried in this order
+         * when one does not answer. Each was checked to answer every call the app makes.
+         */
+        val publicServers = listOf(
+            NodeEndpoint("electrum.blockstream.info", 50002),
+            NodeEndpoint("electrum.acinq.co", 50002),
+            NodeEndpoint("electrum.bitaroo.net", 50002),
+            NodeEndpoint("electrum.emzy.de", 50002),
+        )
+
+        @Volatile private var lastWorking: NodeEndpoint? = null
+
+        /** [publicServers], starting with the one that answered last. */
+        fun publicServersInOrder(): List<NodeEndpoint> =
+            lastWorking?.let { w -> listOf(w) + publicServers.filter { it != w } } ?: publicServers
+
+        fun rememberWorking(e: NodeEndpoint) { lastWorking = e }
+    }
 }
 
 /** Where to reach a chain: the bundled default, or a node the user typed in. */

@@ -198,6 +198,7 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
                         shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
                     ) { Text("＋  CREATE A SPENDING WALLET", style = MaterialTheme.typography.titleMedium) }
                 }
+                if (state.isHot) HotWordsPanel(vm, accent)
             }
         }
 

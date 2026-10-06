@@ -422,3 +422,49 @@ private fun ArkSmallButton(label: String, accent: Color, modifier: Modifier, onC
         shape = RoundedCornerShape(12.dp), modifier = modifier,
     ) { Text(label, style = MaterialTheme.typography.labelLarge) }
 }
+
+/**
+ * The XBT spending wallet's recovery words, behind a warning and the fingerprint (or screen
+ * lock): the same unlock as signing a payment.
+ */
+@Composable
+fun HotWordsPanel(vm: WalletViewModel, accent: Color) {
+    val activity = LocalContext.current as FragmentActivity
+    var warn by remember { mutableStateOf(false) }
+    var shown by remember { mutableStateOf<com.kilombino.pyblockwatch.data.SeedVault.Secret?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val shared = Ark.wordsShared(activity.applicationContext)
+    if (warn) {
+        AlertDialog(
+            onDismissRequest = { warn = false },
+            title = { Text("Show recovery words?") },
+            text = { Text("Anyone who sees these words can take your money" +
+                (if (shared) " — in your XBT wallet and in Ark, which uses the same words" else "") +
+                ". Make sure no one is looking and nothing is recording the screen. " +
+                "Never type them into a website or share them with anyone, including support.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    warn = false; error = null
+                    withHotWords(activity, vm, "Show your recovery words",
+                        onWords = { shown = it }, onError = { error = it })
+                }) { Text("SHOW", color = Bad) }
+            },
+            dismissButton = { TextButton(onClick = { warn = false }) { Text("CANCEL", color = TextSoft) } },
+            containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
+        )
+    }
+    TextButton(onClick = { if (shown == null) warn = true else shown = null }, modifier = Modifier.fillMaxWidth()) {
+        Text(if (shown == null) "RECOVERY WORDS" else "HIDE WORDS", color = TextSoft, style = MaterialTheme.typography.bodySmall)
+    }
+    error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Bad) }
+    shown?.let { s ->
+        WordsGrid(s.words)
+        if (s.passphrase.isNotEmpty()) Panel(accent = Orange) {
+            SectionLabel("+ passphrase", Orange)
+            Spacer(Modifier.height(4.dp))
+            Text(s.passphrase, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace, color = TextMain)
+            Spacer(Modifier.height(4.dp))
+            Explain("The words alone open a different, empty wallet: keep the passphrase too.")
+        }
+    }
+}

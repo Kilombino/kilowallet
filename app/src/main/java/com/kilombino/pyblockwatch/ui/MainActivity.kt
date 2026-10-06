@@ -320,6 +320,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
                         shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
                     ) { Text("＋  CREATE A SPENDING WALLET", style = MaterialTheme.typography.titleMedium) }
                 }
+                if (state.isHot) HotWordsPanel(vm, accent)
             }
         }
 
@@ -463,7 +464,7 @@ private fun ScanStatus(cs: ChainState, accent: Color, onRetry: () -> Unit) {
                     Column {
                         Text("connecting to ${phase.endpoint}",
                              style = MaterialTheme.typography.bodyMedium, color = accent)
-                        Explain("The first TLS handshake with Frigate can take up to 40s.")
+                        Explain("The first connection can take a little while.")
                     }
                 }
 
