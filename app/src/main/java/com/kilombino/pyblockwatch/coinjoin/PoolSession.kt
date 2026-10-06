@@ -376,9 +376,9 @@ class PoolSession(private val env: Env, private val s: State) {
                 s.seats.removeAll { it.tokenHash == tokenHash }; s.accepts.remove(tokenHash); save()
                 channel(roster()); announce()
             }
-            if (tokenHash == myTokenHash || s.seats.size < terms.minPeers || s.seats.any { it.tokenHash !in s.accepts })
-                channel(JSONObject().put("type", "reopen").put("vote_id", voteId))
-            else callClosing(s.seats.toList(), "agreed")
+            // Always reopen: the others said yes to closing with the people there were, not
+            // with fewer. They are asked again (or more people join first).
+            channel(JSONObject().put("type", "reopen").put("vote_id", voteId))
             return
         }
         s.accepts.add(tokenHash); save()
