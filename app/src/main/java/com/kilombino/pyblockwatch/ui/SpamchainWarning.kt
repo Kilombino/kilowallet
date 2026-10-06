@@ -28,7 +28,7 @@ import com.kilombino.pyblockwatch.chain.Chain
 @Composable
 private fun OwnNodeFields(vm: WalletViewModel, chain: Chain, onSaved: () -> Unit) {
     var host by remember { mutableStateOf("") }
-    var port by remember { mutableStateOf(chain.defaultPort.toString()) }
+    var port by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     Text("Your own ${if (chain == Chain.BLAKE2B) "BTC" else "spamchain"} Electrum server:",
         style = MaterialTheme.typography.bodySmall, color = TextSoft)
@@ -45,7 +45,7 @@ private fun OwnNodeFields(vm: WalletViewModel, chain: Chain, onSaved: () -> Unit
         val p = port.toIntOrNull()
         when {
             host.isBlank() || host.contains(' ') -> error = "Type the server's host name or IP."
-            p == null || p !in 1..65535 -> error = "Port 1 to 65535."
+            p == null || p !in 1..65535 -> error = "Port 1 to 65535 (Fulcrum: 50002 with TLS, 50001 plain on your own network)."
             else -> { vm.setCustomNode(chain, host, p); onSaved() }
         }
     }) { Text("SAVE MY NODE", color = Good) }
@@ -59,7 +59,8 @@ private fun OwnNodeFields(vm: WalletViewModel, chain: Chain, onSaved: () -> Unit
 @Composable
 fun OwnNodeReminder(vm: WalletViewModel, onClose: () -> Unit) {
     AlertDialog(
-        onDismissRequest = onClose,
+        // Nothing connects until a choice is made: tapping outside does not count as one.
+        onDismissRequest = {},
         title = { Text("One person, one node") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -68,11 +69,14 @@ fun OwnNodeReminder(vm: WalletViewModel, onClose: () -> Unit) {
                     "point the wallet at it; use ${Chain.BLAKE2B.defaultHost} only in an emergency.",
                     style = MaterialTheme.typography.bodySmall)
                 OwnNodeFields(vm, Chain.BLAKE2B, onClose)
+                Text("Until you choose, the wallet does not connect anywhere.",
+                    style = MaterialTheme.typography.bodySmall, color = TextFaint)
                 Text("Once your node is saved this reminder stops. You can change it any time in settings. " +
                     "Notifications keep working either way.", style = MaterialTheme.typography.bodySmall, color = TextFaint)
             }
         },
-        confirmButton = { TextButton(onClick = onClose) { Text("NOT NOW", color = TextSoft) } },
+        confirmButton = { TextButton(onClick = { vm.consentBtc(); onClose() }) {
+            Text("USE ${Chain.BLAKE2B.defaultHost.uppercase()} FOR NOW", color = TextSoft) } },
         containerColor = PanelBg, titleContentColor = Purple, textContentColor = TextSoft,
     )
 }

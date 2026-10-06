@@ -28,6 +28,7 @@ object CoinjoinHub {
     private const val PREFS = "coinjoin"
     private const val KEY_SESSIONS = "sessions"
     private const val KEY_LAST_POOL_SEEN = "last_pool_seen"
+    private const val KEY_TEST_POOLS = "test_pools"
     const val CHANNEL = "coinjoin"
 
     private val sessions = linkedMapOf<String, PoolSession>()
@@ -67,6 +68,15 @@ object CoinjoinHub {
         _states.value = sessions.values.map { it.state }.sortedByDescending { it.created }
         _version.value++
     }
+
+    /** Whether this user wants to see (and be told about) test pools under 100 000 sats. */
+    fun testPools(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_TEST_POOLS, false)
+    fun setTestPools(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean(KEY_TEST_POOLS, on).apply()
+
+    /** Pull-to-refresh on the COINJOIN tab: the screen reloads the pool list when this moves. */
+    private val _refreshRequests = MutableStateFlow(0)
+    val refreshRequests: StateFlow<Int> = _refreshRequests.asStateFlow()
+    fun requestRefresh() { _refreshRequests.value++; _version.value++ }
 
     fun session(poolId: String): PoolSession? = synchronized(this) { sessions[poolId] }
 
@@ -109,17 +119,22 @@ object CoinjoinHub {
     }
 
     /** Open a new pool with our coin as the first seat. */
-    fun create(ctx: Context, pick: Pick, amount: Long, feeRate: Double, maxPeers: Int, hours: Int): PoolSession.State {
-        val (terms, secret) = PoolSession.newPool(amount, feeRate, maxPeers, hours)
+    fun create(
+        ctx: Context, pick: Pick, amount: Long, feeRate: Double, maxPeers: Int, hours: Int,
+        minPeers: Int = Protocol.MIN_PEERS, password: String? = null,
+    ): PoolSession.State {
+        val (terms, secret) = PoolSession.newPool(amount, feeRate, maxPeers, hours, minPeers, !password.isNullOrEmpty())
         val coin = CoinjoinTx.Coin(pick.txid, pick.vout, pick.value, pick.coinKey.publicKey())
-        val st = PoolSession.newState(terms, true, secret, coin, pick.coinKey.key, pick.coinPath, pick.mixScript, pick.changeScript)
+        val st = PoolSession.newState(terms, true, secret, coin, pick.coinKey.key, pick.coinPath, pick.mixScript, pick.changeScript,
+            password?.ifEmpty { null })
         add(ctx, st)
         return st
     }
 
-    fun join(ctx: Context, terms: Protocol.Terms, pick: Pick): PoolSession.State {
+    fun join(ctx: Context, terms: Protocol.Terms, pick: Pick, password: String? = null): PoolSession.State {
         val coin = CoinjoinTx.Coin(pick.txid, pick.vout, pick.value, pick.coinKey.publicKey())
-        val st = PoolSession.newState(terms, false, null, coin, pick.coinKey.key, pick.coinPath, pick.mixScript, pick.changeScript)
+        val st = PoolSession.newState(terms, false, null, coin, pick.coinKey.key, pick.coinPath, pick.mixScript, pick.changeScript,
+            password?.ifEmpty { null })
         add(ctx, st)
         return st
     }
@@ -158,9 +173,13 @@ object CoinjoinHub {
         val p = prefs(ctx)
         val last = p.getLong(KEY_LAST_POOL_SEEN, System.currentTimeMillis() / 1000 - 3600)
         val ours = synchronized(this) { sessions.keys.toSet() }
-        val pools = fetchPools(sinceSeconds = 86400).filter { it.createdAt > last && it.id !in ours }
+        val test = testPools(ctx)
+        // Test pools only for whoever switched them on; private pools are announced by their creator.
+        val pools = fetchPools(sinceSeconds = 86400).filter {
+            it.createdAt > last && it.id !in ours && (test || it.amount >= Protocol.MIN_AMOUNT) && !it.private
+        }
         pools.maxOfOrNull { it.createdAt }?.let { p.edit().putLong(KEY_LAST_POOL_SEEN, it).apply() }
-        for (t in pools.take(3)) notify(ctx, t.id.hashCode(), "New coinjoin pool",
+        for (t in pools.take(3)) notify(ctx, t.id.hashCode(), "New coinjoin pool" + if (t.amount < Protocol.MIN_AMOUNT) " (test)" else "",
             "${sats(t.amount)} sats · ${t.peers}/${t.maxPeers} people · ${t.feeRate} sat/vB")
     }
 

@@ -50,6 +50,16 @@ object Protocol {
     /** From the transaction being ready until everyone has signed it (needs the user's touch). */
     const val SIGN_SECONDS = 20 * 60L
 
+    /**
+     * A private pool's password never travels: the creator keeps a key derived from it, and a
+     * join carries an HMAC of the join key under that key, so only someone who typed the right
+     * password can make one (and a captured one is useless for any other join key).
+     */
+    fun passwordKey(poolId: String, password: String): ByteArray =
+        Hashes.sha256("kilojoin/v1/pw|$poolId|$password".toByteArray(Charsets.UTF_8))
+
+    fun passwordProof(pwKey: ByteArray, joinPub: String): String = Hashes.hmacSha256(pwKey, joinPub.toByteArray()).toHex()
+
     fun tokenHash(token: String): String = Hashes.sha256(("kilojoin/v1/token|$token").toByteArray()).toHex()
 
     data class Terms(
@@ -62,11 +72,15 @@ object Protocol {
         val state: String,      // open, closing, done, aborted
         val peers: Int,
         val createdAt: Long,
+        /** Fewest people the round may close with (2 to [maxPeers]). */
+        val minPeers: Int = MIN_PEERS,
+        /** Joining needs the pool's password (shared by its creator outside the app). */
+        val private: Boolean = false,
     ) {
         fun toJson(): JSONObject = JSONObject()
             .put("v", VERSION).put("app", "kilowallet").put("network", NETWORK)
             .put("id", id).put("public_key", poolPub).put("denomination", amount)
-            .put("fee_rate", feeRate).put("min_peers", MIN_PEERS).put("max_peers", maxPeers)
+            .put("fee_rate", feeRate).put("min_peers", minPeers).put("max_peers", maxPeers).put("private", private)
             .put("timeout", expiresAt).put("state", state).put("peers", peers)
 
         companion object {
@@ -78,11 +92,13 @@ object Protocol {
                     amount = o.getLong("denomination"), feeRate = o.getDouble("fee_rate"),
                     maxPeers = o.getInt("max_peers"), expiresAt = o.getLong("timeout"),
                     state = o.getString("state"), peers = o.optInt("peers", 0), createdAt = ev.createdAt,
+                    minPeers = o.optInt("min_peers", MIN_PEERS), private = o.optBoolean("private", false),
                 )
                 // Only the pool's own key may speak for it, and the terms must be in range.
                 if (ev.pubkey != t.poolPub || ev.tag("d") != t.id) return null
                 if (t.amount < TEST_MIN_AMOUNT || t.amount > MAX_AMOUNT) return null
                 if (t.maxPeers !in MIN_PEERS..MAX_PEERS || t.feeRate < 1.0 || t.feeRate > 500.0) return null
+                if (t.minPeers !in MIN_PEERS..t.maxPeers) return null
                 t
             }.getOrNull()
         }

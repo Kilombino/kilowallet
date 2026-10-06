@@ -35,6 +35,8 @@ class RelayClient(
     private val pendingOk = ConcurrentHashMap<String, CompletableFuture<Pair<Boolean, String>>>()
     private val pendingEose = ConcurrentHashMap<String, CompletableFuture<Unit>>()
     @Volatile var connected = false; private set
+    /** When the relay last sent us anything (a frame of any kind, pongs included). */
+    @Volatile var lastHeard = 0L; private set
 
     fun connect() {
         val u = URI(url)
@@ -63,7 +65,7 @@ class RelayClient(
         val status = readLine(inp)
         check(status.contains(" 101")) { "relay refused the WebSocket: $status" }
         while (readLine(inp).isNotEmpty()) { /* skip headers */ }
-        socket = s; out = o; connected = true
+        socket = s; out = o; connected = true; lastHeard = System.currentTimeMillis()
         Thread({ readLoop(inp) }, "relay-$host").apply { isDaemon = true }.start()
     }
 
@@ -96,6 +98,7 @@ class RelayClient(
                 else if (len == 127L) { val e = readFully(inp, 8); len = 0; for (x in e) len = (len shl 8) or (x.toLong() and 0xFF) }
                 require(len < 8_000_000) { "frame too large" }
                 val payload = readFully(inp, len.toInt())
+                lastHeard = System.currentTimeMillis()
                 when (op) {
                     0x0, 0x1 -> { msg.write(payload); if (fin) { handle(msg.toString("UTF-8")); msg.reset() } }
                     0x8 -> break
@@ -158,6 +161,13 @@ class RelayClient(
         sendText(a.toString())
         if (waitEose) runCatching { f.get(timeoutSec, TimeUnit.SECONDS) }.onFailure { pendingEose.remove(subId) }
     }
+
+    /**
+     * A WebSocket ping. Phones lose connections silently (NAT timeouts, network switches): the
+     * socket still looks open and simply never delivers again. A relay answers a ping with a
+     * pong, which moves [lastHeard]; the caller reconnects when it stops moving.
+     */
+    fun ping() = runCatching { frame(0x9, ByteArray(0)) }.isSuccess
 
     fun unsubscribe(subId: String) = runCatching { sendText(JSONArray().put("CLOSE").put(subId).toString()) }
 

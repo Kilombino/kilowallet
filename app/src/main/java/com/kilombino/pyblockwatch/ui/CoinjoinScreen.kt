@@ -69,7 +69,10 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
     var message by remember { mutableStateOf<String?>(null) }
     var joining by remember { mutableStateOf<Protocol.Terms?>(null) }
     var creating by remember { mutableStateOf(false) }
-    var testPools by remember { mutableStateOf(false) }
+    var testPools by remember { mutableStateOf(CoinjoinHub.testPools(ctx)) }
+    var joinPassword by remember { mutableStateOf("") }
+    // Pull-to-refresh on this tab reloads the list of open pools.
+    val refreshReq by CoinjoinHub.refreshRequests.collectAsState()
 
     fun reloadPools() {
         if (loadingPools) return
@@ -80,6 +83,8 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
             r.exceptionOrNull()?.let { message = "Could not reach the relay: ${it.message}" }
         }
     }
+
+    LaunchedEffect(refreshReq) { if (refreshReq > 0) reloadPools() }
 
     LaunchedEffect(Unit) {
         CoinjoinHub.load(ctx)
@@ -121,26 +126,35 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
 
     // ---- join / create sheets
     joining?.let { t ->
+        if (t.private) Panel(accent = accent) {
+            SectionLabel("🔒 Private pool", accent)
+            Spacer(Modifier.height(6.dp))
+            Explain("Its creator shares the password with the people invited. Without it the pool refuses you.")
+            OutlinedTextField(value = joinPassword, onValueChange = { joinPassword = it },
+                label = { Text("pool password", style = MaterialTheme.typography.bodySmall) },
+                singleLine = true, textStyle = MaterialTheme.typography.bodyMedium, modifier = Modifier.fillMaxWidth())
+        }
         CoinPicker(vm, accent, "Join · ${groupSats(t.amount)} sats", t.amount, t.feeRate,
-            onCancel = { joining = null },
+            onCancel = { joining = null; joinPassword = "" },
             onPicked = { u ->
+                if (t.private && joinPassword.isEmpty()) { message = "Type the pool's password first."; return@CoinPicker }
                 unlockAndPick(activity, vm, u, "Join coinjoin", "Unlock to prove you own the coin",
                     onPick = { pick ->
                         scope.launch {
-                            runCatching { withContext(Dispatchers.Default) { CoinjoinHub.join(ctx, t, pick) } }
+                            runCatching { withContext(Dispatchers.Default) { CoinjoinHub.join(ctx, t, pick, joinPassword) } }
                                 .onFailure { message = it.message }
-                            joining = null
+                            joining = null; joinPassword = ""
                         }
                     }, onError = { message = it })
             })
         return
     }
     if (creating) {
-        CreatePool(vm, accent, testPools, onCancel = { creating = false }) { amount, rate, peers, hours, u ->
+        CreatePool(vm, accent, testPools, onCancel = { creating = false }) { amount, rate, minPeers, peers, hours, password, u ->
             unlockAndPick(activity, vm, u, "Open a coinjoin pool", "Unlock to put your coin in",
                 onPick = { pick ->
                     scope.launch {
-                        runCatching { withContext(Dispatchers.Default) { CoinjoinHub.create(ctx, pick, amount, rate, peers, hours) } }
+                        runCatching { withContext(Dispatchers.Default) { CoinjoinHub.create(ctx, pick, amount, rate, peers, hours, minPeers, password) } }
                             .onSuccess { creating = false; reloadPools() }
                             .onFailure { message = it.message }
                     }
@@ -170,10 +184,13 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
         Panel(accent = accent) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("${groupSats(t.amount)} sats" + if (t.amount < Protocol.MIN_AMOUNT) "  · TEST" else "",
+                    Text((if (t.private) "🔒 " else "") + "${groupSats(t.amount)} sats" + if (t.amount < Protocol.MIN_AMOUNT) "  · TEST" else "",
                         style = MaterialTheme.typography.titleMedium, color = TextMain)
-                    Text("${t.peers}/${t.maxPeers} people · ${t.feeRate} sat/vB · closes in ${remaining(t.expiresAt)}",
+                    Text("${t.peers}/${t.maxPeers} people (min ${t.minPeers}) · ${t.feeRate} sat/vB · closes in ${remaining(t.expiresAt)}",
                         style = MaterialTheme.typography.bodySmall, color = TextSoft)
+                    Text("joining costs you ${CoinjoinTx.feeShare(t.feeRate, true)} sats in fees " +
+                        "(${CoinjoinTx.feeShare(t.feeRate, false)} with a coin of exactly ${groupSats(t.amount + CoinjoinTx.feeShare(t.feeRate, false))})",
+                        style = MaterialTheme.typography.bodySmall, color = TextFaint)
                 }
                 Button(
                     onClick = { joining = t },
@@ -190,7 +207,7 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
             Text("Real coins and a real transaction, just small. Below 100 000 sats a mix hides little.",
                 style = MaterialTheme.typography.bodySmall, color = TextFaint)
         }
-        Switch(checked = testPools, onCheckedChange = { testPools = it },
+        Switch(checked = testPools, onCheckedChange = { testPools = it; CoinjoinHub.setTestPools(ctx, it) },
             colors = SwitchDefaults.colors(checkedThumbColor = accent))
     }
 
@@ -278,29 +295,33 @@ private fun CoinPicker(
 @Composable
 private fun CreatePool(
     vm: WalletViewModel, accent: Color, allowTest: Boolean, onCancel: () -> Unit,
-    onCreate: (Long, Double, Int, Int, Scanner.SpendableUtxo) -> Unit,
+    onCreate: (amount: Long, rate: Double, minPeers: Int, maxPeers: Int, hours: Int, password: String, coin: Scanner.SpendableUtxo) -> Unit,
 ) {
     var amountText by remember { mutableStateOf(if (allowTest) "1000" else "100000") }
     var rateText by remember { mutableStateOf("2") }
     var peersText by remember { mutableStateOf("5") }
+    var minText by remember { mutableStateOf("2") }
+    var password by remember { mutableStateOf("") }
     var hoursText by remember { mutableStateOf("6") }
     var pickCoin by remember { mutableStateOf(false) }
     val minAmount = if (allowTest) Protocol.TEST_MIN_AMOUNT else Protocol.MIN_AMOUNT
     val amount = amountText.filter { it.isDigit() }.toLongOrNull()
     val rate = rateText.replace(',', '.').toDoubleOrNull()
     val peers = peersText.toIntOrNull()
+    val minPeers = minText.toIntOrNull()
     val hours = hoursText.toIntOrNull()
     val error = when {
         amount == null || amount < minAmount || amount > Protocol.MAX_AMOUNT ->
             "Amount: ${groupSats(minAmount)} to ${groupSats(Protocol.MAX_AMOUNT)} sats (1 BTC)."
         rate == null || rate < 1.0 || rate > 500.0 -> "Fee: 1 to 500 sat/vB."
-        peers == null || peers !in Protocol.MIN_PEERS..Protocol.MAX_PEERS -> "People: ${Protocol.MIN_PEERS} to ${Protocol.MAX_PEERS}."
+        peers == null || peers !in Protocol.MIN_PEERS..Protocol.MAX_PEERS -> "Most people: ${Protocol.MIN_PEERS} to ${Protocol.MAX_PEERS}."
+        minPeers == null || minPeers < Protocol.MIN_PEERS || minPeers > peers -> "Fewest people: ${Protocol.MIN_PEERS} to $peers (the most)."
         hours == null || hours !in 1..72 -> "Open for 1 to 72 hours."
         else -> null
     }
     if (pickCoin && error == null) {
         CoinPicker(vm, accent, "Your coin for the pool", amount!!, rate!!, onCancel = { pickCoin = false }) { u ->
-            onCreate(amount, rate, peers!!, hours!!, u)
+            onCreate(amount, rate, minPeers!!, peers!!, hours!!, password, u)
         }
         return
     }
@@ -314,8 +335,22 @@ private fun CreatePool(
         field("amount per person (sats)", amountText) { amountText = it }
         amount?.let { Text("= ${"%.8f".format(it / 1e8)} BTC", color = TextFaint, style = MaterialTheme.typography.bodySmall) }
         field("fee rate (sat/vB)", rateText) { rateText = it }
+        field("fewest people to close (${Protocol.MIN_PEERS}–${Protocol.MAX_PEERS - 1})", minText) { minText = it }
         field("most people (${Protocol.MIN_PEERS}–${Protocol.MAX_PEERS})", peersText) { peersText = it }
         field("open for (hours)", hoursText) { hoursText = it }
+        OutlinedTextField(value = password, onValueChange = { password = it },
+            label = { Text("password (optional: makes it private 🔒)", style = MaterialTheme.typography.bodySmall) },
+            singleLine = true, textStyle = MaterialTheme.typography.bodyMedium, modifier = Modifier.fillMaxWidth())
+        if (password.isNotEmpty()) Text("Only people you give this password to can join. It is not announced anywhere.",
+            color = TextFaint, style = MaterialTheme.typography.bodySmall)
+        if (amount != null && rate != null && rate >= 1.0) {
+            val withChange = CoinjoinTx.feeShare(rate, true); val exact = CoinjoinTx.feeShare(rate, false)
+            Text("Each person pays their own fee, the same however many join: $withChange sats with change, " +
+                "$exact without. A coin of exactly ${groupSats(amount + exact)} sats leaves no change " +
+                "(the best for privacy); a bit more than that, up to ${groupSats(amount + withChange + CoinjoinTx.DUST)}, " +
+                "also goes in without change and the rest goes to the miners.",
+                color = TextFaint, style = MaterialTheme.typography.bodySmall)
+        }
         error?.let { Text(it, color = Warn, style = MaterialTheme.typography.bodySmall) }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -332,7 +367,9 @@ private fun CreatePool(
 private fun MyPoolCard(
     vm: WalletViewModel, st: PoolSession.State,
     // The state is mutated in place: this changes with it, so the card is redrawn and not skipped.
-    @Suppress("UNUSED_PARAMETER") rev: Long, accent: Color, activity: FragmentActivity, onMessage: (String) -> Unit) {
+    // It must be READ below: Compose leaves unused parameters out of its "did anything change" check.
+    rev: Long, accent: Color, activity: FragmentActivity, onMessage: (String) -> Unit) {
+    if (rev < 0) return
     val ctx = activity.applicationContext
     val scope = rememberCoroutineScope()
     val uri = LocalUriHandler.current
@@ -373,9 +410,26 @@ private fun MyPoolCard(
             shape = RoundedCornerShape(12.dp)) { Text(label) }
 
         when (st.phase) {
-            PoolSession.Phase.OPEN -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (people >= Protocol.MIN_PEERS) btn("ASK TO CLOSE NOW", true, Modifier.weight(1f)) { act { session?.requestClose() } }
-                btn(if (st.creator) "END POOL" else "LEAVE", modifier = Modifier.weight(1f)) { act { session?.leave() } }
+            PoolSession.Phase.OPEN -> {
+                var confirmLeave by remember { mutableStateOf(false) }
+                if (confirmLeave) androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { confirmLeave = false },
+                    title = { Text(if (st.creator) "End this pool?" else "Leave this pool?") },
+                    text = { Text(if (st.creator)
+                        "The round is cancelled for everyone in it, and they are told so. Nobody loses anything: no " +
+                            "transaction exists until all have signed, so every coin stays where it is."
+                        else "Your seat is freed and your coin is yours to spend again. Nothing was signed, so nothing moves.") },
+                    confirmButton = { TextButton(onClick = { confirmLeave = false; act { session?.leave() } }) {
+                        Text(if (st.creator) "END POOL" else "LEAVE", color = Bad) } },
+                    dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("STAY", color = TextSoft) } },
+                    containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (people >= st.terms.minPeers) btn("ASK TO CLOSE NOW", true, Modifier.weight(1f)) { act { session?.requestClose() } }
+                    btn(if (st.creator) "END POOL" else "LEAVE", modifier = Modifier.weight(1f)) { confirmLeave = true }
+                }
+                if (people < st.terms.minPeers) Text("Closes once ${st.terms.minPeers} people are in.",
+                    color = TextFaint, style = MaterialTheme.typography.bodySmall)
             }
             PoolSession.Phase.VOTING -> {
                 val iAsked = st.voteBy == st.token?.let { Protocol.tokenHash(it) }

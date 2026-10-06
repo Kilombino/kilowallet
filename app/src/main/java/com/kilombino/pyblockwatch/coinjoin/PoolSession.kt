@@ -63,6 +63,8 @@ class PoolSession(private val env: Env, private val s: State) {
         val changeSig: String,            // hex DER
         val mixScript: ByteArray,
         val coinPath: String,             // BIP-32 path of our coin's key, to sign at the end
+        val pwKey: String? = null,        // creator of a private pool: key derived from its password
+        val pwProof: String? = null,      // joiner of a private pool: proof sent with the join
         var phase: Phase = Phase.JOINING,
         var reason: String = "",
         var seats: MutableList<Protocol.Seat> = mutableListOf(),   // the latest roster
@@ -90,6 +92,7 @@ class PoolSession(private val env: Env, private val s: State) {
             .put("creator", creator).put("pool_secret", poolSecret ?: "").put("join_secret", joinSecret)
             .put("token", token ?: "").put("seat", seat.toJson()).put("join_proof", joinProof)
             .put("change_sig", changeSig).put("mix_script", mixScript.toHex()).put("coin_path", coinPath)
+            .put("pw_key", pwKey ?: "").put("pw_proof", pwProof ?: "")
             .put("phase", phase.name).put("reason", reason)
             .put("seats", Protocol.seatsJson(seats)).put("round", Protocol.seatsJson(round))
             .put("roster_seq", rosterSeq).put("vote_id", voteId ?: "").put("vote_by", voteBy ?: "").put("vote_deadline", voteDeadline)
@@ -111,12 +114,14 @@ class PoolSession(private val env: Env, private val s: State) {
                 val t = o.getJSONObject("terms")
                 val terms = Protocol.Terms(t.getString("id"), t.getString("public_key"), t.getLong("denomination"),
                     t.getDouble("fee_rate"), t.getInt("max_peers"), t.getLong("timeout"), t.getString("state"),
-                    t.optInt("peers"), t.optLong("created_at"))
+                    t.optInt("peers"), t.optLong("created_at"), t.optInt("min_peers", Protocol.MIN_PEERS),
+                    t.optBoolean("private", false))
                 val outs = o.optJSONArray("outputs"); val acc = o.optJSONArray("accepts")
                 return State(
                     terms, o.getBoolean("creator"), o.str("pool_secret"), o.getString("join_secret"), o.str("token"),
                     Protocol.Seat.parse(o.getJSONObject("seat")), o.getString("join_proof"), o.getString("change_sig"),
                     Hashes.hexToBytes(o.getString("mix_script")), o.getString("coin_path"),
+                    o.str("pw_key"), o.str("pw_proof"),
                     Phase.valueOf(o.getString("phase")), o.optString("reason"),
                     Protocol.parseSeats(o.getJSONArray("seats")).toMutableList(),
                     Protocol.parseSeats(o.getJSONArray("round")).toMutableList(),
@@ -183,7 +188,16 @@ class PoolSession(private val env: Env, private val s: State) {
     }
 
     private fun ensureConnected() {
-        if (relay?.connected == true) return
+        val r = relay
+        if (r != null && r.connected) {
+            val quiet = System.currentTimeMillis() - r.lastHeard
+            // Ping after a quiet minute; nothing back for another minute means a dead link.
+            if (quiet < 60_000) return
+            if (quiet < 120_000) { if (r.ping()) return }
+            env.log("relay silent for ${quiet / 1000} s: reconnecting")
+            r.close(); relay = null
+        }
+        // Reconnecting replays the channel, so anything missed meanwhile is handled now.
         runCatching { connect() }
     }
 
@@ -227,6 +241,7 @@ class PoolSession(private val env: Env, private val s: State) {
     private fun sendJoin() {
         val o = JSONObject().put("type", "join").put("seat", s.seat.toJson())
             .put("proof", s.joinProof).put("change_sig", s.changeSig)
+        s.pwProof?.let { o.put("pw", it) }
         direct(terms.poolPub, o, joinKey)
     }
 
@@ -311,6 +326,11 @@ class PoolSession(private val env: Env, private val s: State) {
         if (s.joinPubs.containsKey(from)) return // already handled (history replay)
         if (s.phase != Phase.OPEN) return reject(from, "the pool is no longer open")
         if (s.seats.size >= terms.maxPeers) return reject(from, "the pool is full")
+        s.pwKey?.let { k ->
+            val ok = java.security.MessageDigest.isEqual(
+                Protocol.passwordProof(Hashes.hexToBytes(k), from).toByteArray(), o.optString("pw").toByteArray())
+            if (!ok) return reject(from, "wrong password")
+        }
         val seat = runCatching { Protocol.Seat.parse(o.getJSONObject("seat")) }.getOrNull() ?: return reject(from, "malformed request")
         val coin = seat.coin
         if (s.seats.any { it.coin.outpoint == coin.outpoint }) return reject(from, "that coin already has a seat")
@@ -335,7 +355,9 @@ class PoolSession(private val env: Env, private val s: State) {
         channel(roster)
         announce()
         env.event(Event.Joined(s.poolId, s.seats.size))
-        if (s.seats.size >= terms.maxPeers) callClosing(s.seats.toList(), "full")
+        // Full: ask everyone whether to close now (the creator's own seat counts as a yes).
+        if (s.seats.size >= terms.maxPeers) channel(JSONObject().put("type", "close_request")
+            .put("token", s.token).put("vote_id", randomHex(8)))
     }
 
     private fun callClosing(seats: List<Protocol.Seat>, why: String) {
@@ -348,7 +370,15 @@ class PoolSession(private val env: Env, private val s: State) {
         if (s.phase != Phase.VOTING || voteId != s.voteId) return
         if (s.seats.none { it.tokenHash == tokenHash }) return
         if (!accept) {
-            channel(JSONObject().put("type", "reopen").put("vote_id", voteId))
+            // Whoever says "not yet" leaves this round (their coin is free again); the pool
+            // reopens for more people, or for another vote if enough are still in.
+            if (tokenHash != myTokenHash) {
+                s.seats.removeAll { it.tokenHash == tokenHash }; s.accepts.remove(tokenHash); save()
+                channel(roster()); announce()
+            }
+            if (tokenHash == myTokenHash || s.seats.size < terms.minPeers || s.seats.any { it.tokenHash !in s.accepts })
+                channel(JSONObject().put("type", "reopen").put("vote_id", voteId))
+            else callClosing(s.seats.toList(), "agreed")
             return
         }
         s.accepts.add(tokenHash); save()
@@ -375,7 +405,7 @@ class PoolSession(private val env: Env, private val s: State) {
                 if (!s.creator && seats.size > before && before > 0) env.event(Event.Joined(s.poolId, seats.size))
             }
             "close_request" -> {
-                if (s.phase != Phase.OPEN || s.seats.size < Protocol.MIN_PEERS) return
+                if (s.phase != Phase.OPEN || s.seats.size < terms.minPeers) return
                 val token = o.getString("token")
                 val th = Protocol.tokenHash(token)
                 if (s.seats.none { it.tokenHash == th }) return
@@ -441,7 +471,7 @@ class PoolSession(private val env: Env, private val s: State) {
                 if (s.seats.removeAll { it.tokenHash == th }) {
                     s.accepts.remove(th); save()
                     channel(roster()); announce()
-                    if (s.phase == Phase.VOTING && s.seats.size < Protocol.MIN_PEERS)
+                    if (s.phase == Phase.VOTING && s.seats.size < terms.minPeers)
                         channel(JSONObject().put("type", "reopen").put("vote_id", s.voteId))
                     else if (s.phase == Phase.VOTING && s.seats.all { it.tokenHash in s.accepts })
                         callClosing(s.seats.toList(), "agreed")
@@ -531,7 +561,7 @@ class PoolSession(private val env: Env, private val s: State) {
     @Synchronized
     fun requestClose() {
         check(s.phase == Phase.OPEN) { "the pool is not open" }
-        check(s.seats.size >= Protocol.MIN_PEERS) { "at least two people are needed" }
+        check(s.seats.size >= terms.minPeers) { "at least ${terms.minPeers} people are needed" }
         channel(JSONObject().put("type", "close_request").put("token", s.token).put("vote_id", randomHex(8)))
     }
 
@@ -540,7 +570,10 @@ class PoolSession(private val env: Env, private val s: State) {
         val id = s.voteId ?: return
         if (s.phase != Phase.VOTING || s.votedOn == id) return
         channel(JSONObject().put("type", "vote").put("token", s.token).put("vote_id", id).put("accept", accept))
-        s.votedOn = id; save()
+        s.votedOn = id
+        // A member saying "not yet" leaves this round; the creator keeps its pool open.
+        if (!accept && !s.creator) { s.phase = Phase.ABORTED; s.reason = "you said not yet, so you left this round; your coin is free" }
+        save()
     }
 
     /** Leave an open pool: the creator ends it for everyone, a member just gives up its seat. */
@@ -565,7 +598,7 @@ class PoolSession(private val env: Env, private val s: State) {
                 Phase.VOTING -> if (s.creator && now > s.voteDeadline) {
                     // Whoever did not answer is left out, if two or more said yes.
                     val yes = s.seats.filter { it.tokenHash in s.accepts }
-                    if (yes.size >= Protocol.MIN_PEERS) callClosing(yes, "agreed")
+                    if (yes.size >= terms.minPeers) callClosing(yes, "agreed")
                     else channel(JSONObject().put("type", "reopen").put("vote_id", s.voteId))
                 }
                 Phase.CLOSING -> if (now > s.phaseDeadline + 60) abort("not everyone sent their output in time")
@@ -589,6 +622,7 @@ class PoolSession(private val env: Env, private val s: State) {
         fun newState(
             terms: Protocol.Terms, creator: Boolean, poolSecret: String?, coin: CoinjoinTx.Coin, coinKey: BigInteger,
             coinPath: String, mixScript: ByteArray, changeScript: ByteArray?,
+            password: String? = null,
         ): State {
             val changeValue = CoinjoinTx.change(coin.value, terms.amount, terms.feeRate) ?: error("this coin is too small for the pool")
             val cs = if (changeValue > 0) changeScript ?: error("a change address is needed") else null
@@ -600,15 +634,21 @@ class PoolSession(private val env: Env, private val s: State) {
                 terms = terms, creator = creator, poolSecret = poolSecret, joinSecret = joinSecret.toString(16),
                 token = null, seat = Protocol.Seat("", coin, cs, changeValue), joinProof = proof, changeSig = changeSig,
                 mixScript = mixScript, coinPath = coinPath,
+                pwKey = if (creator && terms.private) Protocol.passwordKey(terms.id, password ?: error("a private pool needs a password")).toHex() else null,
+                pwProof = if (!creator && terms.private)
+                    Protocol.passwordProof(Protocol.passwordKey(terms.id, password ?: error("this pool needs its password")), joinPub) else null,
             )
         }
 
         /** Terms for a new pool, with its own fresh key. Returns (terms, pool secret hex). */
-        fun newPool(amount: Long, feeRate: Double, maxPeers: Int, hours: Int): Pair<Protocol.Terms, String> {
+        fun newPool(amount: Long, feeRate: Double, maxPeers: Int, hours: Int, minPeers: Int = Protocol.MIN_PEERS,
+                    private: Boolean = false): Pair<Protocol.Terms, String> {
             val k = NostrEvent.newSecret()
             val id = ByteArray(8).also { SecureRandom().nextBytes(it) }.toHex()
             val now = System.currentTimeMillis() / 1000
-            return Protocol.Terms(id, NostrEvent.pubOf(k), amount, feeRate, maxPeers, now + hours * 3600L, "open", 1, now) to k.toString(16)
+            require(minPeers in Protocol.MIN_PEERS..maxPeers) { "the minimum must be between 2 and the maximum" }
+            return Protocol.Terms(id, NostrEvent.pubOf(k), amount, feeRate, maxPeers, now + hours * 3600L, "open", 1, now,
+                minPeers, private) to k.toString(16)
         }
     }
 }

@@ -241,6 +241,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
      * change deserves a notification (mempool arrival, first confirmation, …).
      */
     fun refresh(chain: Chain) {
+        if (!mayContact(chain)) return
         val xpub = _state.value.xpub ?: return
         val cs = _state.value.chains[chain] ?: return
         if (cs.rows.isEmpty() || cs.phase !is ScanPhase.Complete) {
@@ -398,6 +399,22 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     /** The "one person, one node" reminder: once when the app opens, then on manual refreshes. */
     var nodeReminderShown = false
 
+    /**
+     * Whether the user agreed, since the app opened, to read BTC from Kilombino's server.
+     * Until they do (or save their own node) the app does not contact it at all. The
+     * background watcher is separate and keeps notifying as before.
+     */
+    @Volatile private var btcConsent = false
+
+    private fun mayContact(chain: Chain): Boolean = chain != Chain.BLAKE2B || btcConsent || hasOwnNode(Chain.BLAKE2B)
+
+    /** "Use Kilombino's server for now": allowed until the app is closed; scans right away. */
+    fun consentBtc() {
+        if (btcConsent) return
+        btcConsent = true
+        scan(Chain.BLAKE2B)
+    }
+
     fun explorerFor(chain: Chain): String = store.explorer(chain)
     fun defaultExplorerFor(chain: Chain): String = store.defaultExplorer(chain)
     fun setExplorer(chain: Chain, url: String?) = store.setExplorer(chain, url)
@@ -425,6 +442,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun scan(chain: Chain) {
+        if (!mayContact(chain)) return
         val xpub = _state.value.xpub ?: return
         jobs[chain]?.cancel()
         val endpoint = store.endpoint(chain)

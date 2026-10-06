@@ -55,7 +55,7 @@ class ElectrumClient(
         private const val READ_TIMEOUT_MS = 60_000
     }
 
-    private var socket: SSLSocket? = null
+    private var socket: Socket? = null
     private var reader: BufferedReader? = null
     private var writer: BufferedWriter? = null
     private var nextId = 0
@@ -117,6 +117,10 @@ class ElectrumClient(
         try {
             ssl.startHandshake()
         } catch (e: Exception) {
+            runCatching { ssl.close() }
+            // A node on the user's own network (Fulcrum's plain port, usually 50001) often
+            // has no TLS at all: there, and only there, talk to it in the clear.
+            if (isLocal(endpoint.host)) return connectPlain()
             throw ElectrumException("Could not establish TLS with ${endpoint}: ${e.message}", e)
         }
         socket = ssl
@@ -125,6 +129,27 @@ class ElectrumClient(
 
         val version = call("server.version", JSONArray().put("PyBlockWatch").put("1.4"))
         serverVersion = (version as? JSONArray)?.optString(0) ?: version?.toString()
+    }
+
+    /** Plain TCP, for a node on the local network only (see [isLocal]). */
+    private fun connectPlain() {
+        val raw = connectRaw()
+        serverFingerprint = null
+        socket = raw
+        reader = BufferedReader(InputStreamReader(raw.inputStream, Charsets.UTF_8))
+        writer = BufferedWriter(OutputStreamWriter(raw.outputStream, Charsets.UTF_8))
+        val version = call("server.version", JSONArray().put("PyBlockWatch").put("1.4"))
+        serverVersion = (version as? JSONArray)?.optString(0) ?: version?.toString()
+    }
+
+    /** A private-network address (192.168.x.x, 10.x, 172.16–31.x, localhost, *.local, fd00::/8). */
+    private fun isLocal(host: String): Boolean {
+        val h = host.lowercase().trim('[', ']')
+        if (h == "localhost" || h.endsWith(".local") || h.startsWith("127.")) return true
+        if (h.startsWith("10.") || h.startsWith("192.168.")) return true
+        if (h.startsWith("172.")) h.split('.').getOrNull(1)?.toIntOrNull()?.let { if (it in 16..31) return true }
+        if (h.startsWith("fd") || h.startsWith("fe80:")) return true
+        return false
     }
 
     /**

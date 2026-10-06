@@ -41,7 +41,9 @@ class CoinjoinMainnetPeer {
         val keyFile = System.getenv("KILOJOIN_PEER") ?: return
         val (cred, host) = System.getenv("KILOJOIN_RPC")!!.split("@")
         auth = cred; rpcUrl = "http://$host/"
+        // KILOJOIN_KEY_OFFSET picks a coin left by an earlier round (base key + offset).
         val key = BigInteger(java.io.File(keyFile).readText().trim(), 16)
+            .add(BigInteger.valueOf(System.getenv("KILOJOIN_KEY_OFFSET")?.toLong() ?: 0L)).mod(Secp256k1.N)
         val pub = Secp256k1.compress(Secp256k1.multiply(key, Secp256k1.G))
         fun derived(n: Long) = key.add(BigInteger.valueOf(n)).mod(Secp256k1.N)
         val mix = Address.scriptPubKey(Secp256k1.compress(Secp256k1.multiply(derived(1), Secp256k1.G)), ScriptType.P2WPKH)
@@ -105,7 +107,7 @@ class CoinjoinMainnetPeer {
         val (cred, host) = System.getenv("KILOJOIN_RPC")!!.split("@")
         auth = cred; rpcUrl = "http://$host/"
         val key = BigInteger(java.io.File(keyFile).readText().trim(), 16)
-        val keys = (0L..2L).map { key.add(BigInteger.valueOf(it)).mod(Secp256k1.N) }
+        val keys = (0L..6L).map { key.add(BigInteger.valueOf(it)).mod(Secp256k1.N) }
         val inputs = keys.flatMap { k ->
             val pub = Secp256k1.compress(Secp256k1.multiply(k, Secp256k1.G))
             val scan = rpc("scantxoutset", "start", JSONArray().put("addr(${Address.encode(pub, ScriptType.P2WPKH)})")) as JSONObject

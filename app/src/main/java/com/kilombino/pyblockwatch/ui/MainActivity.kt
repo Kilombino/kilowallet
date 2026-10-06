@@ -306,7 +306,8 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
                 refreshing = true
                 if (chain == Chain.SHA256 && !arkTab && !cjTab && !vm.hasOwnNode(Chain.SHA256)) warnSpamRefresh = true
                 else if (!vm.hasOwnNode(Chain.BLAKE2B)) remindNode = true
-                if (arkTab) arkPull++ else if (!warnSpamRefresh) vm.refresh(chain)
+                if (cjTab) com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.requestRefresh()
+                else if (arkTab) arkPull++ else if (!warnSpamRefresh) vm.refresh(chain)
                 kotlinx.coroutines.delay(1_500)
                 refreshing = false
             }
@@ -623,7 +624,7 @@ private fun SettingsPanel(
 ) {
     val chain = state.selected
     var host by remember(chain) { mutableStateOf(vm.endpointFor(chain).let { if (it.isCustom) it.host else "" }) }
-    var port by remember(chain) { mutableStateOf(vm.endpointFor(chain).port.toString()) }
+    var port by remember(chain) { mutableStateOf(vm.endpointFor(chain).let { if (it.isCustom) it.port.toString() else "" }) }
 
     Panel(accent = accent) {
         SectionLabel("settings", accent)
