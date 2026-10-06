@@ -128,6 +128,20 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
     var showReceive by remember { mutableStateOf(false) }
     // The spamchain asks first, every time, before anything connects.
     var warnSpam by remember { mutableStateOf(false) }
+    // A BTC or Spamcoin notification opens that tab, refreshed (Ark and Coinjoin switch to advanced).
+    val openTab by com.kilombino.pyblockwatch.data.OpenTab.flow.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(openTab) {
+        when (openTab) {
+            com.kilombino.pyblockwatch.data.OpenTab.BTC -> {
+                com.kilombino.pyblockwatch.data.OpenTab.flow.value = null
+                if (chain != Chain.BLAKE2B) vm.select(Chain.BLAKE2B); vm.refresh(Chain.BLAKE2B)
+            }
+            com.kilombino.pyblockwatch.data.OpenTab.SPAMCOIN -> {
+                com.kilombino.pyblockwatch.data.OpenTab.flow.value = null
+                if (chain != Chain.SHA256) vm.acceptSpamchain() else vm.refresh(Chain.SHA256)
+            }
+        }
+    }
     fun pick(c: Chain) {
         if (c == chain) return
         showSend = false; showReceive = false

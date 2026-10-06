@@ -29,19 +29,14 @@ class Notifier(private val context: Context) {
         )
     }
 
-    private fun openApp(): PendingIntent {
-        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-        return PendingIntent.getActivity(
-            context, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-    }
+    private fun tabFor(chain: Chain) = if (chain == Chain.BLAKE2B) OpenTab.BTC else OpenTab.SPAMCOIN
 
     /**
      * Post one alert. [id] is stable per (chain, event, txid) so re-evaluating the same
      * state updates the existing notification instead of stacking duplicates, while a
      * mempool alert and its later confirmation keep DIFFERENT ids so the user sees both.
      */
-    private fun post(id: Int, title: String, text: String) {
+    private fun post(id: Int, title: String, text: String, tab: String) {
         ensureChannels()
         val n = Notification.Builder(context, CHANNEL_ALERTS)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
@@ -49,7 +44,7 @@ class Notifier(private val context: Context) {
             .setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(text))
             .setAutoCancel(true)
-            .setContentIntent(openApp())
+            .setContentIntent(OpenTab.pending(context, tab))
             .build()
         manager().notify(id, n)
     }
@@ -70,89 +65,89 @@ class Notifier(private val context: Context) {
         val text = if (unconfirmed != 0L)
             "${sats(total)} sats · ${sats(unconfirmed)} in the mempool (0 conf)"
         else "${sats(confirmed)} sats · confirmed"
-        post(idFor(chain, "found", ""), "${chain.display}: balance detected", text)
+        post(idFor(chain, "found", ""), "${chain.display}: balance detected", text, tabFor(chain))
     }
 
     fun mempoolIn(chain: Chain, amount: Long, txid: String) =
         post(idFor(chain, "mem", txid), "New incoming payment in the mempool",
-             "${chain.display} · +${sats(amount)} sats (0 conf)")
+             "${chain.display} · +${sats(amount)} sats (0 conf)", tabFor(chain))
 
     fun mempoolOut(chain: Chain, amount: Long, txid: String) =
         post(idFor(chain, "mem", txid), "New outgoing payment in the mempool",
-             "${chain.display} · ${sats(amount)} sats (0 conf)")
+             "${chain.display} · ${sats(amount)} sats (0 conf)", tabFor(chain))
 
     fun firstConfIn(chain: Chain, amount: Long, txid: String) =
         post(idFor(chain, "conf", txid), "First confirmation of the incoming payment",
-             "${chain.display} · +${sats(amount)} sats (1 conf)")
+             "${chain.display} · +${sats(amount)} sats (1 conf)", tabFor(chain))
 
     fun firstConfOut(chain: Chain, amount: Long, txid: String) =
         post(idFor(chain, "conf", txid), "First confirmation of the outgoing payment",
-             "${chain.display} · ${sats(amount)} sats (1 conf)")
+             "${chain.display} · ${sats(amount)} sats (1 conf)", tabFor(chain))
 
     // A change we only ever saw already-confirmed (received or spent between two checks,
     // never observed in the mempool). No txid to key on, so it collapses per chain.
     fun receivedConfirmed(chain: Chain, amount: Long) =
         post(idFor(chain, "recv", ""), "Received",
-             "${chain.display} · +${sats(amount)} sats · confirmed")
+             "${chain.display} · +${sats(amount)} sats · confirmed", tabFor(chain))
 
     fun receivedPending(chain: Chain, amount: Long) =
         post(idFor(chain, "recv", ""), "Received",
-             "${chain.display} · +${sats(amount)} sats · in the mempool (0 conf)")
+             "${chain.display} · +${sats(amount)} sats · in the mempool (0 conf)", tabFor(chain))
 
     fun sentPending(chain: Chain, amount: Long) =
         post(idFor(chain, "sent", ""), "Sent",
-             "${chain.display} · ${sats(amount)} sats · in the mempool (0 conf)")
+             "${chain.display} · ${sats(amount)} sats · in the mempool (0 conf)", tabFor(chain))
 
     fun sentConfirmed(chain: Chain, amount: Long) =
         post(idFor(chain, "sent", ""), "Sent",
-             "${chain.display} · ${sats(amount)} sats · confirmed")
+             "${chain.display} · ${sats(amount)} sats · confirmed", tabFor(chain))
 
     // ---------------------------------------------------------------- Ark
 
     private fun arkId(event: String, key: String): Int = ("ark:$event:$key").hashCode()
 
     fun arkReceived(kind: String, amount: Long, key: String) =
-        post(arkId("in", key), "Ark: ${kind.lowercase()}", "+${sats(amount)} sats, spendable in Ark")
+        post(arkId("in", key), "Ark: ${kind.lowercase()}", "+${sats(amount)} sats, spendable in Ark", OpenTab.ARK)
 
     fun arkBoarded(amount: Long, key: String) =
-        post(arkId("board", key), "Ark: funds moved in", "+${sats(amount)} sats are now spendable in Ark")
+        post(arkId("board", key), "Ark: funds moved in", "+${sats(amount)} sats are now spendable in Ark", OpenTab.ARK)
 
     fun arkWithdrawn(amount: Long, key: String) =
-        post(arkId("out", key), "Ark: withdrawal done", "${sats(kotlin.math.abs(amount))} sats left Ark on-chain")
+        post(arkId("out", key), "Ark: withdrawal done", "${sats(kotlin.math.abs(amount))} sats left Ark on-chain", OpenTab.ARK)
 
     /** "payment" for an Ark payment, "Lightning payment" for Lightning: reads right after "Ark:". */
     private fun what(kind: String) = if (kind == "Ark payment") "payment" else kind
 
     fun arkBoarding(amount: Long, key: String) =
         post(arkId("boarding", key), "Ark: moving funds in",
-             "${sats(kotlin.math.abs(amount))} sats on their way into Ark; spendable after 3 confirmations")
+             "${sats(kotlin.math.abs(amount))} sats on their way into Ark; spendable after 3 confirmations", OpenTab.ARK)
 
     fun arkSent(kind: String, amount: Long, key: String) =
-        post(arkId("sent", key), "Ark: ${what(kind)} sent", "${sats(-kotlin.math.abs(amount))} sats")
+        post(arkId("sent", key), "Ark: ${what(kind)} sent", "${sats(-kotlin.math.abs(amount))} sats", OpenTab.ARK)
 
     fun arkFailed(kind: String, amount: Long, key: String) =
         post(arkId("failed", key), "Ark: ${what(kind)} failed",
-             "${sats(kotlin.math.abs(amount))} sats did not go out; the coins are still yours")
+             "${sats(kotlin.math.abs(amount))} sats did not go out; the coins are still yours", OpenTab.ARK)
 
     fun arkRenewed(cost: Long, key: String) =
         post(arkId("renew", key), "Ark: coins renewed",
-             "Good for about 30 more days" + (if (cost > 0) " · cost ${sats(cost)} sats" else ""))
+             "Good for about 30 more days" + (if (cost > 0) " · cost ${sats(cost)} sats" else ""), OpenTab.ARK)
 
     fun arkDeposit(amount: Long, key: String, confirmed: Boolean) =
         post(arkId(if (confirmed) "deposit-conf" else "deposit", key),
              if (confirmed) "Ark: deposit confirmed" else "Ark: deposit in the mempool",
              "+${sats(amount)} sats on-chain" + (if (confirmed) "" else " (0 conf)") +
-                 ", not in Ark yet. Open the Ark tab and tap MOVE INTO ARK.")
+                 ", not in Ark yet. Open the Ark tab and tap MOVE INTO ARK.", OpenTab.ARK)
 
     fun arkDepositSent(amount: Long, key: String, confirmed: Boolean) =
         post(arkId(if (confirmed) "dsent-conf" else "dsent", key),
              if (confirmed) "Ark: on-chain send confirmed" else "Ark: on-chain send in the mempool",
-             "${sats(-kotlin.math.abs(amount))} sats from the deposit" + (if (confirmed) "" else " (0 conf)"))
+             "${sats(-kotlin.math.abs(amount))} sats from the deposit" + (if (confirmed) "" else " (0 conf)"), OpenTab.ARK)
 
     fun arkExpiring(blocks: Int) =
         post(arkId("expiry", ""), "Ark: a coin expires soon",
              "In about ${blocks * 10 / 1440} days ($blocks blocks). Open the Ark tab and tap RENEW, " +
-                 "or the coin has to be withdrawn on-chain.")
+                 "or the coin has to be withdrawn on-chain.", OpenTab.ARK)
 
     private fun idFor(chain: Chain, phase: String, txid: String): Int =
         (chain.id + phase + txid).hashCode()

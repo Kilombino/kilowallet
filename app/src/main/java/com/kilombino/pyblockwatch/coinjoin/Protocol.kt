@@ -38,7 +38,7 @@ object Protocol {
 
     const val MIN_AMOUNT = 100_000L
     const val MAX_AMOUNT = 100_000_000L
-    /** Test pools of 1 000 sats, for trying it out with little at stake. Debug builds only. */
+    /** Smallest amount a pool may announce at all; the app itself only lists and creates from [MIN_AMOUNT]. */
     const val TEST_MIN_AMOUNT = 1_000L
     const val MIN_PEERS = 2
     const val MAX_PEERS = 20

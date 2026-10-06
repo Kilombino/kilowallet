@@ -69,7 +69,8 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
     var message by remember { mutableStateOf<String?>(null) }
     var joining by remember { mutableStateOf<Protocol.Terms?>(null) }
     var creating by remember { mutableStateOf(false) }
-    var testPools by remember { mutableStateOf(CoinjoinHub.testPools(ctx)) }
+    // Test pools (from 1 000 sats) were for the betas; the release starts at 100 000.
+    val testPools = false
     var joinPassword by remember { mutableStateOf("") }
     // Pull-to-refresh on this tab reloads the list of open pools.
     val refreshReq by CoinjoinHub.refreshRequests.collectAsState()
@@ -201,16 +202,6 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
                 ) { Text("JOIN") }
             }
         }
-    }
-
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-        Column(Modifier.weight(1f)) {
-            Text("Test pools (from 1 000 sats)", style = MaterialTheme.typography.bodySmall, color = TextSoft)
-            Text("Real coins and a real transaction, just small. Below 100 000 sats a mix hides little.",
-                style = MaterialTheme.typography.bodySmall, color = TextFaint)
-        }
-        Switch(checked = testPools, onCheckedChange = { testPools = it; CoinjoinHub.setTestPools(ctx, it) },
-            colors = SwitchDefaults.colors(checkedThumbColor = accent))
     }
 
     Panel(accent = accent) {

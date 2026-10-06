@@ -70,7 +70,7 @@ object CoinjoinHub {
     }
 
     /** Whether this user wants to see (and be told about) test pools under 100 000 sats. */
-    fun testPools(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_TEST_POOLS, false)
+    fun testPools(@Suppress("UNUSED_PARAMETER") ctx: Context): Boolean = false // betas only
     fun setTestPools(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean(KEY_TEST_POOLS, on).apply()
 
     /** Pull-to-refresh on the COINJOIN tab: the screen reloads the pool list when this moves. */
@@ -246,10 +246,8 @@ object CoinjoinHub {
             .createNotificationChannel(NotificationChannel(CHANNEL, "Coinjoin", NotificationManager.IMPORTANCE_HIGH))
     }
 
-    fun openApp(ctx: Context): PendingIntent = PendingIntent.getActivity(
-        ctx, 7, (ctx.packageManager.getLaunchIntentForPackage(ctx.packageName) ?: Intent())
-            .putExtra("open_coinjoin", true),
-        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    fun openApp(ctx: Context): PendingIntent =
+        com.kilombino.pyblockwatch.data.OpenTab.pending(ctx, com.kilombino.pyblockwatch.data.OpenTab.COINJOIN)
 
     private fun notify(ctx: Context, id: Int, title: String, text: String) {
         ensureChannel(ctx)

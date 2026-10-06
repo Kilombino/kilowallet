@@ -87,15 +87,16 @@ class MainActivity : FragmentActivity() {
         StreetMode.lock()
     }
 
-    // A coinjoin notification asks to open the COINJOIN tab.
+    // A notification asks to open its tab (BTC, SPAMCOIN, ARK, COINJOIN), refreshed.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.getBooleanExtra("open_coinjoin", false)) OpenCoinjoin.flow.value = true
+        setIntent(intent)
+        com.kilombino.pyblockwatch.data.OpenTab.from(intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (intent?.getBooleanExtra("open_coinjoin", false) == true) OpenCoinjoin.flow.value = true
+        com.kilombino.pyblockwatch.data.OpenTab.from(intent)
         // A coinjoin round left running (app killed, updated, phone restarted) picks up again.
         if (com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.hasActive(this))
             com.kilombino.pyblockwatch.coinjoin.CoinjoinService.start(this)
@@ -109,8 +110,12 @@ class MainActivity : FragmentActivity() {
                 LaunchedEffect(state.hasWallet, state.notificationsEnabled) {
                     if (state.hasWallet && state.notificationsEnabled) toggleNotifications(vm, true)
                 }
-                val openCj by OpenCoinjoin.flow.collectAsState()
-                LaunchedEffect(openCj) { if (openCj && state.uiMode == "simple") vm.setUiMode("advanced") }
+                // ARK and COINJOIN live in advanced mode: a notification about them switches to it.
+                val openTab by com.kilombino.pyblockwatch.data.OpenTab.flow.collectAsState()
+                LaunchedEffect(openTab) {
+                    if (state.uiMode == "simple" && (openTab == com.kilombino.pyblockwatch.data.OpenTab.ARK ||
+                            openTab == com.kilombino.pyblockwatch.data.OpenTab.COINJOIN)) vm.setUiMode("advanced")
+                }
                 Box(Modifier.fillMaxSize().background(Ink)) {
                     if (state.showWallet) {
                         // Simple / Advanced: chosen once, switchable from the top of either screen.
@@ -274,11 +279,31 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
     // Tabs: BTC (the BLAKE2b chain) and ARK; the spamchain opens from settings.
     var arkTab by remember { mutableStateOf(false) }
     var cjTab by remember { mutableStateOf(false) }
-    val openCj by OpenCoinjoin.flow.collectAsState()
-    LaunchedEffect(openCj) { if (openCj) { cjTab = true; arkTab = false; OpenCoinjoin.flow.value = false } }
+    var arkPull by remember { mutableStateOf(0) }
+    val openTab by com.kilombino.pyblockwatch.data.OpenTab.flow.collectAsState()
+    LaunchedEffect(openTab) {
+        val t = openTab ?: return@LaunchedEffect
+        com.kilombino.pyblockwatch.data.OpenTab.flow.value = null
+        when (t) {
+            com.kilombino.pyblockwatch.data.OpenTab.COINJOIN -> {
+                cjTab = true; arkTab = false
+                if (state.selected != Chain.BLAKE2B) vm.select(Chain.BLAKE2B)
+                com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.requestRefresh()
+            }
+            com.kilombino.pyblockwatch.data.OpenTab.ARK -> { arkTab = true; cjTab = false; arkPull++ }
+            com.kilombino.pyblockwatch.data.OpenTab.SPAMCOIN -> {
+                arkTab = false; cjTab = false
+                if (state.selected != Chain.SHA256) vm.acceptSpamchain() else vm.refresh(Chain.SHA256)
+            }
+            else -> {
+                arkTab = false; cjTab = false
+                if (state.selected != Chain.BLAKE2B) vm.select(Chain.BLAKE2B)
+                vm.refresh(Chain.BLAKE2B)
+            }
+        }
+    }
     // Advanced always opens on BTC | ARK: the spamchain only shows when opened from settings.
     LaunchedEffect(Unit) { if (state.selected == Chain.SHA256) vm.select(Chain.BLAKE2B) }
-    var arkPull by remember { mutableStateOf(0) }
     val accent by animateColorAsState(if (arkTab) Purple else Color(chain.accent), tween(400), label = "accent")
     var showSettings by remember { mutableStateOf(false) }
     var showSend by remember { mutableStateOf(false) }
@@ -960,5 +985,3 @@ private fun TxDetailDialog(
     )
 }
 
-/** Set when a coinjoin notification opened the app: the wallet screen jumps to COINJOIN. */
-object OpenCoinjoin { val flow = kotlinx.coroutines.flow.MutableStateFlow(false) }
