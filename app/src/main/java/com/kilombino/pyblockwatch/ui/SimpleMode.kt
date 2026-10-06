@@ -373,7 +373,7 @@ private fun AddWidgetButton(accent: Color) {
         mgr.requestPinAppWidget(
             android.content.ComponentName(ctx, com.kilombino.pyblockwatch.widget.XbtWidget::class.java), null, null)
     }) {
-        Text("＋ add the XBT price widget to your home screen",
+        Text("＋ add the BTC price widget to your home screen",
              style = MaterialTheme.typography.bodySmall, color = accent)
     }
 }

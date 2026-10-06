@@ -34,13 +34,32 @@
             android:textColor="@color/widget_ink"
             android:textSize="22sp"
             android:textStyle="bold" />
-        <ImageView
+        <!-- Big touch target (48 dp) around a small arrow; the negative margins keep the
+             header row as tall as before. While refreshing, the arrow spins. -->
+        <FrameLayout
             android:id="@+id/refresh"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:padding="3dp"
-            android:src="@drawable/xbt_ic_refresh"
-            android:contentDescription="@string/xbtw_refresh" />
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginTop="-12dp"
+            android:layout_marginBottom="-12dp"
+            android:layout_marginEnd="-10dp"
+            android:contentDescription="@string/xbtw_refresh">
+            <ImageView
+                android:id="@+id/refresh_icon"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_gravity="center"
+                android:src="@drawable/xbt_ic_refresh"
+                android:contentDescription="@null" />
+            <ProgressBar
+                android:id="@+id/refresh_spin"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_gravity="center"
+                android:indeterminate="true"
+                android:indeterminateDrawable="@drawable/xbt_refresh_spin"
+                android:visibility="gone" />
+        </FrameLayout>
     </LinearLayout>
     <TextView
         android:id="@+id/change"

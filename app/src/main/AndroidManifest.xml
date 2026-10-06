@@ -41,7 +41,7 @@
         <receiver
             android:name=".widget.XbtWidget"
             android:exported="false"
-            android:label="XBT price">
+            android:label="BTC price">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>

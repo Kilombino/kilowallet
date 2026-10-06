@@ -18,6 +18,10 @@ data class MarketData(
     val low24Usd: Double?,
     /** How many Poolsats (units of the SHA-256 Spamchain) one XBT is worth. */
     val xbtPoolsats: Long?,
+    /** 24h change of [xbtPoolsats], in percent. */
+    val poolsatsChangePct: Double?,
+    /** Total network hashrate in H/s (average of the last 144 blocks). */
+    val networkHashps: Double?,
     val height: Long?,
     val thsXbtDay: Double?,
     val thsUsdDay: Double?,
@@ -55,6 +59,8 @@ object MarketFeed {
     private const val KEY_FETCHED = "fetched"
     private const val KEY_NEXT = "next_allowed"
     private const val KEY_BACKOFF = "backoff_min"
+    private const val KEY_LAST_TRY = "last_try"
+    private const val KEY_LIMITED_UNTIL = "limited_until"
     private const val MIN_POLL_MIN = 15L
     private const val MAX_BACKOFF_MIN = 6 * 60L
     private const val STALE_MS = 45 * 60_000L
@@ -71,18 +77,19 @@ object MarketFeed {
 
     /**
      * Fetches fresh data if the server allows it right now; otherwise returns the cache.
-     * [force] only skips the 15-min schedule, never the server's back-off or a 429, and
-     * still waits at least one minute between calls.
+     * [force] (the refresh button) skips the 15-min schedule and the failure back-off, so
+     * one network hiccup no longer leaves the button dead for hours; it never skips a 429
+     * and still waits at least one minute between attempts.
      */
     @Synchronized
     fun refresh(ctx: Context, force: Boolean = false): MarketData? {
         val p = prefs(ctx)
         val now = System.currentTimeMillis()
         val next = p.getLong(KEY_NEXT, 0L)
-        val lastFetch = p.getLong(KEY_FETCHED, 0L)
-        val backingOff = p.getLong(KEY_BACKOFF, MIN_POLL_MIN) > MIN_POLL_MIN
-        val allowedByForce = force && !backingOff && now - lastFetch >= 60_000L
+        val allowedByForce = force && now >= p.getLong(KEY_LIMITED_UNTIL, 0L) &&
+            now - p.getLong(KEY_LAST_TRY, 0L) >= 60_000L
         if (now < next && !allowedByForce) return cached(ctx)
+        p.edit().putLong(KEY_LAST_TRY, now).apply()
         var conn: HttpURLConnection? = null
         try {
             conn = (URL(API).openConnection() as HttpURLConnection).apply {
@@ -94,7 +101,8 @@ object MarketFeed {
             val code = conn.responseCode
             if (code == 429) {
                 val retry = conn.getHeaderField("Retry-After")?.toLongOrNull() ?: 0L
-                p.edit().putLong(KEY_NEXT, now + maxOf(retry * 1000, 10 * 60_000L)).apply()
+                val until = now + maxOf(retry * 1000, 10 * 60_000L)
+                p.edit().putLong(KEY_NEXT, until).putLong(KEY_LIMITED_UNTIL, until).apply()
                 return cached(ctx)
             }
             if (code != 200) throw IllegalStateException("HTTP $code")
@@ -130,6 +138,8 @@ object MarketFeed {
             high24Usd = o.num("high24Usd"),
             low24Usd = o.num("low24Usd"),
             xbtPoolsats = o.num("xbtPoolsats")?.toLong(),
+            poolsatsChangePct = o.num("poolsatsChangePct"),
+            networkHashps = o.num("networkHashps"),
             height = o.num("height")?.toLong(),
             thsXbtDay = o.num("thsBtcDay"),
             thsUsdDay = o.num("thsUsdDay"),

@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.util.SizeF
+import android.view.View
 import android.widget.RemoteViews
 import com.kilombino.pyblockwatch.R
 import com.kilombino.pyblockwatch.data.MarketData
@@ -46,12 +47,20 @@ class XbtWidget : AppWidgetProvider() {
     }
 
     private fun refreshAsync(ctx: Context, force: Boolean) {
+        val app = ctx.applicationContext
+        // Button press: the arrow starts spinning at once, so the tap visibly registered.
+        if (force) { spinning = true; renderAll(app) }
         val pending = goAsync()
         Thread {
+            val t0 = System.currentTimeMillis()
             try {
-                MarketFeed.refresh(ctx.applicationContext, force)
-                renderAll(ctx.applicationContext)
+                MarketFeed.refresh(app, force)
+                // Keep it spinning for a moment even when the answer is instant (or the
+                // one-minute limit says "not yet"), otherwise it only flickers.
+                if (force) Thread.sleep(maxOf(0L, MIN_SPIN_MS - (System.currentTimeMillis() - t0)))
             } finally {
+                if (force) spinning = false
+                renderAll(app)
                 pending.finish()
             }
         }.start()
@@ -59,6 +68,11 @@ class XbtWidget : AppWidgetProvider() {
 
     companion object {
         const val ACTION_REFRESH = "com.kilombino.pyblockwatch.widget.REFRESH"
+
+        private const val MIN_SPIN_MS = 1500L
+
+        /** True while a refresh asked for with the button is running. */
+        @Volatile private var spinning = false
 
         private const val FULL_MIN_WIDTH_DP = 180
         private const val FULL_MIN_HEIGHT_DP = 100
@@ -116,6 +130,8 @@ class XbtWidget : AppWidgetProvider() {
             v.setOnClickPendingIntent(R.id.refresh, PendingIntent.getBroadcast(
                 ctx, 1, Intent(ctx, XbtWidget::class.java).setAction(ACTION_REFRESH),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+            v.setViewVisibility(R.id.refresh_icon, if (spinning) View.GONE else View.VISIBLE)
+            v.setViewVisibility(R.id.refresh_spin, if (spinning) View.VISIBLE else View.GONE)
 
             val sym = if (fiat == "EUR") "€" else "$"
             val px = if (fiat == "EUR") m?.xbtEur else m?.xbtUsd
@@ -124,15 +140,15 @@ class XbtWidget : AppWidgetProvider() {
             v.setTextViewText(R.id.price, money(sym, px))
             val ch = m?.changePct
             v.setTextViewText(R.id.change, if (ch == null) (if (m == null) "Loading…" else "")
-                else (if (ch >= 0) "▲ " else "▼ ") + String.format(Locale.US, "%.2f%%", abs(ch)) + " 24h")
-            v.setTextColor(R.id.change, ctx.getColor(when {
-                ch == null -> R.color.widget_muted
-                ch >= 0 -> R.color.widget_up
-                else -> R.color.widget_down
-            }))
+                else changeText(ch) + " 24h")
+            v.setTextColor(R.id.change, ctx.getColor(changeColor(ch)))
             if (size == Size.SMALL) return v
 
-            v.setTextViewText(R.id.ratio, m?.xbtPoolsats?.let { String.format(Locale.US, "%,d Poolsats", it) } ?: "–")
+            v.setTextViewText(R.id.poolsats, m?.xbtPoolsats?.let { String.format(Locale.US, "%,d Poolsats", it) } ?: "–")
+            val pch = m?.poolsatsChangePct
+            v.setTextViewText(R.id.poolsats_change, if (pch == null) "" else changeText(pch) + " 24h")
+            v.setTextColor(R.id.poolsats_change, ctx.getColor(changeColor(pch)))
+            v.setTextViewText(R.id.hashrate, m?.networkHashps?.let { hashrate(it) } ?: "–")
             v.setTextViewText(R.id.range,
                 if (m?.low24Usd == null || m.high24Usd == null) "–"
                 else "${money(sym, m.low24Usd * rate)} – ${money(sym, m.high24Usd * rate)}")
@@ -143,7 +159,7 @@ class XbtWidget : AppWidgetProvider() {
             })
             if (size == Size.LARGE) {
                 v.setTextViewText(R.id.earns, m?.thsXbtDay?.let {
-                    String.format(Locale.US, "%.4f XBT/d", it) + (m.thsUsdDay?.let { u -> " · " + money(sym, u * rate) } ?: "")
+                    String.format(Locale.US, "%.4f BTC/d", it) + (m.thsUsdDay?.let { u -> " · " + money(sym, u * rate) } ?: "")
                 } ?: "–")
                 v.setTextViewText(R.id.rent, m?.rentPoolsatsPerThDay?.let {
                     String.format(Locale.US, "%,d Poolsats/d", it.roundToLong()) +
@@ -154,6 +170,21 @@ class XbtWidget : AppWidgetProvider() {
                 v.setTextViewText(R.id.chain, m?.chainSizeGB?.let { String.format(Locale.US, "%,.2f GB", it) } ?: "–")
             }
             return v
+        }
+
+        private fun changeText(pct: Double): String =
+            (if (pct >= 0) "▲ " else "▼ ") + String.format(Locale.US, "%.2f%%", abs(pct))
+
+        private fun changeColor(pct: Double?): Int = when {
+            pct == null -> R.color.widget_muted
+            pct >= 0 -> R.color.widget_up
+            else -> R.color.widget_down
+        }
+
+        private fun hashrate(hps: Double): String {
+            val units = listOf(1e18 to "EH/s", 1e15 to "PH/s", 1e12 to "TH/s", 1e9 to "GH/s")
+            val (f, u) = units.firstOrNull { hps >= it.first } ?: (1.0 to "H/s")
+            return String.format(Locale.US, "%.2f %s", hps / f, u)
         }
 
         private fun money(sym: String, v: Double?): String =

@@ -20,7 +20,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="6dp"
-            android:text="XBT"
+            android:text="BTC"
             android:textColor="@color/widget_ink"
             android:textSize="14sp"
             android:textStyle="bold" />
@@ -28,35 +28,91 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1" />
-        <ImageView
+        <!-- Big touch target (48 dp) around a small arrow; the negative margins keep the
+             header row as tall as before. While refreshing, the arrow spins. -->
+        <FrameLayout
             android:id="@+id/refresh"
-            android:layout_width="26dp"
-            android:layout_height="26dp"
-            android:padding="3dp"
-            android:src="@drawable/xbt_ic_refresh"
-            android:contentDescription="@string/xbtw_refresh" />
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginTop="-12dp"
+            android:layout_marginBottom="-12dp"
+            android:layout_marginEnd="-10dp"
+            android:contentDescription="@string/xbtw_refresh">
+            <ImageView
+                android:id="@+id/refresh_icon"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="center"
+                android:src="@drawable/xbt_ic_refresh"
+                android:contentDescription="@null" />
+            <ProgressBar
+                android:id="@+id/refresh_spin"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="center"
+                android:indeterminate="true"
+                android:indeterminateDrawable="@drawable/xbt_refresh_spin"
+                android:visibility="gone" />
+        </FrameLayout>
     </LinearLayout>
-    <TextView
-        android:id="@+id/price"
+    <!-- Price and its 24h change on the left; Poolsats per BTC and their change on the right. -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
-        android:maxLines="1"
-        android:autoSizeTextType="uniform"
-        android:autoSizeMinTextSize="14sp"
-        android:autoSizeMaxTextSize="30sp"
-        android:text="–"
-        android:textColor="@color/widget_ink"
-        android:textSize="30sp"
-        android:textStyle="bold" />
-    <TextView
-        android:id="@+id/change"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:maxLines="1"
-        android:textColor="@color/widget_muted"
-        android:textSize="13sp"
-        android:textStyle="bold" />
+        android:gravity="bottom"
+        android:orientation="horizontal">
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+            <TextView
+                android:id="@+id/price"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:autoSizeTextType="uniform"
+                android:autoSizeMinTextSize="14sp"
+                android:autoSizeMaxTextSize="30sp"
+                android:text="–"
+                android:textColor="@color/widget_ink"
+                android:textSize="30sp"
+                android:textStyle="bold" />
+            <TextView
+                android:id="@+id/change"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:textColor="@color/widget_muted"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:gravity="end"
+            android:orientation="vertical">
+            <TextView
+                android:id="@+id/poolsats"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:text="–"
+                android:textColor="@color/widget_ink"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+            <TextView
+                android:id="@+id/poolsats_change"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:textColor="@color/widget_muted"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </LinearLayout>
     <TextView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
     <LinearLayout
         android:layout_width="match_parent"
@@ -66,11 +122,11 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/xbtw_label_ratio"
+            android:text="@string/xbtw_label_hashrate"
             android:textColor="@color/widget_muted"
             android:textSize="12sp" />
         <TextView
-            android:id="@+id/ratio"
+            android:id="@+id/hashrate"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
