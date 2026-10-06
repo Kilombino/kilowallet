@@ -131,9 +131,16 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
     fun pick(c: Chain) {
         if (c == chain) return
         showSend = false; showReceive = false
-        if (c == Chain.SHA256) warnSpam = true else vm.select(c)
+        if (c == Chain.SHA256) { if (vm.hasOwnNode(Chain.SHA256)) vm.acceptSpamchain() else warnSpam = true } else vm.select(c)
     }
-    if (warnSpam) SpamchainWarning(onContinue = { warnSpam = false; vm.acceptSpamchain() }, onBack = { warnSpam = false })
+    if (warnSpam) SpamchainWarning(vm, onContinue = { warnSpam = false; vm.acceptSpamchain() },
+        onBack = { warnSpam = false; vm.select(Chain.BLAKE2B) })
+    // One person, one node: remind when the app comes to the screen while BTC uses our server.
+    var remindNode by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(AppVisible.value) {
+        if (AppVisible.value && !vm.hasOwnNode(Chain.BLAKE2B) && !vm.nodeReminderShown) { vm.nodeReminderShown = true; remindNode = true }
+    }
+    if (remindNode) OwnNodeReminder(vm) { remindNode = false }
 
     // Pull down to refresh the balance and the price.
     var refreshing by remember { mutableStateOf(false) }
@@ -144,7 +151,11 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
         onRefresh = {
             pullScope.launch {
                 refreshing = true
-                vm.refresh(chain); vm.refreshMarket(force = true)
+                // A manual refresh is when to remind about using your own node.
+                if (chain == Chain.SHA256 && !vm.hasOwnNode(Chain.SHA256)) warnSpam = true
+                else if (chain == Chain.BLAKE2B && !vm.hasOwnNode(Chain.BLAKE2B)) remindNode = true
+                if (!warnSpam) vm.refresh(chain)
+                vm.refreshMarket(force = true)
                 kotlinx.coroutines.delay(1_500)
                 refreshing = false
             }

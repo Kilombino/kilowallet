@@ -155,7 +155,8 @@ class PoolSession(private val env: Env, private val s: State) {
 
     @Synchronized
     fun start() {
-        if (done && s.phase != Phase.CONFIRMED) return
+        if (done) return
+        if (timer != null) return // already running
         if (worker.isShutdown) worker = Executors.newSingleThreadExecutor()
         timer = Executors.newSingleThreadScheduledExecutor().also { it.scheduleWithFixedDelay({ tick() }, 5, 15, TimeUnit.SECONDS) }
         connect()

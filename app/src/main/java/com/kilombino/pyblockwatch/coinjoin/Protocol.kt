@@ -33,7 +33,8 @@ object Protocol {
     const val KIND_MSG = 2023
     const val TAG = "kilojoin"
     const val VERSION = 1
-    const val NETWORK = "blake2b"
+    /** BLAKE2b mainnet. Tests against a regtest node set another name so their pools never list here. */
+    @Volatile var NETWORK = "blake2b"
 
     const val MIN_AMOUNT = 100_000L
     const val MAX_AMOUNT = 100_000_000L

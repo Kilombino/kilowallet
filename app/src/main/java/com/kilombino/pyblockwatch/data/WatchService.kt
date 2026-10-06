@@ -79,6 +79,11 @@ class WatchService : Service() {
                     ArkWatch.evaluate(this@WatchService, notifier)
                 }
             }
+            // Coinjoin: tell about pools other people opened since the last look (BLAKE2b
+            // spending wallets only, the ones that could join).
+            if (com.kilombino.pyblockwatch.data.SeedVault(this@WatchService).hasSeed() && com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.supported(store)) {
+                runCatching { com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.checkNewPools(this@WatchService) }
+            }
             // Home-screen widget: piggy-backs on this loop instead of pulling in WorkManager.
             // MarketFeed only calls the server when its own schedule allows it.
             if (com.kilombino.pyblockwatch.widget.XbtWidget.hasWidgets(this@WatchService)) {

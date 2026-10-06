@@ -66,6 +66,7 @@ class CoinjoinE2ETest {
 
     @Test fun twoWalletsOverTheRelay() {
         val path = System.getenv("KILOJOIN_E2E") ?: return
+        Protocol.NETWORK = "blake2b-regtest" // never shows up in a real wallet's pool list
         val lines = java.io.File(path).readLines().filter { it.isNotBlank() }.map { it.trim().split(" ") }
         val coins = lines.map { (seed, txid, vout, value) -> seed.toInt() to CoinjoinTx.Coin(txid, vout.toInt(), value.toLong(), pub(key(seed.toInt()))) }
         val (seedA, coinA) = coins[0]; val (seedB, coinB) = coins[1]

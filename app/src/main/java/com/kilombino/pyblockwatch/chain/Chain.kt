@@ -42,8 +42,8 @@ enum class Chain(
         blurb = "The classic SHA-256 chain. Spends here sign legacy, so they are not replay-protected.",
     );
 
-    /** Only BLAKE2b offers pointing at your own node; SHA-256 is a lookup service. */
-    val allowsCustomNode: Boolean get() = this == BLAKE2B
+    /** Both chains can point at your own node (one person, one node). */
+    val allowsCustomNode: Boolean get() = true
 
     companion object {
         /**

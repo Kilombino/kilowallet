@@ -53,5 +53,10 @@
             android:name=".data.WatchService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <!-- Keeps the phone in a coinjoin round while the app is closed; stops when no round needs it. -->
+        <service
+            android:name=".coinjoin.CoinjoinService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 </manifest>

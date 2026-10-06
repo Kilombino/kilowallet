@@ -387,6 +387,12 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
 
     fun endpointFor(chain: Chain): NodeEndpoint = store.endpoint(chain)
 
+    /** True once the user saved their own server for [chain] (here or in settings). */
+    fun hasOwnNode(chain: Chain): Boolean = store.endpoint(chain).isCustom
+
+    /** The "one person, one node" reminder: once when the app opens, then on manual refreshes. */
+    var nodeReminderShown = false
+
     fun explorerFor(chain: Chain): String = store.explorer(chain)
     fun defaultExplorerFor(chain: Chain): String = store.defaultExplorer(chain)
     fun setExplorer(chain: Chain, url: String?) = store.setExplorer(chain, url)
@@ -797,7 +803,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 val pin = store.pinnedFingerprint(endpoint)
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     scanner.gatherUtxos(cs.rows.filter { it.isUsed }, endpoint, pin)
-                }
+                }.let { notInCoinjoin(chain, it) }
             }.onSuccess { u -> applyUtxos(chain, u.sortedByDescending { x -> x.value }) }
              .onFailure { applyUtxos(chain, emptyList()) }
         }
@@ -864,7 +870,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     val pin = store.pinnedFingerprint(endpoint)
                     val utxos = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         scanner.gatherUtxos(cs.rows.filter { it.isUsed }, endpoint, pin)
-                    }
+                    }.let { notInCoinjoin(chain, it) }
                     require(utxos.isNotEmpty()) { "No spendable coins on this chain yet." }
                     val acc = mutableListOf<com.kilombino.pyblockwatch.data.Scanner.SpendableUtxo>()
                     var s = 0L
@@ -1060,6 +1066,59 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         val parsed = com.kilombino.pyblockwatch.crypto.Bip32.parseExtendedPubKey(xpub)
         val pub = com.kilombino.pyblockwatch.crypto.Bip32.derivePath(parsed, 1, index).pubkey()
         return com.kilombino.pyblockwatch.crypto.Address.scriptPubKey(pub, store.scriptType)
+    }
+
+    // ------------------------------------------------------------------ coinjoin
+
+    /** Coins waiting in a coinjoin round are not offered to a normal send. */
+    private fun notInCoinjoin(chain: Chain, u: List<Scanner.SpendableUtxo>): List<Scanner.SpendableUtxo> {
+        if (chain != Chain.BLAKE2B) return u
+        val locked = com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.lockedOutpoints(getApplication())
+        return u.filterNot { "${it.txid}:${it.vout}" in locked }
+    }
+
+    /** Can this wallet take part: a spending wallet with native SegWit (bc1q) addresses. */
+    fun coinjoinSupported(): Boolean = _state.value.isHot && com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.supported(store)
+
+    /** Confirmed BLAKE2b coins that can go into a pool, biggest first. */
+    suspend fun coinjoinCoins(): List<Scanner.SpendableUtxo> {
+        val cs = _state.value.chains[Chain.BLAKE2B] ?: return emptyList()
+        val endpoint = store.endpoint(Chain.BLAKE2B)
+        val u = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            scanner.gatherUtxos(cs.rows.filter { it.isUsed }, endpoint, store.pinnedFingerprint(endpoint))
+        }
+        return notInCoinjoin(Chain.BLAKE2B, u).filter { it.height > 0 }.sortedByDescending { it.value }
+    }
+
+    /**
+     * Everything a seat needs, from the seed unlocked by [decryptCipher]: the coin's key and
+     * two fresh addresses (mixed output and change), reserved at once so no other payment
+     * hands them out — on either chain, as the same key gives the same address on both.
+     */
+    fun coinjoinPick(decryptCipher: javax.crypto.Cipher, u: Scanner.SpendableUtxo): com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.Pick {
+        val xpub = _state.value.xpub ?: error("no wallet")
+        val purpose = Scanner.purposeFor(store.scriptType)
+        val secret = seedVault.revealSecret(decryptCipher)
+        val master = com.kilombino.pyblockwatch.crypto.Bip32Priv
+            .fromSeed(com.kilombino.pyblockwatch.crypto.Bip39.toSeed(secret.words, secret.passphrase))
+        val path = "m/$purpose'/0'/0'/${u.chainIndex}/${u.index}"
+        val node = com.kilombino.pyblockwatch.crypto.Bip32Priv.derivePath(master, path)
+        val mixIndex = nextUnused(0); store.noteUsedTop(xpub, 0, mixIndex + 1)
+        val changeIndex = nextUnused(1); store.noteUsedTop(xpub, 1, changeIndex + 1)
+        val parsed = com.kilombino.pyblockwatch.crypto.Bip32.parseExtendedPubKey(xpub)
+        fun script(branch: Int, i: Int) = com.kilombino.pyblockwatch.crypto.Address.scriptPubKey(
+            com.kilombino.pyblockwatch.crypto.Bip32.derivePath(parsed, branch, i).pubkey(), store.scriptType)
+        return com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.Pick(
+            u.txid, u.vout, u.value, node, path, script(0, mixIndex), changeScriptPubKey(xpub, changeIndex),
+        )
+    }
+
+    /** The coin's private key again, for signing the round at the end. */
+    fun coinjoinKey(decryptCipher: javax.crypto.Cipher, coinPath: String): java.math.BigInteger {
+        val secret = seedVault.revealSecret(decryptCipher)
+        val master = com.kilombino.pyblockwatch.crypto.Bip32Priv
+            .fromSeed(com.kilombino.pyblockwatch.crypto.Bip39.toSeed(secret.words, secret.passphrase))
+        return com.kilombino.pyblockwatch.crypto.Bip32Priv.derivePath(master, coinPath).key
     }
 
     private fun update(chain: Chain, f: (ChainState) -> ChainState) {
