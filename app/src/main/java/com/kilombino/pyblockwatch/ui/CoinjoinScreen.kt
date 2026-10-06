@@ -177,7 +177,9 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
             Text(if (loadingPools) "looking…" else "refresh", color = TextSoft, style = MaterialTheme.typography.bodySmall)
         }
     }
-    val ours = mine.map { it.poolId }.toSet()
+    // Only rounds still running hide their pool: one that ended or was left shows again to rejoin.
+    val ours = mine.filter { it.phase !in setOf(PoolSession.Phase.ABORTED, PoolSession.Phase.REJECTED,
+        PoolSession.Phase.CONFIRMED, PoolSession.Phase.BROADCAST) }.map { it.poolId }.toSet()
     val shown = pools.orEmpty().filter { it.id !in ours && (testPools || it.amount >= Protocol.MIN_AMOUNT) }
     if (pools != null && shown.isEmpty()) Explain("No open pools right now. Open one and others will be notified.")
     shown.forEach { t ->
@@ -263,7 +265,8 @@ private fun CoinPicker(
         when {
             list == null -> Text("reading your coins…", color = TextSoft, style = MaterialTheme.typography.bodySmall)
             list.none { it.value >= min } -> Text("No confirmed coin is big enough.", color = Warn, style = MaterialTheme.typography.bodySmall)
-            else -> list.filter { it.value >= min }.forEach { u ->
+            // The exact coin first: it joins with no change, so the mixed output is tied to nothing.
+            else -> list.filter { it.value >= min }.sortedBy { if (it.value == min) 0 else 1 }.forEach { u ->
                 val sel = chosen == u
                 Row(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
@@ -274,8 +277,16 @@ private fun CoinPicker(
                     Column(Modifier.weight(1f)) {
                         Text("${groupSats(u.value)} sats", color = TextMain, style = MaterialTheme.typography.bodyMedium)
                         val ch = CoinjoinTx.change(u.value, amount, feeRate) ?: 0
-                        Text("${u.txid.take(10)}…:${u.vout} · change ${groupSats(ch)} · fee ${groupSats(u.value - amount - ch)}",
-                            color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                        val fee = u.value - amount - ch
+                        when {
+                            u.value == min -> Text("★ EXACT · no change · fee ${groupSats(fee)}",
+                                color = Good, style = MaterialTheme.typography.bodySmall)
+                            ch == 0L -> Text("no change, but ${groupSats(fee - (min - amount))} extra goes to the miners · fee ${groupSats(fee)}",
+                                color = Warn, style = MaterialTheme.typography.bodySmall)
+                            else -> Text("change ${groupSats(ch)} · fee ${groupSats(fee)}",
+                                color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Text("${u.txid.take(10)}…:${u.vout}", color = TextFaint, style = MaterialTheme.typography.bodySmall)
                     }
                     if (sel) Text("✓", color = accent)
                 }

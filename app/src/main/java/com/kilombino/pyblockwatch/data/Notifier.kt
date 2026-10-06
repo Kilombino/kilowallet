@@ -95,6 +95,14 @@ class Notifier(private val context: Context) {
         post(idFor(chain, "recv", ""), "Received",
              "${chain.display} · +${sats(amount)} sats · confirmed")
 
+    fun receivedPending(chain: Chain, amount: Long) =
+        post(idFor(chain, "recv", ""), "Received",
+             "${chain.display} · +${sats(amount)} sats · in the mempool (0 conf)")
+
+    fun sentPending(chain: Chain, amount: Long) =
+        post(idFor(chain, "sent", ""), "Sent",
+             "${chain.display} · ${sats(amount)} sats · in the mempool (0 conf)")
+
     fun sentConfirmed(chain: Chain, amount: Long) =
         post(idFor(chain, "sent", ""), "Sent",
              "${chain.display} · ${sats(amount)} sats · confirmed")
@@ -220,9 +228,12 @@ object BalanceWatch {
 
         // 3) A balance change we never saw in the mempool — received or spent already
         //    confirmed (common with the 5-minute background gap).
+        //    It may still be unconfirmed (e.g. a payment to yourself, or an address the watcher
+        //    only just started following): then say so instead of calling it confirmed.
         if (newPending.isEmpty() && totalDelta != 0L) {
-            if (totalDelta > 0) notifier.receivedConfirmed(chain, totalDelta)
-            else notifier.sentConfirmed(chain, -totalDelta)
+            val stillPending = unconfirmed != prevUnconf
+            if (totalDelta > 0) { if (stillPending) notifier.receivedPending(chain, totalDelta) else notifier.receivedConfirmed(chain, totalDelta) }
+            else { if (stillPending) notifier.sentPending(chain, -totalDelta) else notifier.sentConfirmed(chain, -totalDelta) }
         }
 
         // Advance the baseline: pending set becomes the current one, carrying amounts

@@ -204,7 +204,15 @@ object CoinjoinHub {
                 val h = c.history(Address.electrumScriptHash(st.mixScript)).firstOrNull { it.txid == txid } ?: return@electrum null
                 if (h.height <= 0) 0 else c.blockHeight() - h.height + 1
             }
-            override fun save(state: PoolSession.State) = persist(app)
+            override fun save(state: PoolSession.State) {
+                // Left on purpose ("not yet", LEAVE): nothing to keep, and the pool goes back
+                // to the open list so the user can join again straight away.
+                if (state.phase == PoolSession.Phase.ABORTED && state.reason == PoolSession.LEFT_BY_CHOICE) {
+                    val gone = synchronized(this@CoinjoinHub) { sessions.remove(state.poolId) }
+                    Thread { runCatching { gone?.stop() } }.start()
+                }
+                persist(app)
+            }
             override fun event(e: PoolSession.Event) = onEvent(app, st, e)
         }
     }

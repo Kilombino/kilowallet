@@ -1187,6 +1187,22 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** True when [address] is one of this wallet's own (used so far, plus the gap). */
+    fun isOwnAddress(address: String): Boolean {
+        val a = address.trim()
+        if (_state.value.chains.values.any { cs -> cs.rows.any { it.address == a } }) return true
+        val xpub = _state.value.xpub ?: return false
+        return runCatching {
+            val parsed = com.kilombino.pyblockwatch.crypto.Bip32.parseExtendedPubKey(xpub)
+            (0..1).any { ci ->
+                (0 until store.usedTop(xpub, ci) + store.gapLimit).any { i ->
+                    com.kilombino.pyblockwatch.crypto.Address.encode(
+                        com.kilombino.pyblockwatch.crypto.Bip32.derivePath(parsed, ci, i).pubkey(), store.scriptType) == a
+                }
+            }
+        }.getOrDefault(false)
+    }
+
     /** The coin's private key again, for signing the round at the end. */
     fun coinjoinKey(decryptCipher: javax.crypto.Cipher, coinPath: String): java.math.BigInteger {
         val secret = seedVault.revealSecret(decryptCipher)

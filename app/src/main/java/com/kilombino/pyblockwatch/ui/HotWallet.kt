@@ -458,7 +458,8 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
 
         when (val phase = state.sendPhase) {
             is SendPhase.Sent -> {
-                if (!askedSave) SaveContactPrompt(to.trim(), accent) { askedSave = true }
+                // A payment to yourself (an exact coin, a consolidation) is not a contact.
+                if (!askedSave && !vm.isOwnAddress(to)) SaveContactPrompt(to.trim(), accent) { askedSave = true }
                 Text("Broadcast ✓", color = Good, style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
                 SelectionContainer { Text(phase.txid, color = TextSoft,

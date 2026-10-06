@@ -109,9 +109,11 @@ class WatchService : Service() {
     private fun deriveKnownAddresses(xpub: String, chain: Chain, store: Store): List<AddressRow> {
         val account = runCatching { Bip32.parseExtendedPubKey(xpub) }.getOrNull() ?: return emptyList()
         val type = store.scriptType
-        val depth = store.gapLimit
         val out = mutableListOf<AddressRow>()
         for (chainIndex in 0..1) {
+            // Every address used so far plus the gap, not just the first [gapLimit]: a wallet
+            // past its 20th address would otherwise miss payments to its newer ones.
+            val depth = store.usedTop(xpub, chainIndex) + store.gapLimit
             val branch = Bip32.deriveChild(account, chainIndex)
             for (i in 0 until depth) {
                 val child = Bip32.deriveChild(branch, i)

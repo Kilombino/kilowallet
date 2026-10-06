@@ -572,7 +572,7 @@ class PoolSession(private val env: Env, private val s: State) {
         channel(JSONObject().put("type", "vote").put("token", s.token).put("vote_id", id).put("accept", accept))
         s.votedOn = id
         // A member saying "not yet" leaves this round; the creator keeps its pool open.
-        if (!accept && !s.creator) { s.phase = Phase.ABORTED; s.reason = "you said not yet, so you left this round; your coin is free" }
+        if (!accept && !s.creator) { s.phase = Phase.ABORTED; s.reason = LEFT_BY_CHOICE }
         save()
     }
 
@@ -582,7 +582,7 @@ class PoolSession(private val env: Env, private val s: State) {
         if (s.phase !in setOf(Phase.JOINING, Phase.OPEN, Phase.VOTING)) return
         if (s.creator) { abort("the creator closed the pool"); return }
         channel(JSONObject().put("type", "leave").put("token", s.token ?: ""))
-        s.phase = Phase.ABORTED; s.reason = "you left the pool"; save()
+        s.phase = Phase.ABORTED; s.reason = LEFT_BY_CHOICE; save()
     }
 
     // ------------------------------------------------------------------------------- timers
@@ -615,6 +615,9 @@ class PoolSession(private val env: Env, private val s: State) {
     private fun randomHex(n: Int) = ByteArray(n).also { rnd.nextBytes(it) }.toHex()
 
     companion object {
+        /** Reason of a round this wallet left on purpose: its card goes away by itself. */
+        const val LEFT_BY_CHOICE = "you left this round"
+
         /**
          * Everything to create a seat, done once at join/create time with the coin's key at hand:
          * the ownership proof and the signed change. The key itself is not kept.
