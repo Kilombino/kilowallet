@@ -1154,6 +1154,19 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    /**
+     * A coin of exactly [target] sats for a pool, sent to a fresh address of this wallet
+     * (reserved on both chains). It goes through the normal send review: the draft is left
+     * in sendPhase for the screen to show and confirm with the fingerprint.
+     */
+    fun prepareExactCoin(target: Long, feeRate: Double) {
+        val xpub = _state.value.xpub ?: return
+        if (_state.value.selected != Chain.BLAKE2B) select(Chain.BLAKE2B)
+        val i = nextUnused(0); store.noteUsedTop(xpub, 0, i + 1)
+        val to = receiveAddress(i)?.first ?: return
+        prepareSend(to, target, feeRate)
+    }
+
     /** The coin's private key again, for signing the round at the end. */
     fun coinjoinKey(decryptCipher: javax.crypto.Cipher, coinPath: String): java.math.BigInteger {
         val secret = seedVault.revealSecret(decryptCipher)

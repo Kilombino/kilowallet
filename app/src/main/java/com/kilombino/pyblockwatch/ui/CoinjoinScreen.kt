@@ -281,6 +281,13 @@ private fun CoinPicker(
                 }
             }
         }
+        // The perfect coin: exactly the amount plus this pool's fee, so nobody gets change.
+        val exact = amount + CoinjoinTx.feeShare(feeRate, false)
+        var making by remember { mutableStateOf(false) }
+        if (making) ExactCoinPanel(vm, accent, exact, feeRate) { making = false }
+        else if (list != null && list.none { it.value == exact }) TextButton(onClick = { vm.resetSend(); vm.prepareExactCoin(exact, feeRate); making = true }) {
+            Text("＋ PREPARE AN EXACT COIN OF ${groupSats(exact)} SATS", color = accent, style = MaterialTheme.typography.bodySmall)
+        }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onCancel, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = TextSoft),
@@ -471,6 +478,48 @@ private fun MyPoolCard(
             PoolSession.Phase.ABORTED, PoolSession.Phase.REJECTED ->
                 TextButton(onClick = { CoinjoinHub.remove(ctx, st.poolId) }) { Text("remove", color = TextFaint) }
             else -> {}
+        }
+    }
+}
+
+/**
+ * Sends [exact] sats to a fresh address of this wallet, through the normal send review and
+ * the fingerprint. Once it has a confirmation it shows up in the coin list, and joining with
+ * it leaves no change at all, so the mixed output is tied to nothing.
+ */
+@Composable
+private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, feeRate: Double, onDone: () -> Unit) {
+    val activity = LocalContext.current as FragmentActivity
+    val state by vm.state.collectAsState()
+    Panel(accent = accent) {
+        SectionLabel("Exact coin · ${groupSats(exact)} sats", accent)
+        Spacer(Modifier.height(6.dp))
+        Explain("A payment to yourself of exactly ${groupSats(exact)} sats at $feeRate sat/vB. It needs one confirmation " +
+            "(about 10 minutes) before it can join; then it goes in with no change.")
+        Spacer(Modifier.height(6.dp))
+        when (val p = state.sendPhase) {
+            is SendPhase.Review -> {
+                Text("from ${p.draft.inputs.size} coin(s) · fee ${groupSats(p.draft.fee)} sats" +
+                    (if (p.draft.change > 0) " · change ${groupSats(p.draft.change)}" else ""),
+                    color = TextSoft, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(6.dp))
+                Button(onClick = {
+                    runCatching { vm.seedDecryptCipher() }.onSuccess { cipher ->
+                        Biometric.authenticate(activity, "Prepare the exact coin", "Unlock to sign the payment to yourself", cipher,
+                            onSuccess = { authed -> vm.confirmSend(authed) }, onError = {})
+                    }
+                }, colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
+                    shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) { Text("CONFIRM & SIGN") }
+            }
+            is SendPhase.Sent -> {
+                Text("Sent ✓ — it will appear above after one confirmation.", color = Good, style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { vm.resetSend(); onDone() }) { Text("ok", color = TextSoft) }
+            }
+            is SendPhase.Failed -> {
+                Text(p.message, color = Bad, style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { vm.resetSend(); onDone() }) { Text("close", color = TextSoft) }
+            }
+            else -> Text("preparing…", color = TextSoft, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
