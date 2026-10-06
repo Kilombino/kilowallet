@@ -36,7 +36,7 @@ object Protocol {
     /** BLAKE2b mainnet. Tests against a regtest node set another name so their pools never list here. */
     @Volatile var NETWORK = "blake2b"
 
-    const val MIN_AMOUNT = 100_000L
+    const val MIN_AMOUNT = 10_000L
     const val MAX_AMOUNT = 100_000_000L
     /** Smallest amount a pool may announce at all; the app itself only lists and creates from [MIN_AMOUNT]. */
     const val TEST_MIN_AMOUNT = 1_000L

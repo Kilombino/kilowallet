@@ -69,7 +69,7 @@ object CoinjoinHub {
         _version.value++
     }
 
-    /** Whether this user wants to see (and be told about) test pools under 100 000 sats. */
+    /** Whether this user wants to see (and be told about) test pools under 10 000 sats. */
     fun testPools(@Suppress("UNUSED_PARAMETER") ctx: Context): Boolean = false // betas only
     fun setTestPools(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean(KEY_TEST_POOLS, on).apply()
 

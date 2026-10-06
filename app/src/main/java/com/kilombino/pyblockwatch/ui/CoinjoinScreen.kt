@@ -69,7 +69,7 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
     var message by remember { mutableStateOf<String?>(null) }
     var joining by remember { mutableStateOf<Protocol.Terms?>(null) }
     var creating by remember { mutableStateOf(false) }
-    // Test pools (from 1 000 sats) were for the betas; the release starts at 100 000.
+    // Test pools (from 1 000 sats) were for the betas; the release starts at 10 000.
     val testPools = false
     var joinPassword by remember { mutableStateOf("") }
     // Pull-to-refresh on this tab reloads the list of open pools.
