@@ -6,6 +6,7 @@ import com.kilombino.pyblockwatch.coinjoin.PoolSession
 import com.kilombino.pyblockwatch.coinjoin.Protocol
 import com.kilombino.pyblockwatch.coinjoin.RelayClient
 import com.kilombino.pyblockwatch.crypto.Address
+import com.kilombino.pyblockwatch.crypto.Hashes.toHex
 import com.kilombino.pyblockwatch.crypto.ScriptType
 import com.kilombino.pyblockwatch.crypto.Secp256k1
 import org.json.JSONArray
@@ -107,16 +108,20 @@ class CoinjoinMainnetPeer {
         val (cred, host) = System.getenv("KILOJOIN_RPC")!!.split("@")
         auth = cred; rpcUrl = "http://$host/"
         val key = BigInteger(java.io.File(keyFile).readText().trim(), 16)
-        val keys = (0L..6L).map { key.add(BigInteger.valueOf(it)).mod(Secp256k1.N) }
-        val inputs = keys.flatMap { k ->
-            val pub = Secp256k1.compress(Secp256k1.multiply(k, Secp256k1.G))
-            val scan = rpc("scantxoutset", "start", JSONArray().put("addr(${Address.encode(pub, ScriptType.P2WPKH)})")) as JSONObject
-            val u = scan.getJSONArray("unspents")
-            (0 until u.length()).map { i -> u.getJSONObject(i).let {
-                com.kilombino.pyblockwatch.crypto.TxBuilder.Input(it.getString("txid"), it.getInt("vout"),
-                    Math.round(it.getDouble("amount") * 1e8), k, pub, 0xfffffffdL, ScriptType.P2WPKH)
-            } }
-        }
+        val keys = (0L..12L).map { key.add(BigInteger.valueOf(it)).mod(Secp256k1.N) }
+        // One scan for every key: each scantxoutset walks the whole UTXO set, so one per key is slow.
+        val byAddr = keys.associateBy { k -> Address.encode(Secp256k1.compress(Secp256k1.multiply(k, Secp256k1.G)), ScriptType.P2WPKH) }
+        val scan = rpc("scantxoutset", "start", JSONArray().also { a -> byAddr.keys.forEach { a.put("addr($it)") } }) as JSONObject
+        val u = scan.getJSONArray("unspents")
+        val inputs = (0 until u.length()).map { i -> u.getJSONObject(i).let {
+            val addr = Address.encode(
+                Secp256k1.compress(Secp256k1.multiply(byAddr.entries.first { e -> Address.scriptPubKey(
+                    Secp256k1.compress(Secp256k1.multiply(e.value, Secp256k1.G)), ScriptType.P2WPKH).toHex() == it.getString("scriptPubKey") }.value, Secp256k1.G)),
+                ScriptType.P2WPKH)
+            val k = byAddr.getValue(addr)
+            com.kilombino.pyblockwatch.crypto.TxBuilder.Input(it.getString("txid"), it.getInt("vout"),
+                Math.round(it.getDouble("amount") * 1e8), k, Secp256k1.compress(Secp256k1.multiply(k, Secp256k1.G)), 0xfffffffdL, ScriptType.P2WPKH)
+        } }
         require(inputs.isNotEmpty()) { "nothing to sweep" }
         val total = inputs.sumOf { it.value }
         val fee = kotlin.math.ceil(2.0 * (10.5 + 68.0 * inputs.size + 31.0)).toLong()
