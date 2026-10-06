@@ -95,4 +95,32 @@ class CoinjoinMainnetPeer {
         }
         s.stop()
     }
+    /**
+     * Sends everything the test peer holds (its key and the two derived ones: mixed output and
+     * change) to KILOJOIN_SWEEP_TO, unified-signed, through the same node.
+     */
+    @Test fun sweepBack() {
+        val keyFile = System.getenv("KILOJOIN_PEER") ?: return
+        val to = System.getenv("KILOJOIN_SWEEP_TO") ?: return
+        val (cred, host) = System.getenv("KILOJOIN_RPC")!!.split("@")
+        auth = cred; rpcUrl = "http://$host/"
+        val key = BigInteger(java.io.File(keyFile).readText().trim(), 16)
+        val keys = (0L..2L).map { key.add(BigInteger.valueOf(it)).mod(Secp256k1.N) }
+        val inputs = keys.flatMap { k ->
+            val pub = Secp256k1.compress(Secp256k1.multiply(k, Secp256k1.G))
+            val scan = rpc("scantxoutset", "start", JSONArray().put("addr(${Address.encode(pub, ScriptType.P2WPKH)})")) as JSONObject
+            val u = scan.getJSONArray("unspents")
+            (0 until u.length()).map { i -> u.getJSONObject(i).let {
+                com.kilombino.pyblockwatch.crypto.TxBuilder.Input(it.getString("txid"), it.getInt("vout"),
+                    Math.round(it.getDouble("amount") * 1e8), k, pub, 0xfffffffdL, ScriptType.P2WPKH)
+            } }
+        }
+        require(inputs.isNotEmpty()) { "nothing to sweep" }
+        val total = inputs.sumOf { it.value }
+        val fee = kotlin.math.ceil(2.0 * (10.5 + 68.0 * inputs.size + 31.0)).toLong()
+        val out = com.kilombino.pyblockwatch.crypto.TxBuilder.Output(Address.decodeToScriptPubKey(to), total - fee)
+        val tx = com.kilombino.pyblockwatch.crypto.TxBuilder.build(inputs, listOf(out), unified = true, grindLowR = true)
+        println("sweep ${inputs.size} coins, $total sats - $fee fee -> $to")
+        println("SWEPT " + rpc("sendrawtransaction", tx.rawHex))
+    }
 }

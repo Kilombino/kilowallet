@@ -34,6 +34,12 @@ object CoinjoinHub {
     private val _states = MutableStateFlow<List<PoolSession.State>>(emptyList())
     /** Our pools, newest first, refreshed on every change. */
     val states: StateFlow<List<PoolSession.State>> = _states.asStateFlow()
+    /**
+     * Bumped on every change. The states are mutated in place, so a new list of the same
+     * objects compares equal and [states] alone would not tell the screen anything changed.
+     */
+    private val _version = MutableStateFlow(0L)
+    val version: StateFlow<Long> = _version.asStateFlow()
 
     private fun prefs(ctx: Context) = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -42,6 +48,7 @@ object CoinjoinHub {
         val a = JSONArray(); sessions.values.forEach { a.put(it.state.toJson()) }
         prefs(ctx).edit().putString(KEY_SESSIONS, a.toString()).apply()
         _states.value = sessions.values.map { it.state }.sortedByDescending { it.created }
+        _version.value++
     }
 
     /** Load saved pools (once per process). Finished ones older than a week are dropped. */
@@ -58,6 +65,7 @@ object CoinjoinHub {
             sessions[st.poolId] = PoolSession(env(ctx, st), st)
         }
         _states.value = sessions.values.map { it.state }.sortedByDescending { it.created }
+        _version.value++
     }
 
     fun session(poolId: String): PoolSession? = synchronized(this) { sessions[poolId] }

@@ -57,7 +57,13 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
     val activity = LocalContext.current as FragmentActivity
     val ctx = activity.applicationContext
     val scope = rememberCoroutineScope()
-    val mine by CoinjoinHub.states.collectAsState()
+    val version by CoinjoinHub.version.collectAsState()
+    // A heartbeat while the tab is open: the countdowns move, and a round's progress shows
+    // even if a change slipped past the version flow.
+    var tick by remember { mutableStateOf(0L) }
+    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(2_000); tick++ } }
+    val rev = version * 1_000_000 + tick
+    val mine = remember(rev) { CoinjoinHub.states.value.toList() }
     var pools by remember { mutableStateOf<List<Protocol.Terms>?>(null) }
     var loadingPools by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -110,7 +116,7 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
     // ---- our pools
     if (mine.isNotEmpty()) {
         SectionLabel("Your pools", accent)
-        mine.forEach { st -> MyPoolCard(vm, st, accent, activity) { message = it } }
+        mine.forEach { st -> MyPoolCard(vm, st, rev, accent, activity) { message = it } }
     }
 
     // ---- join / create sheets
@@ -323,7 +329,10 @@ private fun CreatePool(
 }
 
 @Composable
-private fun MyPoolCard(vm: WalletViewModel, st: PoolSession.State, accent: Color, activity: FragmentActivity, onMessage: (String) -> Unit) {
+private fun MyPoolCard(
+    vm: WalletViewModel, st: PoolSession.State,
+    // The state is mutated in place: this changes with it, so the card is redrawn and not skipped.
+    @Suppress("UNUSED_PARAMETER") rev: Long, accent: Color, activity: FragmentActivity, onMessage: (String) -> Unit) {
     val ctx = activity.applicationContext
     val scope = rememberCoroutineScope()
     val uri = LocalUriHandler.current
