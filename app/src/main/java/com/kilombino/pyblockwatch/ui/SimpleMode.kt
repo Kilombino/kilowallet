@@ -87,17 +87,16 @@ fun ModeChooser(vm: WalletViewModel) {
         ModeCard(
             title = "Simple",
             lines = listOf(
-                "Your XBT balance, with its value in dollars or euros",
+                "Your BTC and Spamcoin balances, with their value in dollars or euros",
                 "Send and Receive, nothing else in the way",
-                if (com.kilombino.pyblockwatch.ark.Ark.available) "Ark (instant payments and Lightning), beta"
-                else "Ark (instant payments and Lightning) — coming soon",
             ),
             accent = Purple,
         ) { vm.select(Chain.BLAKE2B); vm.setUiMode("simple") }
         ModeCard(
             title = "Advanced",
             lines = listOf(
-                "Both chains: BLAKE2b and SHA-256",
+                if (com.kilombino.pyblockwatch.ark.Ark.available) "BTC and Ark (instant payments and Lightning), beta"
+                else "BTC, and Ark (instant payments and Lightning) — coming soon",
                 "Coin control, fees, derivation paths, Silent Payments",
                 "Address list, server certificates, gap limit",
             ),
@@ -120,18 +119,17 @@ private fun ModeCard(title: String, lines: List<String>, accent: Color, onClick:
 
 @Composable
 fun SimpleScreen(state: UiState, vm: WalletViewModel) {
-    val accent = Purple
-    val cs = state.chains[Chain.BLAKE2B] ?: ChainState()
-    var tab by remember { mutableStateOf(0) }            // 0 = XBT on-chain, 1 = Ark
+    // Two tabs: BTC (the BLAKE2b chain) and Spamcoin (the SHA-256 spamchain). Ark lives
+    // in advanced mode. Send/Receive work on the selected chain.
+    val chain = state.selected
+    val accent = if (chain == Chain.BLAKE2B) Purple else Orange
+    val cs = state.chains[chain] ?: ChainState()
     var showSend by remember { mutableStateOf(false) }
     var showReceive by remember { mutableStateOf(false) }
+    fun pick(c: Chain) { if (c != chain) { showSend = false; showReceive = false; vm.select(c) } }
 
-    // Simple mode is BLAKE2b only; Send/Receive work on the selected chain.
-    LaunchedEffect(Unit) { if (state.selected != Chain.BLAKE2B) vm.select(Chain.BLAKE2B) }
-
-    // Pull down to refresh: the XBT balance and price, or the Ark tab (chain sync included).
+    // Pull down to refresh the balance and the price.
     var refreshing by remember { mutableStateOf(false) }
-    var arkPull by remember { mutableStateOf(0) }
     val pullScope = rememberCoroutineScope()
     @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
     androidx.compose.material3.pulltorefresh.PullToRefreshBox(
@@ -139,7 +137,7 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
         onRefresh = {
             pullScope.launch {
                 refreshing = true
-                if (tab == 1) arkPull++ else { vm.refresh(Chain.BLAKE2B); vm.refreshMarket(force = true) }
+                vm.refresh(chain); vm.refreshMarket(force = true)
                 kotlinx.coroutines.delay(1_500)
                 refreshing = false
             }
@@ -162,16 +160,11 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TabChip("XBT", tab == 0, accent, Modifier.weight(1f)) { tab = 0 }
-            TabChip("ARK", tab == 1, accent, Modifier.weight(1f)) { tab = 1 }
+            TabChip("BTC", chain == Chain.BLAKE2B, Purple, Modifier.weight(1f)) { pick(Chain.BLAKE2B) }
+            TabChip("SPAMCOIN", chain == Chain.SHA256, Orange, Modifier.weight(1f)) { pick(Chain.SHA256) }
         }
 
-        if (tab == 1) {
-            if (com.kilombino.pyblockwatch.ark.Ark.available) ArkScreen(vm, accent, arkPull) else ArkComingSoon(accent)
-            return@Column
-        }
-
-        SimpleBalance(cs, state.market, state.fiat, accent, onFiat = vm::setFiat)
+        SimpleBalance(chain, cs, state.market, state.fiat, accent, onFiat = vm::setFiat)
 
         when {
             showSend -> SendSheet(vm, accent) { showSend = false }
@@ -253,21 +246,27 @@ private fun TabChip(label: String, selected: Boolean, accent: Color, modifier: M
 
 @Composable
 private fun SimpleBalance(
-    cs: ChainState, market: MarketData?, fiat: String, accent: Color, onFiat: (String) -> Unit,
+    chain: Chain, cs: ChainState, market: MarketData?, fiat: String, accent: Color, onFiat: (String) -> Unit,
 ) {
+    val btc = chain == Chain.BLAKE2B
+    val unit = if (btc) "BTC" else "Spamcoin"
     Panel(accent = accent) {
-        SectionLabel("Your XBT", accent)
-        Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionLabel("Your $unit", accent)
+            Spacer(Modifier.weight(1f))
+            StreetEye(TextSoft)
+        }
         // Until the first check of this launch finishes, a 0 would look like an empty wallet:
         // show the last known figure dimmed, or "…" when there is none, and say what is going on.
         val checking = cs.phase !is ScanPhase.Complete
-        Row(verticalAlignment = Alignment.Bottom) {
+        if (StreetMode.hidden) Text(StreetMode.MASK, style = MaterialTheme.typography.headlineMedium, color = accent)
+        else Row(verticalAlignment = Alignment.Bottom) {
             Text(if (checking && cs.total == 0L) "…" else groupSats(cs.total), style = MaterialTheme.typography.displayLarge,
                  color = if (checking) accent.copy(alpha = 0.45f) else accent)
             Spacer(Modifier.width(8.dp))
-            Text("sats", style = MaterialTheme.typography.titleLarge, color = accent.copy(alpha = 0.7f))
+            Text(if (btc) "sats" else "poolsats", style = MaterialTheme.typography.titleLarge, color = accent.copy(alpha = 0.7f))
         }
-        Text("%.8f XBT".format(Locale.US, cs.total / 100_000_000.0),
+        Text(street("%.8f $unit".format(Locale.US, cs.total / 100_000_000.0)),
              style = MaterialTheme.typography.bodySmall, color = TextFaint)
         if (checking) {
             Spacer(Modifier.height(8.dp))
@@ -275,11 +274,14 @@ private fun SimpleBalance(
         }
 
         Spacer(Modifier.height(10.dp))
-        val value = market?.fiatValue(cs.total, fiat)
+        // Spamcoin is priced through the market's XBT/Poolsats rate.
+        val xbtPx = if (fiat == "EUR") market?.xbtEur else market?.xbtUsd
+        val px = if (btc) xbtPx else market?.xbtPoolsats?.takeIf { it > 0 }?.let { ps -> xbtPx?.let { it * 1e8 / ps } }
+        val value = px?.let { it * cs.total / 1e8 }
         val sym = if (fiat == "EUR") "€" else "$"
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (value == null) "≈ $sym –" else "≈ $sym" + String.format(Locale.US, "%,.2f", value),
+                street(if (value == null) "≈ $sym –" else "≈ $sym" + String.format(Locale.US, "%,.2f", value)),
                 style = MaterialTheme.typography.headlineSmall, color = TextMain,
                 modifier = Modifier.weight(1f),
             )
@@ -289,15 +291,14 @@ private fun SimpleBalance(
         }
         if (cs.unconfirmed != 0L) {
             Spacer(Modifier.height(4.dp))
-            Text("unconfirmed: ${groupSats(cs.unconfirmed)} sats",
+            Text(street("unconfirmed: ${groupSats(cs.unconfirmed)} " + if (btc) "sats" else "poolsats"),
                  style = MaterialTheme.typography.bodySmall, color = Warn)
         }
         Spacer(Modifier.height(8.dp))
-        val px = if (fiat == "EUR") market?.xbtEur else market?.xbtUsd
-        val ch = market?.changePct
+        val ch = market?.changePct.takeIf { btc }
         Text(
             if (px == null) "Price not available yet"
-            else "1 XBT = $sym" + String.format(Locale.US, "%,.2f", px) +
+            else "1 $unit = $sym" + String.format(Locale.US, if (btc) "%,.2f" else "%,.4f", px) +
                 (ch?.let { (if (it >= 0) "  ▲ " else "  ▼ ") + String.format(Locale.US, "%.2f%% 24h", kotlin.math.abs(it)) } ?: ""),
             style = MaterialTheme.typography.bodySmall,
             color = when { ch == null -> TextFaint; ch >= 0 -> Good; else -> Bad },
@@ -327,7 +328,7 @@ internal fun FiatChip(label: String, selected: Boolean, accent: Color, onClick: 
  * goes in, not in a footnote.
  */
 @Composable
-private fun ArkComingSoon(accent: Color) {
+internal fun ArkComingSoon(accent: Color) {
     Panel(accent = accent) {
         SectionLabel("Ark — coming soon", accent)
         Spacer(Modifier.height(8.dp))

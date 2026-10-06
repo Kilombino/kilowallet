@@ -67,6 +67,20 @@ class Store(context: Context) {
         prefs.edit().remove(keyPin(endpoint)).apply()
     }
 
+    /**
+     * One past the highest used index of a branch (0 receive, 1 change) on either chain, for
+     * this xpub. Only grows: an address once used stays used.
+     */
+    fun usedTop(xpub: String, chainIndex: Int): Int = prefs.getInt(keyUsedTop(xpub, chainIndex), 0)
+
+    fun noteUsedTop(xpub: String, chainIndex: Int, top: Int) {
+        if (top > usedTop(xpub, chainIndex)) prefs.edit().putInt(keyUsedTop(xpub, chainIndex), top).apply()
+    }
+
+    private fun keyUsedTop(xpub: String, chainIndex: Int) =
+        "used_top_${chainIndex}_" + com.kilombino.pyblockwatch.crypto.Hashes.sha256(xpub.toByteArray()).take(8)
+            .joinToString("") { "%02x".format(it) }
+
     /** Last known total per chain, so the service can tell "changed" from "first run". */
     fun lastTotal(chain: Chain): Long = prefs.getLong(keyTotal(chain), -1L)
     fun setLastTotal(chain: Chain, sats: Long) {

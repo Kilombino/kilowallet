@@ -252,6 +252,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
                 val rows = doneRows ?: return@runCatching
+                noteUsed(rows)
                 val conf = rows.sumOf { it.confirmed }
                 val unconf = rows.sumOf { it.unconfirmed }
                 store.setLastBalance(chain, conf, unconf)
@@ -422,6 +423,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                             st.copy(rows = found.toList())
                         }
                         is ScanEvent.Done -> {
+                            noteUsed(ev.rows)
                             // Reset the notification baseline to what the user is now looking at,
                             // so the watcher only fires on genuinely new movement.
                             store.setLastBalance(
@@ -927,10 +929,23 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 ?: throw IllegalArgumentException("Empty payment instruction for $h.")
         }
 
-    /** The next unused receive index for the current chain — one past the highest used. */
-    fun nextReceiveIndex(): Int {
-        val rows = _state.value.current.rows
-        return (rows.filter { it.chainIndex == 0 }.maxOfOrNull { it.index }?.plus(1)) ?: 0
+    /**
+     * The next unused receive index — one past the highest used on EITHER chain. The same
+     * key gives the same addresses on BTC and on the spamchain, so an address used on one
+     * must not be handed out again on the other.
+     */
+    fun nextReceiveIndex(): Int = nextUnused(0)
+
+    private fun nextUnused(chainIndex: Int): Int {
+        val seen = _state.value.chains.values.flatMap { it.rows }.filter { it.chainIndex == chainIndex }
+            .maxOfOrNull { it.index }?.plus(1) ?: 0
+        return maxOf(seen, _state.value.xpub?.let { store.usedTop(it, chainIndex) } ?: 0)
+    }
+
+    /** Remember how far each branch has been used, so the other chain knows before its own scan. */
+    private fun noteUsed(rows: List<AddressRow>) {
+        val xpub = _state.value.xpub ?: return
+        for (ci in 0..1) rows.filter { it.chainIndex == ci }.maxOfOrNull { it.index }?.let { store.noteUsedTop(xpub, ci, it + 1) }
     }
 
     /** Derive receive address [index] and its BIP-32 path, publicly from the xpub (no seed). */
@@ -1015,9 +1030,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         return kotlin.math.ceil(vbytes * ratePerVb).toLong()
     }
 
-    /** The next unused change index, so a spend's change goes to a fresh address. */
-    private fun nextChangeIndex(rows: List<AddressRow>): Int =
-        (rows.filter { it.chainIndex == 1 }.maxOfOrNull { it.index }?.plus(1)) ?: 0
+    /** The next unused change index on either chain, so a spend's change goes to a fresh address. */
+    @Suppress("UNUSED_PARAMETER")
+    private fun nextChangeIndex(rows: List<AddressRow>): Int = nextUnused(1)
 
     /** The change output's scriptPubKey, derived publicly from the account xpub (no seed needed). */
     private fun changeScriptPubKey(xpub: String, index: Int): ByteArray {

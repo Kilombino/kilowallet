@@ -74,6 +74,12 @@ class MainActivity : FragmentActivity() {
         ActivityResultContracts.RequestPermission(),
     ) { /* result handled by the switch state itself */ }
 
+    // Leaving the screen (home, another app, the phone locking) puts street mode back on.
+    override fun onStop() {
+        super.onStop()
+        StreetMode.lock()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -246,7 +252,10 @@ private fun OnboardingScreen(state: UiState, vm: WalletViewModel) {
 private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotifications: (Boolean) -> Unit) {
     val chain = state.selected
     val cs = state.current
-    val accent by animateColorAsState(Color(chain.accent), tween(400), label = "accent")
+    // Tabs: BTC (the BLAKE2b chain) and ARK; the spamchain opens from settings.
+    var arkTab by remember { mutableStateOf(false) }
+    var arkPull by remember { mutableStateOf(0) }
+    val accent by animateColorAsState(if (arkTab) Purple else Color(chain.accent), tween(400), label = "accent")
     var showSettings by remember { mutableStateOf(false) }
     var showSend by remember { mutableStateOf(false) }
     var showReceive by remember { mutableStateOf(false) }
@@ -260,7 +269,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
         onRefresh = {
             pullScope.launch {
                 refreshing = true
-                vm.refresh(chain)
+                if (arkTab) arkPull++ else vm.refresh(chain)
                 kotlinx.coroutines.delay(1_500)
                 refreshing = false
             }
@@ -290,7 +299,15 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
             }
         }
 
-        ChainSwitcher(state.selected, state.chains, vm::select)
+        AdvancedTabs(chain, arkTab,
+            onBtc = { arkTab = false; if (chain != Chain.BLAKE2B) vm.select(Chain.BLAKE2B) },
+            onArk = { arkTab = true; showSend = false; showReceive = false })
+
+        if (arkTab) {
+            if (com.kilombino.pyblockwatch.ark.Ark.available) ArkScreen(vm, Purple, arkPull) else ArkComingSoon(Purple)
+            Spacer(Modifier.height(30.dp))
+            return@Column
+        }
 
         BalanceCard(chain, cs, accent, state.scriptType, state.secondsUntilRefresh)
 
@@ -369,35 +386,27 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
     }
 }
 
+/** BTC | ARK, plus SPAMCOIN while the spamchain (opened from settings) is shown. */
 @Composable
-private fun ChainSwitcher(selected: Chain, chains: Map<Chain, ChainState>, onSelect: (Chain) -> Unit) {
+private fun AdvancedTabs(chain: Chain, arkTab: Boolean, onBtc: () -> Unit, onArk: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(PanelSoft).padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Chain.entries.forEach { c ->
-            val active = c == selected
-            val bg by animateColorAsState(
-                if (active) Color(c.accent).copy(alpha = 0.18f) else Color.Transparent,
-                tween(300), label = "tabbg",
-            )
+        val tabs = buildList {
+            add(Triple("BTC", !arkTab && chain == Chain.BLAKE2B, Color(Chain.BLAKE2B.accent)) to onBtc)
+            add(Triple("ARK", arkTab, Purple) to onArk)
+            if (!arkTab && chain == Chain.SHA256) add(Triple("SPAMCOIN", true, Color(Chain.SHA256.accent)) to {})
+        }
+        tabs.forEach { (t, onClick) ->
+            val (label, active, color) = t
+            val bg by animateColorAsState(if (active) color.copy(alpha = 0.18f) else Color.Transparent, tween(300), label = "tabbg")
             Column(
                 Modifier.weight(1f).clip(RoundedCornerShape(11.dp)).background(bg)
-                    .clickable { onSelect(c) }.padding(vertical = 10.dp),
+                    .clickable(onClick = onClick).padding(vertical = 10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(
-                    c.display,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = if (active) Color(c.accent) else TextFaint,
-                )
-                val st = chains[c]
-                val sats = st?.total ?: 0L
-                Text(
-                    if (st?.phase is ScanPhase.Complete) "${groupSats(sats)} sats" else "…",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (active) TextSoft else TextFaint,
-                )
+                Text(label, style = MaterialTheme.typography.titleMedium, color = if (active) color else TextFaint)
             }
         }
     }
@@ -409,8 +418,9 @@ private fun BalanceCard(
 ) {
     Panel(accent = accent) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            SectionLabel("${chain.display} balance", accent)
+            SectionLabel(if (chain == Chain.BLAKE2B) "BTC balance" else "Spamcoin balance", accent)
             Spacer(Modifier.weight(1f))
+            StreetEye(TextSoft)
             // A visible countdown to the next auto-refresh, so the wallet reads as live.
             if (cs.phase is ScanPhase.Complete) {
                 Text("↻ ${secondsUntilRefresh}s", style = MaterialTheme.typography.bodySmall,
@@ -421,17 +431,18 @@ private fun BalanceCard(
         }
         Spacer(Modifier.height(6.dp))
         // Sats is the primary figure — an exact integer count, never rounded to bitcoin.
-        Row(verticalAlignment = Alignment.Bottom) {
+        if (StreetMode.hidden) Text(StreetMode.MASK, style = MaterialTheme.typography.headlineMedium, color = accent)
+        else Row(verticalAlignment = Alignment.Bottom) {
             Text(groupSats(cs.total), style = MaterialTheme.typography.displayLarge, color = accent)
             Spacer(Modifier.width(8.dp))
-            Text("sats", style = MaterialTheme.typography.titleLarge, color = accent.copy(alpha = 0.7f))
+            Text(if (chain == Chain.BLAKE2B) "sats" else "poolsats", style = MaterialTheme.typography.titleLarge, color = accent.copy(alpha = 0.7f))
         }
-        Text("%.8f ₿".format(cs.total / 100_000_000.0),
+        Text(street("%.8f ₿".format(cs.total / 100_000_000.0)),
              style = MaterialTheme.typography.bodySmall, color = TextFaint)
 
         if (cs.unconfirmed != 0L) {
             Spacer(Modifier.height(4.dp))
-            Text("unconfirmed: ${groupSats(cs.unconfirmed)} sats",
+            Text(street("unconfirmed: ${groupSats(cs.unconfirmed)} sats"),
                  style = MaterialTheme.typography.bodySmall, color = Warn)
         }
         Spacer(Modifier.height(10.dp))
@@ -527,7 +538,7 @@ private fun AddressList(rows: List<AddressRow>, accent: Color) {
                     )
                 }
                 Text(
-                    if (row.total > 0) "${groupSats(row.total)} sats" else "—",
+                    if (row.total > 0) street("${groupSats(row.total)} sats") else "—",
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (row.total > 0) accent else TextFaint,
                     fontWeight = FontWeight.Bold,
@@ -551,6 +562,18 @@ private fun SettingsPanel(
 
     Panel(accent = accent) {
         SectionLabel("settings", accent)
+        Spacer(Modifier.height(10.dp))
+
+        // The spamchain is not a tab in advanced mode: it opens from here.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Spamcoin (SHA-256 chain)", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                Explain("The same keys on the spamchain: balance, addresses, send and receive.")
+            }
+            TextButton(onClick = { vm.select(if (chain == Chain.SHA256) Chain.BLAKE2B else Chain.SHA256) }) {
+                Text(if (chain == Chain.SHA256) "BACK TO BTC" else "OPEN", color = accent, style = MaterialTheme.typography.bodySmall)
+            }
+        }
         Spacer(Modifier.height(10.dp))
 
         Row(verticalAlignment = Alignment.CenterVertically) {

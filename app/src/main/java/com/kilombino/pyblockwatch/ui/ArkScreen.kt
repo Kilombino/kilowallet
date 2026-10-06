@@ -284,11 +284,15 @@ private fun ArkButton(label: String, selected: Boolean, accent: Color, modifier:
 @Composable
 private fun ArkBalancePanel(b: Ark.Balance?, expiry: Int?, boardConfs: Int?, accent: Color, onFiat: (String) -> Unit) {
     Panel(accent = accent) {
-        SectionLabel("Your Ark wallet", accent)
-        Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionLabel("Your Ark wallet", accent)
+            Spacer(Modifier.weight(1f))
+            StreetEye(TextSoft)
+        }
         val deposit = (b?.onchainConfirmed ?: 0) + (b?.onchainPending ?: 0)
         val total = (b?.arkTotal ?: 0) + deposit + (b?.lightningPending ?: 0)
-        Row(verticalAlignment = Alignment.Bottom) {
+        if (StreetMode.hidden) Text(StreetMode.MASK, style = MaterialTheme.typography.headlineMedium, color = accent)
+        else Row(verticalAlignment = Alignment.Bottom) {
             Text(groupSats(total), style = MaterialTheme.typography.displayLarge, color = accent)
             Spacer(Modifier.width(8.dp))
             Text("sats", style = MaterialTheme.typography.titleLarge, color = accent.copy(alpha = 0.7f))
@@ -296,26 +300,26 @@ private fun ArkBalancePanel(b: Ark.Balance?, expiry: Int?, boardConfs: Int?, acc
         // The same USD/EUR choice as the XBT tab and the widget.
         val code = LocalFiat.current.code
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(fiatOf(total) ?: "≈ –", style = MaterialTheme.typography.headlineSmall, color = TextMain,
+            Text(street(fiatOf(total) ?: "≈ –"), style = MaterialTheme.typography.headlineSmall, color = TextMain,
                  modifier = Modifier.weight(1f))
             FiatChip("USD", code == "USD", accent) { onFiat("USD") }
             Spacer(Modifier.width(6.dp))
             FiatChip("EUR", code == "EUR", accent) { onFiat("EUR") }
         }
         if (b == null) { Text("Loading…", style = MaterialTheme.typography.bodySmall, color = TextFaint); return@Panel }
-        if (b.pendingBoard > 0) Text("entering Ark: ${groupSats(b.pendingBoard)} sats · " +
+        if (b.pendingBoard > 0) Text("entering Ark: ${street(groupSats(b.pendingBoard) + " sats")} · " +
                                      (boardConfs?.let { "$it of ${Ark.BOARD_CONFIRMATIONS} confirmations" }
                                          ?: "needs ${Ark.BOARD_CONFIRMATIONS} confirmations"),
                                      style = MaterialTheme.typography.bodySmall, color = Warn)
-        if (b.pendingRound > 0) Text("in the next round: ${groupSats(b.pendingRound)} sats",
+        if (b.pendingRound > 0) Text("in the next round: " + street("${groupSats(b.pendingRound)} sats"),
                                      style = MaterialTheme.typography.bodySmall, color = Warn)
         // Where it is: Ark coins, the on-chain deposit, and Lightning still settling.
         Spacer(Modifier.height(6.dp))
         PocketRow("In Ark", b.spendable, "spendable", Good)
         PocketRow("On-chain deposit", deposit,
-            if (b.onchainPending > 0) "${groupSats(b.onchainPending)} unconfirmed · not in Ark yet" else "not in Ark yet", TextSoft)
+            if (b.onchainPending > 0) street(groupSats(b.onchainPending)) + " unconfirmed · not in Ark yet" else "not in Ark yet", TextSoft)
         if (b.lightningPending > 0) PocketRow("Lightning", b.lightningPending, "settling", Warn)
-        if (b.pendingExit > 0) Text("leaving Ark (emergency exit): ${groupSats(b.pendingExit)} sats",
+        if (b.pendingExit > 0) Text("leaving Ark (emergency exit): " + street("${groupSats(b.pendingExit)} sats"),
                                     style = MaterialTheme.typography.bodySmall, color = Bad)
         expiry?.let {
             Spacer(Modifier.height(6.dp))
@@ -334,7 +338,7 @@ private fun ArkBalancePanel(b: Ark.Balance?, expiry: Int?, boardConfs: Int?, acc
 private fun PocketRow(label: String, sats: Long, note: String, color: Color) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Text(label, style = MaterialTheme.typography.bodySmall, color = TextSoft, modifier = Modifier.width(130.dp))
-        Text(groupSats(sats) + " sats", style = MaterialTheme.typography.bodyMedium, color = color, modifier = Modifier.weight(1f))
+        Text(street(groupSats(sats) + " sats"), style = MaterialTheme.typography.bodyMedium, color = color, modifier = Modifier.weight(1f))
         Text(note, style = MaterialTheme.typography.bodySmall, color = TextFaint)
     }
 }
@@ -496,7 +500,7 @@ private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, L
             Text("From", style = MaterialTheme.typography.bodySmall, color = TextSoft, modifier = Modifier.weight(1f))
             FiatChip("ARK", !fromDeposit, accent) { fromDeposit = false; review = null; picked = emptySet(); choose = false }
             Spacer(Modifier.width(6.dp))
-            FiatChip("DEPOSIT · " + groupSats(deposit), fromDeposit, accent) { fromDeposit = true; review = null; picked = emptySet(); choose = false }
+            FiatChip("DEPOSIT · " + street(groupSats(deposit)), fromDeposit, accent) { fromDeposit = true; review = null; picked = emptySet(); choose = false }
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
             choose = !choose; review = null; picked = emptySet()
@@ -700,7 +704,7 @@ private fun ArkHistory(items: List<Ark.Movement>, accent: Color, explorer: Strin
         Spacer(Modifier.height(6.dp))
         items.take(20).forEach { m ->
             Row(Modifier.fillMaxWidth().clickable { open = m }.padding(vertical = 2.dp)) {
-                Text((if (m.amount >= 0) "+" else "") + groupSats(m.amount) + " sats",
+                Text(street((if (m.amount >= 0) "+" else "") + groupSats(m.amount) + " sats"),
                      style = MaterialTheme.typography.bodySmall,
                      color = if (m.amount >= 0) Good else TextMain, modifier = Modifier.weight(1f))
                 Text("${m.kind} · ${statusOf(m)}", style = MaterialTheme.typography.bodySmall, color = TextFaint)
@@ -728,8 +732,8 @@ private fun ArkMovementDialog(m: Ark.Movement, accent: Color, explorer: String, 
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 fun line(k: String, v: String) = "$k: $v"
-                Text(line("Amount", (if (m.amount >= 0) "+" else "") + groupSats(m.amount) + " sats") +
-                    (fiatOf(m.amount)?.let { "  $it" } ?: ""))
+                Text(line("Amount", street((if (m.amount >= 0) "+" else "") + groupSats(m.amount) + " sats" +
+                    (fiatOf(m.amount)?.let { "  $it" } ?: ""))))
                 if (m.fee > 0) Text(line("Cost", groupSats(m.fee) + " sats") + (fiatOf(m.fee)?.let { "  $it" } ?: ""))
                 Text(line("Status", statusOf(m)))
                 if (m.time.isNotEmpty()) Text(line("Date", m.time.substringBefore('.').replace('T', ' ') + " UTC"))
