@@ -391,7 +391,7 @@ private fun MyPoolCard(
     Panel(accent = color) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("${groupSats(st.terms.amount)} sats", style = MaterialTheme.typography.titleMedium, color = TextMain, modifier = Modifier.weight(1f))
-            Text(if (st.creator) "your pool" else "joined", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+            Text((if (st.terms.private) "🔒 " else "") + (if (st.creator) "your pool" else "joined"), style = MaterialTheme.typography.bodySmall, color = TextFaint)
         }
         val people = if (st.round.isNotEmpty()) st.round.size else st.seats.size
         Text(when (st.phase) {
@@ -453,7 +453,9 @@ private fun MyPoolCard(
                 else {
                     plan?.let {
                         Explain("Checked: ${it.coins.size} people, ${it.outputs.count { o -> o.value == st.terms.amount }} identical outputs of " +
-                            "${groupSats(st.terms.amount)} sats, one of them yours; your change is right; total fee ${groupSats(it.fee)} sats.")
+                            "${groupSats(st.terms.amount)} sats, one of them yours; " +
+                            (if (st.seat.changeValue > 0) "your change is right" else "no change (an exact coin)") +
+                            "; total fee ${groupSats(it.fee)} sats.")
                         Spacer(Modifier.height(6.dp))
                     }
                     btn("SIGN", true, Modifier.fillMaxWidth()) {

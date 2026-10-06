@@ -1162,9 +1162,29 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun prepareExactCoin(target: Long, feeRate: Double) {
         val xpub = _state.value.xpub ?: return
         if (_state.value.selected != Chain.BLAKE2B) select(Chain.BLAKE2B)
-        val i = nextUnused(0); store.noteUsedTop(xpub, 0, i + 1)
-        val to = receiveAddress(i)?.first ?: return
-        prepareSend(to, target, feeRate)
+        viewModelScope.launch {
+            runCatching {
+                // Never pay for it with an output that came out of a coinjoin: spending it
+                // together with other coins would undo the mix.
+                val mixed = com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.states.value.map { it.mixScript.toList() }.toSet()
+                val parsed = com.kilombino.pyblockwatch.crypto.Bip32.parseExtendedPubKey(xpub)
+                fun script(u: Scanner.SpendableUtxo) = com.kilombino.pyblockwatch.crypto.Address.scriptPubKey(
+                    com.kilombino.pyblockwatch.crypto.Bip32.derivePath(parsed, u.chainIndex, u.index).pubkey(), store.scriptType).toList()
+                val coins = coinjoinCoins().filter { script(it) !in mixed }
+                val pick = mutableListOf<Scanner.SpendableUtxo>(); var sum = 0L
+                for (u in coins) {
+                    pick += u; sum += u.value
+                    if (sum >= target + estimateFee(pick.size, 2, feeRate)) break
+                }
+                require(sum >= target + estimateFee(pick.size, 1, feeRate)) {
+                    "Not enough coins that were never mixed to make ${target} sats (mixed outputs are kept apart)."
+                }
+                val i = nextUnused(0); store.noteUsedTop(xpub, 0, i + 1)
+                val to = receiveAddress(i)?.first ?: error("no address")
+                _state.update { it.copy(utxos = coins, utxosChain = Chain.BLAKE2B) }
+                prepareSend(to, target, feeRate, pick)
+            }.onFailure { e -> _state.update { it.copy(sendPhase = SendPhase.Failed(e.message ?: "Could not prepare the coin.")) } }
+        }
     }
 
     /** The coin's private key again, for signing the round at the end. */
