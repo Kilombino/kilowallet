@@ -235,6 +235,10 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
                 }
                 "send" -> ArkSendSheet(accent, (balance?.onchainConfirmed ?: 0)) { dest, sats, approved, fromDeposit, coins ->
                     secured("Send from Ark", "Sending…") {
+                        // Offer to keep the destination as soon as the payment is confirmed:
+                        // a Lightning payment can take a minute to report its outcome, and the
+                        // cost was already reviewed, so the destination is known to be valid.
+                        askSave = dest
                         val result = withContext(Dispatchers.IO) {
                             when {
                                 coins.isNotEmpty() && fromDeposit -> Ark.sendDepositCoins(dest, sats, coins)
@@ -245,8 +249,6 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
                                 else -> Ark.send(dest, sats, approved)
                             }
                         }.ifBlank { "Sent." }
-                        // Once it went out, offer to keep the destination for next time.
-                        if (!result.startsWith("Error")) askSave = dest
                         result
                     }
                     sheet = null
@@ -493,6 +495,13 @@ private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, L
     var reviewError by remember { mutableStateOf<String?>(null) }
     val clip = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var scanning by remember { mutableStateOf(false) }
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (ok) scanning = true }
+    if (scanning) QrScannerDialog(
+        onResult = { raw -> dest = scannedDestination(raw); review = null; scanning = false },
+        onDismiss = { scanning = false },
+    )
     Panel(accent = accent) {
         SectionLabel(if (fromDeposit) "Send from the on-chain deposit" else "Send from Ark", accent)
         Spacer(Modifier.height(8.dp))
@@ -519,7 +528,11 @@ private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, L
             label = { Text("Ark address, Lightning invoice or XBT address") }, modifier = Modifier.fillMaxWidth())
         ContactName(dest, accent)
         Row {
-            TextButton(onClick = { clip.getText()?.text?.let { dest = it.trim(); review = null } }) { Text("PASTE", color = accent) }
+            TextButton(onClick = { clip.getText()?.text?.let { dest = scannedDestination(it); review = null } }) { Text("PASTE", color = accent) }
+            TextButton(onClick = {
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) scanning = true
+                else cameraPermission.launch(Manifest.permission.CAMERA)
+            }) { Text("📷", color = accent, style = MaterialTheme.typography.titleMedium) }
             // From the deposit only XBT addresses; from Ark also Ark addresses and reusable offers.
             ContactsButton(accent, fits = { k -> k == Contacts.Kind.XBT || (!fromDeposit && k != Contacts.Kind.HANDLE) }) {
                 dest = it; review = null
@@ -846,3 +859,25 @@ fun ArkWarnings() {
         }
     }
 }
+
+/**
+ * What to pay from a scanned or pasted code: an Ark address, Lightning invoice or offer,
+ * or XBT address, also inside a `lightning:`/`bitcoin:` link. A BIP-21 link carrying an
+ * Ark address or a Lightning code pays that (cheaper and instant) before its on-chain one.
+ */
+internal fun scannedDestination(raw: String): String {
+    var v = raw.trim()
+    val scheme = v.substringBefore(':', "").lowercase()
+    if (scheme == "lightning") return v.substringAfter(':').trim()
+    if (scheme == "bitcoin") {
+        val params = v.substringAfter('?', "").split('&').mapNotNull {
+            val kv = it.split('=', limit = 2); if (kv.size == 2) kv[0].lowercase() to kv[1] else null
+        }.toMap()
+        params["ark"]?.let { return it }
+        params["lno"]?.let { return it }
+        params["lightning"]?.let { return it }
+        v = v.substringAfter(':').substringBefore('?')
+    }
+    return v.trim()
+}
+

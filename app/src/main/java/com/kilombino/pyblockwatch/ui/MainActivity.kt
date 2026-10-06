@@ -261,6 +261,8 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
     val cs = state.current
     // Tabs: BTC (the BLAKE2b chain) and ARK; the spamchain opens from settings.
     var arkTab by remember { mutableStateOf(false) }
+    // Advanced always opens on BTC | ARK: the spamchain only shows when opened from settings.
+    LaunchedEffect(Unit) { if (state.selected == Chain.SHA256) vm.select(Chain.BLAKE2B) }
     var arkPull by remember { mutableStateOf(0) }
     val accent by animateColorAsState(if (arkTab) Purple else Color(chain.accent), tween(400), label = "accent")
     var showSettings by remember { mutableStateOf(false) }
