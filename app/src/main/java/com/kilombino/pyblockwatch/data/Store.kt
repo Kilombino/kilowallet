@@ -165,6 +165,14 @@ class Store(context: Context) {
         set(v) = prefs.edit().putInt(KEY_GAP, v.coerceIn(5, 100)).apply()
 
     // On by default: the whole point is to be told when coins arrive without opening the app.
+    /**
+     * Whether the user has ever accepted connecting to the public SHA-256 (spamchain) servers.
+     * Until then the app never contacts them: not at start-up, not in the background.
+     */
+    var spamchainAccepted: Boolean
+        get() = prefs.getBoolean("spamchain_accepted", false)
+        set(v) = prefs.edit().putBoolean("spamchain_accepted", v).apply()
+
     var notificationsEnabled: Boolean
         get() = prefs.getBoolean(KEY_NOTIFY, true)
         set(v) = prefs.edit().putBoolean(KEY_NOTIFY, v).apply()

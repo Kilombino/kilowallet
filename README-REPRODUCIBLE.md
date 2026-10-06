@@ -34,7 +34,7 @@ pulled transitively and pinned by hash like every other dependency:
 | Kotlin (android + compose) | **2.3.10** |
 | compileSdk / targetSdk | **35** / **35** · build-tools **35.0.0** |
 | Jetpack Compose | BOM **2024.12.01** |
-| R8 / minify | **off** — no obfuscation variance |
+| R8 / minify | **on** since 0.18.0 (deterministic: two clean builds still match byte for byte); only the Ark JNI class is kept by name |
 | Packaged ABIs | all for the Kotlin app; the Ark engine is arm64-v8a only |
 | Ark engine | rustc **1.98.0**, cargo-ndk **4.1.2**, NDK **27.1.12297006**, API **26** |
 

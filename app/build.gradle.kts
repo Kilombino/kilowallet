@@ -24,8 +24,8 @@ android {
         applicationId = "com.kilombino.pyblockwatch"
         minSdk = 26
         targetSdk = 35
-        versionCode = 47
-        versionName = "0.17.2"
+        versionCode = 48
+        versionName = "0.18.0"
         // One native library of ours: the Ark engine, arm64-v8a only, rebuilt from a pinned
         // commit and checked against ark-engine/ENGINE before every release build. On other
         // ABIs the wallet runs without Ark. See README-REPRODUCIBLE.md §1.
@@ -61,11 +61,12 @@ android {
             // archive has no git metadata and gets a different hash — reporting "does
             // not reproduce" when the code is in fact identical.
             vcsInfo { include = false }
-            // Off for the same reason the upstream app keeps it off during beta —
-            // but here it also removes a whole class of build nondeterminism, which
-            // matters more than the ~1 MB it would save on an app this small.
-            isMinifyEnabled = false
-            isShrinkResources = false
+            // R8 on: it drops the unused code and resources (the APK went from 20.6 to
+            // 14 MB and the dex from 22 to 3.4 MB) and starts faster. Its output is
+            // deterministic, so two clean builds still give the same APK (§5); the only
+            // name-sensitive code, the Ark engine's JNI class, is kept in proguard-rules.pro.
+            isMinifyEnabled = true
+            isShrinkResources = true
             isDebuggable = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
@@ -122,7 +123,6 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 

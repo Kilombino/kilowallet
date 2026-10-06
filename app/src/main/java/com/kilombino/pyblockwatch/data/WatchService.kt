@@ -57,7 +57,7 @@ class WatchService : Service() {
             val xpub = store.xpub
             if (xpub == null || !store.notificationsEnabled) { delay(INTERVAL_MS); continue }
 
-            for (chain in Chain.entries) {
+            for (chain in Chain.entries.filter { it != Chain.SHA256 || store.spamchainAccepted }) {
                 runCatching {
                     val rows = deriveKnownAddresses(xpub, chain, store)
                     if (rows.isEmpty()) return@runCatching

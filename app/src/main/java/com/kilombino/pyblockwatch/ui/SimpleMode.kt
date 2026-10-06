@@ -79,7 +79,7 @@ fun ModeChooser(vm: WalletViewModel) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Spacer(Modifier.height(36.dp))
-        Text("KILOWALLET", style = MaterialTheme.typography.titleMedium, color = Purple)
+        AppLogo(56)
         Text("How do you want to use the wallet?",
              style = MaterialTheme.typography.headlineSmall, color = TextMain)
         Text("You can change this at any time from the top of the wallet.",
@@ -126,7 +126,14 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
     val cs = state.chains[chain] ?: ChainState()
     var showSend by remember { mutableStateOf(false) }
     var showReceive by remember { mutableStateOf(false) }
-    fun pick(c: Chain) { if (c != chain) { showSend = false; showReceive = false; vm.select(c) } }
+    // The spamchain asks first, every time, before anything connects.
+    var warnSpam by remember { mutableStateOf(false) }
+    fun pick(c: Chain) {
+        if (c == chain) return
+        showSend = false; showReceive = false
+        if (c == Chain.SHA256) warnSpam = true else vm.select(c)
+    }
+    if (warnSpam) SpamchainWarning(onContinue = { warnSpam = false; vm.acceptSpamchain() }, onBack = { warnSpam = false })
 
     // Pull down to refresh the balance and the price.
     var refreshing by remember { mutableStateOf(false) }
@@ -150,13 +157,11 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
     ) {
         Spacer(Modifier.height(28.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("KILOWALLET", style = MaterialTheme.typography.titleMedium, color = accent)
-                Text("simple mode", style = MaterialTheme.typography.bodySmall, color = TextFaint)
-            }
+            Text("simple mode", style = MaterialTheme.typography.bodySmall, color = TextFaint, modifier = Modifier.weight(1f))
             TextButton(onClick = { vm.setUiMode("advanced") }) {
                 Text("advanced", style = MaterialTheme.typography.bodySmall, color = TextSoft)
             }
+            AppLogo()
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -278,9 +283,7 @@ private fun SimpleBalance(
         }
 
         Spacer(Modifier.height(10.dp))
-        // Spamcoin is priced through the market's XBT/Poolsats rate.
-        val xbtPx = if (fiat == "EUR") market?.xbtEur else market?.xbtUsd
-        val px = if (btc) xbtPx else market?.xbtPoolsats?.takeIf { it > 0 }?.let { ps -> xbtPx?.let { it * 1e8 / ps } }
+        val px = fiatPerCoin(chain, market, fiat)
         val value = px?.let { it * cs.total / 1e8 }
         val sym = if (fiat == "EUR") "€" else "$"
         Row(verticalAlignment = Alignment.CenterVertically) {

@@ -174,3 +174,21 @@ fun groupSats(sats: Long): String {
 
 fun shortAddress(a: String): String =
     if (a.length <= 20) a else "${a.take(10)}…${a.takeLast(8)}"
+
+/** The app's own icon, round, for the top of the screen. */
+@Composable
+fun AppLogo(size: Int = 40) {
+    androidx.compose.foundation.Image(
+        painter = androidx.compose.ui.res.painterResource(com.kilombino.pyblockwatch.R.mipmap.ic_launcher_full),
+        contentDescription = "Kilowallet",
+        modifier = Modifier.size(size.dp).clip(androidx.compose.foundation.shape.CircleShape),
+    )
+}
+
+/** Fiat per whole coin: BTC from the market feed, Spamcoin through its XBT/Poolsats rate. */
+fun fiatPerCoin(chain: com.kilombino.pyblockwatch.chain.Chain, market: com.kilombino.pyblockwatch.data.MarketData?, fiat: String): Double? {
+    val xbtPx = if (fiat == "EUR") market?.xbtEur else market?.xbtUsd
+    return if (chain == com.kilombino.pyblockwatch.chain.Chain.BLAKE2B) xbtPx
+    else market?.xbtPoolsats?.takeIf { it > 0 }?.let { ps -> xbtPx?.let { it * 1e8 / ps } }
+}
+

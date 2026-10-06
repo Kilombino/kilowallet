@@ -292,13 +292,10 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
         Spacer(Modifier.height(28.dp))
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("KILOWALLET", style = MaterialTheme.typography.titleMedium, color = accent)
-                Text(
-                    state.label.ifBlank { if (state.isHot) "spending wallet" else "watch-only wallet" },
-                    style = MaterialTheme.typography.bodySmall, color = TextFaint,
-                )
-            }
+            Text(
+                state.label.ifBlank { if (state.isHot) "spending wallet" else "watch-only wallet" },
+                style = MaterialTheme.typography.bodySmall, color = TextFaint, modifier = Modifier.weight(1f),
+            )
             TextButton(onClick = { vm.setUiMode("simple") }) {
                 Text("simple", style = MaterialTheme.typography.bodySmall, color = TextSoft)
             }
@@ -306,6 +303,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
                 Text(if (showSettings) "close" else "settings",
                      style = MaterialTheme.typography.bodySmall, color = TextSoft)
             }
+            AppLogo()
         }
 
         AdvancedTabs(chain, arkTab,
@@ -318,7 +316,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
             return@Column
         }
 
-        BalanceCard(chain, cs, accent, state.scriptType, state.nextRefreshAt)
+        BalanceCard(chain, cs, accent, state.scriptType, state.nextRefreshAt, state.market, state.fiat, vm::setFiat)
 
         when {
             showSend -> SendSheet(vm, accent) { showSend = false }
@@ -425,6 +423,7 @@ private fun AdvancedTabs(chain: Chain, arkTab: Boolean, onBtc: () -> Unit, onArk
 @Composable
 private fun BalanceCard(
     chain: Chain, cs: ChainState, accent: Color, scriptType: ScriptType?, nextRefreshAt: Long,
+    market: com.kilombino.pyblockwatch.data.MarketData?, fiat: String, onFiat: (String) -> Unit,
 ) {
     // The countdown ticks here, only while this card is shown, instead of the whole screen
     // being redrawn every second.
@@ -459,6 +458,17 @@ private fun BalanceCard(
         Text(street("%.8f ₿".format(cs.total / 100_000_000.0)),
              style = MaterialTheme.typography.bodySmall, color = TextFaint)
 
+        // Value in dollars or euros, the same choice as in simple mode and Ark.
+        Spacer(Modifier.height(8.dp))
+        val sym = if (fiat == "EUR") "€" else "$"
+        val value = fiatPerCoin(chain, market, fiat)?.let { it * cs.total / 1e8 }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(street(if (value == null) "≈ $sym –" else "≈ $sym" + String.format(java.util.Locale.US, "%,.2f", value)),
+                 style = MaterialTheme.typography.headlineSmall, color = TextMain, modifier = Modifier.weight(1f))
+            FiatChip("USD", fiat == "USD", accent) { onFiat("USD") }
+            Spacer(Modifier.width(6.dp))
+            FiatChip("EUR", fiat == "EUR", accent) { onFiat("EUR") }
+        }
         if (cs.unconfirmed != 0L) {
             Spacer(Modifier.height(4.dp))
             Text(street("unconfirmed: ${groupSats(cs.unconfirmed)} sats"),
@@ -589,7 +599,9 @@ private fun SettingsPanel(
                 Text("Spamcoin (SHA-256 chain)", style = MaterialTheme.typography.bodyMedium, color = TextMain)
                 Explain("The same keys on the spamchain: balance, addresses, send and receive.")
             }
-            TextButton(onClick = { vm.select(if (chain == Chain.SHA256) Chain.BLAKE2B else Chain.SHA256) }) {
+            var warnSpam by remember { mutableStateOf(false) }
+            if (warnSpam) SpamchainWarning(onContinue = { warnSpam = false; vm.acceptSpamchain() }, onBack = { warnSpam = false })
+            TextButton(onClick = { if (chain == Chain.SHA256) vm.select(Chain.BLAKE2B) else warnSpam = true }) {
                 Text(if (chain == Chain.SHA256) "BACK TO BTC" else "OPEN", color = accent, style = MaterialTheme.typography.bodySmall)
             }
         }

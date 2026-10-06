@@ -184,7 +184,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 xpub = xpub,
                 label = store.label,
                 scriptType = store.scriptType,
-                selected = store.lastChain,
+                // Always open on BTC: the spamchain only after its privacy warning.
+                selected = Chain.BLAKE2B,
                 notificationsEnabled = store.notificationsEnabled,
                 gapLimit = store.gapLimit,
                 isHot = seedVault.hasSeed(),
@@ -193,7 +194,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 market = com.kilombino.pyblockwatch.data.MarketFeed.cached(app),
             )
         }
-        if (xpub != null) Chain.entries.forEach { scan(it) }
+        if (xpub != null) scannableChains().forEach { scan(it) }
         startRefreshLoop()
         refreshMarket()
     }
@@ -305,7 +306,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 chains = Chain.entries.associateWith { ChainState() },
             )
         }
-        Chain.entries.forEach { scan(it) }
+        scannableChains().forEach { scan(it) }
     }
 
     /** Change the gap limit (how deep the scan looks) and re-scan both chains. */
@@ -316,7 +317,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         _state.update {
             it.copy(gapLimit = clamped, chains = Chain.entries.associateWith { ChainState() })
         }
-        if (!_state.value.xpub.isNullOrBlank()) Chain.entries.forEach { scan(it) }
+        if (!_state.value.xpub.isNullOrBlank()) scannableChains().forEach { scan(it) }
     }
 
     /** Change the address type (BIP-84/49/44/86) and re-scan both chains. */
@@ -326,7 +327,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         _state.update {
             it.copy(scriptType = type, chains = Chain.entries.associateWith { ChainState() })
         }
-        if (!_state.value.xpub.isNullOrBlank()) Chain.entries.forEach { scan(it) }
+        if (!_state.value.xpub.isNullOrBlank()) scannableChains().forEach { scan(it) }
     }
 
     fun clearError() = _state.update { it.copy(inputError = null) }
@@ -358,6 +359,15 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun startSetup() = _state.update { it.copy(setupMode = true, inputError = null) }
     /** Leave the chooser without changing anything, back to the existing wallet. */
     fun endSetup() = _state.update { it.copy(setupMode = false) }
+
+    /** The chains the app may contact on its own: BTC, and the spamchain once accepted. */
+    private fun scannableChains() = Chain.entries.filter { it != Chain.SHA256 || store.spamchainAccepted }
+
+    /** The user accepted the spamchain warning: remember it and look at that chain now. */
+    fun acceptSpamchain() {
+        store.spamchainAccepted = true
+        select(Chain.SHA256)
+    }
 
     fun select(chain: Chain) {
         val changed = chain != _state.value.selected
@@ -490,7 +500,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                         chains = Chain.entries.associateWith { ChainState() },
                     )
                 }
-                Chain.entries.forEach { scan(it) }
+                scannableChains().forEach { scan(it) }
             }.onFailure { e ->
                 seedVault.clear()
                 onError(e.message ?: "Could not create the wallet.")
