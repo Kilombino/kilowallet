@@ -50,6 +50,8 @@ data class SendDraft(
     val replacedFee: Long = 0,
     /** More recipients after the first, in output order (address as typed, sats). */
     val extra: List<Pair<String, Long>> = emptyList(),
+    /** The BIP-353 handle (user@domain) the first recipient was resolved from, if any. */
+    val handle: String? = null,
 ) {
     /** Everything that leaves the wallet: the first recipient plus the extra ones. */
     val totalSent: Long get() = amount + extra.sumOf { it.second }
@@ -193,6 +195,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         val xpub = store.xpub
+        // A hot wallet set to another address type in an older version: back to its own BIP84.
+        if (seedVault.hasSeed() && store.activeWallet != Store.WATCH && store.scriptType != ScriptType.P2WPKH)
+            store.scriptType = ScriptType.P2WPKH
         _state.update {
             it.copy(
                 xpub = xpub,
@@ -360,6 +365,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     /** Change the address type (BIP-84/49/44/86) and re-scan both chains. */
     fun setScriptType(type: ScriptType) {
         if (type == store.scriptType) return
+        // The hot wallet's xpub is m/84'/0'/0': any other type would show addresses it can't sign for.
+        if (_state.value.isHot && type != ScriptType.P2WPKH) return
         store.scriptType = type
         _state.update {
             it.copy(scriptType = type, chains = Chain.entries.associateWith { ChainState() })
@@ -1048,20 +1055,22 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 // For a silent payment the true output depends on the input keys (computed at
                 // signing); a Taproot placeholder of the right size keeps fee/change correct.
                 val toScript = if (isSilent) byteArrayOf(0x51, 0x20) + ByteArray(32)
-                    else com.kilombino.pyblockwatch.crypto.Address.decodeToScriptPubKey(effectiveTo)
+                    else com.kilombino.pyblockwatch.crypto.Address.decodeToScriptPubKey(effectiveTo).also { requireSpendableDestination(it, "The address") }
                 require(amountSats > 0) { "Enter an amount." }
                 val rate = feeRatePerVb.coerceIn(0.1, 1000.0)
                 // Extra recipients (BTC only): plain addresses or user@domain, each its own output
                 // in the same transaction, so the whole batch is signed (and replay-protected) at once.
                 require(extra.isEmpty() || chain == Chain.BLAKE2B) { "Several recipients are only for BTC." }
+                val resolvedExtra = HashMap<Int, String>()
                 val extraOuts = extra.mapIndexed { i, (addr, sats) ->
                     require(sats > DUST_SATS) { "Recipient ${i + 2}: enter an amount above ${DUST_SATS} sats." }
-                    val a = if (addr.contains("@")) resolveBip353(addr) else addr
+                    val a = if (addr.contains("@")) resolveBip353(addr).also { resolvedExtra[i] = "$addr → $it" } else addr
                     require(!a.trim().lowercase().startsWith("sp1")) {
                         "Recipient ${i + 2}: a silent payment can only be the first recipient."
                     }
                     com.kilombino.pyblockwatch.crypto.TxBuilder.Output(
-                        com.kilombino.pyblockwatch.crypto.Address.decodeToScriptPubKey(a.trim()), sats)
+                        com.kilombino.pyblockwatch.crypto.Address.decodeToScriptPubKey(a.trim())
+                            .also { requireSpendableDestination(it, "Recipient ${i + 2}") }, sats)
                 }
                 val totalOut = amountSats + extraOuts.sumOf { it.value }
 
@@ -1092,8 +1101,11 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 }
 
                 var fee = estimateFee(chosen.size, withChange, rate)
-                // Sending everything (MAX) has no change output: size the fee without it.
-                if (sum < totalOut + fee) fee = estimateFee(chosen.size, noChange, rate)
+                // Sending everything (MAX) has no change output: size the fee without it. Then there
+                // must be no change output either, or the transaction would pay a fee sized for one
+                // output less than it has.
+                var noChangeOutput = false
+                if (sum < totalOut + fee) { fee = estimateFee(chosen.size, noChange, rate); noChangeOutput = true }
                 require(sum >= totalOut + fee) {
                     if (selected.isNotEmpty()) "The chosen coins don't cover the amount plus fee."
                     else "Not enough funds for the amount plus fee."
@@ -1105,14 +1117,16 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     com.kilombino.pyblockwatch.crypto.TxBuilder.Output(toScript, amountSats),
                 )
                 outputs += extraOuts
-                if (change > DUST_SATS) {
+                if (change > DUST_SATS && !noChangeOutput) {
                     outputs += com.kilombino.pyblockwatch.crypto.TxBuilder.Output(changeScript, change)
                 } else {
-                    fee = sum - totalOut // dust change folded into the fee
+                    fee = sum - totalOut // dust (or unpriced) change folded into the fee
                     change = 0
                 }
-                val draft = SendDraft(toAddress, amountSats, fee, change, chosen, outputs, chain, silentRecipient,
-                    extra = extra)
+                // The review shows what will really be paid: the resolved address, next to the handle.
+                val draft = SendDraft(effectiveTo, amountSats, fee, change, chosen, outputs, chain, silentRecipient,
+                    extra = extra.mapIndexed { i, (a, v) -> (resolvedExtra[i] ?: a) to v },
+                    handle = if (toAddress.contains("@")) toAddress.trim() else null)
                 _state.update { it.copy(sendPhase = SendPhase.Review(draft)) }
             }.onFailure { e ->
                 _state.update { it.copy(sendPhase = SendPhase.Failed(e.message ?: "Could not prepare the send.")) }
@@ -1131,6 +1145,22 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * Refuses outputs anyone could spend: witness v1 that is not a 32-byte Taproot key, and the
+     * future witness versions 2–16. Those decode as valid addresses but have no rule guarding
+     * them yet, so whatever is sent there can be taken by anybody.
+     */
+    private fun requireSpendableDestination(script: ByteArray, who: String) {
+        if (script.size < 4) return
+        val op = script[0].toInt() and 0xff
+        if (op !in 0x51..0x60) return            // witness v0 and non-witness scripts are fine
+        val version = op - 0x50
+        val program = script.size - 2
+        require(version == 1 && program == 32) {
+            "$who is a witness version $version output with a $program-byte program: anyone could spend it. Not sending."
+        }
+    }
+
+    /**
      * Resolve a BIP-353 human-readable handle (`user@domain`, optionally ₿-prefixed) to a payment
      * address. Reads the `user.user._bitcoin-payment.domain` TXT record (BIP-353) over DNS-over-HTTPS (Cloudflare)
      * and returns the silent-payment address if the URI carries `sp=`, otherwise the on-chain
@@ -1142,7 +1172,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
             val at = h.indexOf('@')
             require(at > 0 && at < h.length - 1) { "Not a user@domain address." }
             val name = "${h.substring(0, at)}.user._bitcoin-payment.${h.substring(at + 1)}"
-            val url = java.net.URL("https://cloudflare-dns.com/dns-query?name=$name&type=TXT")
+            val url = java.net.URL("https://cloudflare-dns.com/dns-query?name=$name&type=TXT&do=1")
             val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
                 setRequestProperty("Accept", "application/dns-json")
                 connectTimeout = 8000; readTimeout = 8000
@@ -1152,8 +1182,14 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 throw IllegalArgumentException("Could not look up $h.")
             } finally { conn.disconnect() }
-            val answers = org.json.JSONObject(body).optJSONArray("Answer")
+            val json = org.json.JSONObject(body)
+            val answers = json.optJSONArray("Answer")
                 ?: throw IllegalArgumentException("No payment record for $h.")
+            // BIP-353 requires DNSSEC: without a validated answer a hijacked DNS (or the resolver
+            // itself) could swap the address. Refuse rather than pay an unauthenticated record.
+            require(json.optBoolean("AD", false)) {
+                "The payment record for $h is not DNSSEC-signed, so it can't be trusted. Ask for a plain address."
+            }
             var uri: String? = null
             for (i in 0 until answers.length()) {
                 val data = answers.getJSONObject(i).optString("data").trim().trim('"')

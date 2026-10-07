@@ -60,7 +60,7 @@ class Store(context: Context, private val profile: String = HOT) {
      * actually available here.
      */
     fun pinnedFingerprint(endpoint: NodeEndpoint): String? =
-        prefs.getString(keyPin(endpoint), null)
+        prefs.getString(keyPin(endpoint), null) ?: BUILT_IN_PINS["${endpoint.host}:${endpoint.port}"]
 
     fun pinFingerprint(endpoint: NodeEndpoint, fingerprint: String) {
         prefs.edit().putString(keyPin(endpoint), fingerprint).apply()
@@ -245,6 +245,15 @@ class Store(context: Context, private val profile: String = HOT) {
     }
 
     companion object {
+        /**
+         * Certificates shipped with the app, so even the first connection to the default server
+         * is checked (not trust-on-first-use). fulcrum.kilombino.com's own certificate,
+         * self-signed, valid until 2036-08-31.
+         */
+        val BUILT_IN_PINS = mapOf(
+            "fulcrum.kilombino.com:17717" to "506dadc710c5abaeb13191056c5aaf47035d30e08bd869f7b4fbe6e13745d5a7",
+        )
+
         const val HOT = "hot"
         const val WATCH = "watch"
 

@@ -13,18 +13,22 @@ import org.junit.Test
 
 /** What the wallet must not take on a server's word: a transaction's content, a changed certificate. */
 class ServerTrustTest {
+    // The 2-person coinjoin of Kilojoin's docs/vectors.json (segwit, 0x21 signatures), vendored.
+    private fun vectors() = org.json.JSONObject(
+        javaClass.classLoader!!.getResource("kilojoin-vectors.json")!!.readText()).getJSONObject("transaction")
+
+    @Test fun theDefaultServerIsPinnedFromTheFirstConnection() {
+        val ep = NodeEndpoint.default(Chain.BLAKE2B)
+        assertEquals("506dadc710c5abaeb13191056c5aaf47035d30e08bd869f7b4fbe6e13745d5a7",
+            com.kilombino.pyblockwatch.data.Store.BUILT_IN_PINS["${ep.host}:${ep.port}"])
+    }
     @Test fun txidOfASegwitTransactionLeavesTheWitnessOut() {
-        // The 2-person coinjoin of kilojoin/docs/vectors.json (segwit, 0x21 signatures).
-        val full = java.io.File(System.getProperty("user.home") + "/Projects/kilojoin/docs/vectors.json")
-        assumeTrue(full.exists())
-        val v = org.json.JSONObject(full.readText()).getJSONObject("transaction")
+        val v = vectors()
         assertEquals(v.getString("txid"), TxParse.txid(TxParse.parse(v.getString("raw_tx"))))
     }
 
     @Test fun aTamperedTransactionHasAnotherTxid() {
-        val full = java.io.File(System.getProperty("user.home") + "/Projects/kilojoin/docs/vectors.json")
-        assumeTrue(full.exists())
-        val v = org.json.JSONObject(full.readText()).getJSONObject("transaction")
+        val v = vectors()
         val good = v.getString("raw_tx")
         // Change one byte of the first output's value: what a lying server would do to redirect money.
         val i = good.indexOf("1027000000000000")

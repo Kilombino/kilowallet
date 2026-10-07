@@ -50,6 +50,7 @@ fun seedWordsOrNull(words: List<String>): List<String>? =
  */
 @Composable
 fun SeedWordsInput(words: SnapshotStateList<String>, accent: Color = Purple) {
+    SecureWhileShown()
     val focus = remember { List(24) { FocusRequester() } }
     var focused by remember { mutableIntStateOf(-1) }
 

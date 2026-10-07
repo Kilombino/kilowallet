@@ -46,6 +46,9 @@ class SeedVault(context: Context) {
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
             .setKeySize(256)
             .setUserAuthenticationRequired(true)
+            // Adding a fingerprint must not destroy the key: the device PIN unlocks it anyway, so
+            // invalidating it would only strand the user's words, not stop anyone.
+            .setInvalidatedByBiometricEnrollment(false)
             .apply {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     // Every use needs a fresh check; biometric OR the device PIN/pattern is accepted.
@@ -59,6 +62,24 @@ class SeedVault(context: Context) {
                 }
             }
             .build()
+        // In the secure element where the phone has one (StrongBox), otherwise the TEE.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            runCatching {
+                gen.init(KeyGenParameterSpec.Builder(spec.keystoreAlias, spec.purposes)
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .setKeySize(256)
+                    .setUserAuthenticationRequired(true)
+                    .setInvalidatedByBiometricEnrollment(false)
+                    .setIsStrongBoxBacked(true)
+                    .apply {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setUserAuthenticationParameters(
+                            0, KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL)
+                        else @Suppress("DEPRECATION") setUserAuthenticationValidityDurationSeconds(-1)
+                    }.build())
+                return gen.generateKey()
+            }
+        }
         gen.init(spec)
         return gen.generateKey()
     }
@@ -70,9 +91,19 @@ class SeedVault(context: Context) {
     /** A cipher primed to DECRYPT the stored seed. Authorise it, then call [reveal]. */
     fun decryptCipher(): Cipher {
         val iv = Base64.decode(prefs.getString(KEY_IV, null) ?: error("no seed stored"), Base64.NO_WRAP)
-        val key = existingKey() ?: error("seed key missing")
-        return Cipher.getInstance(TRANSFORMATION)
-            .apply { init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv)) }
+        // The key can also vanish outright (e.g. the screen lock was removed): same way out.
+        val key = existingKey() ?: throw IllegalStateException("Android has deleted this wallet's key (the screen " +
+            "lock was removed or changed). Your funds are safe: restore the wallet from your written recovery " +
+            "words and it will get a new key.")
+        return try {
+            Cipher.getInstance(TRANSFORMATION).apply { init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv)) }
+        } catch (e: android.security.keystore.KeyPermanentlyInvalidatedException) {
+            // Older keys die when a fingerprint is added. The words cannot be read back any more,
+            // but the funds are untouched: restoring from the written words brings everything back.
+            throw IllegalStateException("Android has locked away this wallet's key (a fingerprint or screen " +
+                "lock was changed). Your funds are safe: restore the wallet from your written recovery words " +
+                "and it will get a new key.", e)
+        }
     }
 
     /** The mnemonic and its optional BIP-39 passphrase ("" when there is none). */

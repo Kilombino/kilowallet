@@ -138,9 +138,9 @@ Zapstore.
 
 ```
 git clone https://github.com/Kilombino/paperclip-wallet-app && cd paperclip-wallet-app
-git checkout 684d7d7
+git checkout 225fed4
 ANDROID_NDK_HOME=/path/to/ndk/27.1.12297006 ./kilombino-ark/build-android.sh
-# → 44776c04e270e5a00d960940bb63c2dc1db7f8d617dfa5ba6b9282118bd9c5ef
+# → 078a4ecbcb5b097d5f30561f3a57cf056c954b59db8d14b638e62a9c410bac57
 ```
 
 The script remaps the source and toolchain paths, so the result does not depend on where

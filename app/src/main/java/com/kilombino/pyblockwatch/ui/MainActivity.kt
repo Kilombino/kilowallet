@@ -582,7 +582,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
             Explain(
                 "Your xpub does not store a list of addresses: it generates them. The app derives " +
                     "m/0/0, m/0/1, m/0/2… and asks the server about each. When it finds " +
-                    "${'$'}{20} empty in a row, it assumes there are no more and stops. That is " +
+                    "${state.gapLimit} empty in a row, it assumes there are no more and stops. That is " +
                     "the «gap limit», and it is what the ring above draws while it scans."
             )
         }
@@ -871,7 +871,11 @@ internal fun SettingsPanel(
         Explain("How the keys are read from your xpub. BIP84 (bc1q) by default. " +
             "Change it if your wallet uses another format; both chains are rescanned.")
         Spacer(Modifier.height(4.dp))
-        DerivationSelector(state.scriptType, accent) { vm.setScriptType(it) }
+        // The hot wallet's xpub is its BIP84 account: reading it as another type would give
+        // addresses its keys do not sign for. Only a watch-only xpub may change type.
+        if (state.isHot) Text("Hot wallet: BIP84 (bc1q), fixed — the keys it signs with.",
+            style = MaterialTheme.typography.bodySmall, color = TextFaint)
+        else DerivationSelector(state.scriptType, accent) { vm.setScriptType(it) }
 
         Spacer(Modifier.height(14.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {

@@ -225,3 +225,19 @@ fun fiatPerCoin(chain: com.kilombino.pyblockwatch.chain.Chain, market: com.kilom
     else market?.xbtPoolsats?.takeIf { it > 0 }?.let { ps -> xbtPx?.let { it * 1e8 / ps } }
 }
 
+
+private var secureHolders = 0
+
+/**
+ * While on screen, the window is FLAG_SECURE: no screenshots, no screen recording, and a blank
+ * thumbnail in recent apps. Used wherever recovery words are shown or typed; the rest of the app
+ * stays recordable.
+ */
+@Composable
+fun SecureWhileShown() {
+    val activity = androidx.compose.ui.platform.LocalContext.current as? android.app.Activity ?: return
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        if (secureHolders++ == 0) activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose { if (--secureHolders == 0) activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE) }
+    }
+}

@@ -208,6 +208,16 @@ object Ark {
         prefs(ctx).edit().putString("backup_state", fingerprint).apply()
     }
 
+    internal fun withOurServers(config: String): String = config.lines()
+        .filterNot { it.trimStart().startsWith("bitcoind") }   // no other chain source either
+        .joinToString("\n") { l ->
+        when {
+            l.trimStart().startsWith("server_address") -> "server_address = \"$SERVER\""
+            l.trimStart().startsWith("esplora_address") -> "esplora_address = \"$ESPLORA\""
+            else -> l
+        }
+    }
+
     /** Replaces this phone's Ark wallet with the one in [s] and starts it. */
     @Synchronized
     fun restore(ctx: Context, s: ArkBackup.Snapshot) {
@@ -219,7 +229,9 @@ object Ark {
             if (f.name != "LOCK" && f.name != "barkd.lock") f.deleteRecursively()
         }
         dir.mkdirs()
-        File(dir, "config.toml").writeText(s.config!!)
+        // The servers always come from the app, never from the file: a crafted backup must not
+        // be able to point the engine at someone else's Ark server or chain source.
+        File(dir, "config.toml").writeText(withOurServers(s.config!!))
         File(dir, "db.sqlite").writeBytes(s.db!!)
         s.dbWal?.let { File(dir, "db.sqlite-wal").writeBytes(it) }
         ArkSeed(ctx).save(s.words, s.passphrase)

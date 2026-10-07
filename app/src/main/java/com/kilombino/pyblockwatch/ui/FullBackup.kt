@@ -69,8 +69,9 @@ fun FullBackupPanel(vm: WalletViewModel, accent: Color) {
             title = { Text("Protect the file with a password?") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Optional. The file contains your words: without a password, anyone who gets " +
-                        "the file can take your money. If you forget the password, the file is useless.",
+                    Text("Strongly recommended. The file contains your words: without a password, anyone who " +
+                        "gets the file can take your money. Never put an unprotected file in cloud storage " +
+                        "(Drive, iCloud…) or send it in a chat. If you forget the password, the file is useless.",
                         style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(value = pw1, onValueChange = { pw1 = it },
                         label = { Text("password (optional)", style = MaterialTheme.typography.bodySmall) },
@@ -103,7 +104,7 @@ fun FullBackupPanel(vm: WalletViewModel, accent: Color) {
                             }
                         },
                         onError = { message = it })
-                }) { Text(if (pw1.isEmpty()) "SAVE WITHOUT PASSWORD" else "SAVE", color = accent) }
+                }) { Text(if (pw1.isEmpty()) "SAVE WITHOUT PASSWORD" else "SAVE", color = if (pw1.isEmpty()) Warn else accent) }
             },
             dismissButton = { TextButton(onClick = { askPassword = false; pw1 = ""; pw2 = "" }) { Text("CANCEL", color = TextSoft) } },
             containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,

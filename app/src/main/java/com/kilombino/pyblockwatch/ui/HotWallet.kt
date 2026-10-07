@@ -308,6 +308,7 @@ fun PassphraseFields(
 private fun SeedBackup(
     words: List<String>, initialPassphrase: String, onDiscard: () -> Unit, onConfirm: (passphrase: String) -> Unit,
 ) {
+    SecureWhileShown()
     var passphrase by remember { mutableStateOf(initialPassphrase) }
     var repeat by remember { mutableStateOf(initialPassphrase) }
     Panel(accent = Bad) {
@@ -471,14 +472,21 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
 
             is SendPhase.Review -> {
                 val d = phase.draft
-                RowLine("To", shortAddress(d.toAddress), accent)
+                if (d.handle != null) {
+                    // A user@domain handle: what gets paid is the address it resolved to, in full.
+                    RowLine("To", d.handle, accent)
+                    Text("resolves to " + d.toAddress, color = TextSoft, style = MaterialTheme.typography.bodySmall)
+                } else RowLine("To", shortAddress(d.toAddress), accent)
                 if (d.silentRecipient != null) {
                     Text("→ silent payment (BIP-352)", color = Good,
                          style = MaterialTheme.typography.bodySmall)
                 }
                 RowLine("Amount", "${groupSats(d.amount)} sats", accent)
                 d.extra.forEachIndexed { i, (addr, sats) ->
-                    RowLine("To ${i + 2}", shortAddress(addr), accent)
+                    if (addr.contains(" → ")) {
+                        RowLine("To ${i + 2}", addr.substringBefore(" → "), accent)
+                        Text("resolves to " + addr.substringAfter(" → "), color = TextSoft, style = MaterialTheme.typography.bodySmall)
+                    } else RowLine("To ${i + 2}", shortAddress(addr), accent)
                     RowLine("Amount ${i + 2}", "${groupSats(sats)} sats", accent)
                 }
                 if (d.extra.isNotEmpty()) RowLine("Total sent", "${groupSats(d.totalSent)} sats", accent)
@@ -819,6 +827,7 @@ fun ReceiveSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
  */
 @Composable
 fun SweepSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
+    SecureWhileShown() // a private key (WIF) is typed or pasted here
     val state by vm.state.collectAsState()
     val phase by vm.sweep.collectAsState()
     var wif by remember { mutableStateOf("") }
@@ -912,6 +921,8 @@ fun SweepSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                     )
                     TextButton(onClick = {
                         clipboard.getText()?.text?.trim()?.let { if (it.isNotBlank()) { wif = it; vm.resetSweep() } }
+                        // A private key must not linger on the clipboard, where other apps can read it.
+                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(""))
                     }) { Text("PASTE", color = accent, style = MaterialTheme.typography.bodySmall) }
                     TextButton(onClick = {
                         if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) ==
