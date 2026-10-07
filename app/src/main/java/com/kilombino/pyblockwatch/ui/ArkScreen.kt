@@ -262,9 +262,10 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
                 }
                 else -> {}
             }
-            if (history.isNotEmpty()) ArkHistory(history, accent, vm.explorerFor(com.kilombino.pyblockwatch.chain.Chain.BLAKE2B))
+            if (history.isNotEmpty()) ArkHistory(history, accent, vm.explorerFor(com.kilombino.pyblockwatch.chain.Chain.BLAKE2B), balance?.spendable)
             ArkBackupPanel(fingerprint, accent) { message = it }
             ArkEmergencyPanel(accent, activity) { message = it }
+            ArkEngineLog(accent) { message = it }
             ArkWarnings()
         }
     }
@@ -707,7 +708,24 @@ private fun ArkBoardSheet(b: Ark.Balance?, accent: Color, onBoard: (Long?, Doubl
 }
 
 @Composable
-private fun ArkHistory(items: List<Ark.Movement>, accent: Color, explorer: String) {
+private fun ArkHistory(items: List<Ark.Movement>, accent: Color, explorer: String, spendable: Long?) {
+    // What was left in Ark after each movement: today's spendable balance, walking back. A
+    // failed or cancelled one changed nothing; a pending one counts only if it already took
+    // its coins out of the spendable balance (a send or an exit), not money still on its way in.
+    val after = HashMap<String, Long>()
+    if (spendable != null) {
+        var run = spendable
+        for (m in items) {
+            after[m.id] = run
+            val st = m.status.lowercase()
+            val effect = when {
+                st == "failed" || st == "canceled" || st == "cancelled" -> 0L
+                st == "pending" && m.amount > 0 -> 0L
+                else -> m.amount
+            }
+            run -= effect
+        }
+    }
     var open by remember { mutableStateOf<Ark.Movement?>(null) }
     open?.let { m -> ArkMovementDialog(m, accent, explorer) { open = null } }
     Panel(accent = accent) {
@@ -721,6 +739,12 @@ private fun ArkHistory(items: List<Ark.Movement>, accent: Color, explorer: Strin
                      style = MaterialTheme.typography.bodySmall,
                      color = if (m.amount >= 0) Good else TextMain, modifier = Modifier.weight(1f))
                 Text("${m.kind} · ${statusOf(m)}", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+            }
+            after[m.id]?.let { left ->
+                val st = m.status.lowercase()
+                Text(street(if (st == "failed" || st == "canceled" || st == "cancelled") "(nothing changed: ${groupSats(left)} sats left)"
+                            else "(left: ${groupSats(left)} sats)"),
+                     style = MaterialTheme.typography.bodySmall, color = TextSoft)
             }
             Spacer(Modifier.height(4.dp))
         }
@@ -881,3 +905,29 @@ internal fun scannedDestination(raw: String): String {
     return v.trim()
 }
 
+
+/** Share the end of the Ark engine's log, for when a renewal or payment fails without saying why. */
+@Composable
+private fun ArkEngineLog(accent: Color, onMessage: (String) -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    Panel(accent = accent) {
+        SectionLabel("Engine log", accent)
+        Spacer(Modifier.height(4.dp))
+        Text("If a renewal or payment fails, share this with whoever helps you: it says why. It shows " +
+            "coin ids and amounts, never your words.", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+        TextButton(onClick = {
+            scope.launch {
+                val log = withContext(Dispatchers.IO) { Ark.engineLogTail(ctx) }
+                if (log.isNullOrBlank()) { onMessage("The Ark engine has not written a log yet."); return@launch }
+                val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(android.content.Intent.EXTRA_SUBJECT, "Kilowallet Ark engine log")
+                    putExtra(android.content.Intent.EXTRA_TEXT, log)
+                }
+                runCatching { ctx.startActivity(android.content.Intent.createChooser(send, "Share the Ark engine log")) }
+                    .onFailure { onMessage("Could not open the share menu.") }
+            }
+        }) { Text("SHARE ENGINE LOG", color = accent) }
+    }
+}

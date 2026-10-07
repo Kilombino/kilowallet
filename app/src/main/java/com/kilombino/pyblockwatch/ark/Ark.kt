@@ -775,12 +775,34 @@ object Ark {
         return null
     }
 
+    /**
+     * The end of the Ark engine's own log (debug.log in its folder), to share when something
+     * fails: rounds, renewals and payments say why only there. It names coins and amounts,
+     * never the words; any line that mentions them is dropped anyway, to be safe.
+     */
+    fun engineLogTail(ctx: Context, maxBytes: Int = 48_000): String? = runCatching {
+        val f = File(datadir(ctx), "debug.log")
+        if (!f.exists()) return@runCatching null
+        java.io.RandomAccessFile(f, "r").use { raf ->
+            val start = maxOf(0L, raf.length() - maxBytes)
+            raf.seek(start)
+            val bytes = ByteArray((raf.length() - start).toInt()); raf.readFully(bytes)
+            String(bytes, Charsets.UTF_8).lines().drop(if (start > 0) 1 else 0)
+                .filterNot { it.contains("mnemonic", true) || it.contains("seed", true) || it.contains("passphrase", true) }
+                .joinToString("\n")
+        }
+    }.getOrNull()
+
     /** Blocks until the next Ark coin expires, from the server's tip; null if unknown. */
     fun blocksToNearestExpiry(): Int? = runCatching {
         val vtxos = JSONArray(call("GET", "/wallet/vtxos"))
         val tip = JSONObject(call("GET", "/bitcoin/tip")).optInt("tip_height", -1)
         if (tip < 0 || vtxos.length() == 0) return@runCatching null
-        (0 until vtxos.length()).mapNotNull { i -> vtxos.getJSONObject(i).optInt("expiry_height", -1).takeIf { it > 0 } }
+        // Only coins that can still be spent or renewed: one on its way out (emergency exit)
+        // keeps its old expiry and would show as "expired" for nothing.
+        (0 until vtxos.length()).map { vtxos.getJSONObject(it) }
+            .filter { it.optJSONObject("state")?.optString("type") == "spendable" }
+            .mapNotNull { it.optInt("expiry_height", -1).takeIf { h -> h > 0 } }
             .minOrNull()?.let { it - tip }
     }.getOrNull()
 }

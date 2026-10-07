@@ -227,7 +227,7 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel, onToggleNotifications: (Bo
         if (!showSend && !showReceive) { if (state.isHot) CoinsCard(state, vm, chain, accent) else WatchAddressesCard(state, vm, chain, accent) }
         if (!showSend && !showReceive && cs.transactions.isNotEmpty())
             MovementsCard(cs.transactions, accent, vm.explorerFor(chain), vm, state.isHot,
-                if (chain == Chain.BLAKE2B) "sats" else "poolsats")
+                if (chain == Chain.BLAKE2B) "sats" else "poolsats", balance = cs.total)
 
         // Settings, with the recovery words at their very end.
         Reveal(showSettings) {

@@ -483,7 +483,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
         ScanStatus(cs, accent, onRetry = { vm.scan(chain) })
 
         if (cs.transactions.isNotEmpty()) MovementsCard(cs.transactions, accent, vm.explorerFor(chain), vm, state.isHot,
-            if (chain == Chain.BLAKE2B) "sats" else "poolsats")
+            if (chain == Chain.BLAKE2B) "sats" else "poolsats", balance = cs.total)
 
         if (cs.fingerprintChanged) {
             Panel(accent = Bad) {
@@ -988,7 +988,8 @@ private fun DerivationSelector(current: ScriptType?, accent: Color, onSelect: (S
 }
 
 @Composable
-internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, vm: WalletViewModel, isHot: Boolean, unit: String = "sats") {
+internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, vm: WalletViewModel, isHot: Boolean, unit: String = "sats",
+                           balance: Long? = null) {
     val chain = if (unit == "sats") Chain.BLAKE2B else Chain.SHA256
     // Tapping a movement asks before leaving the app: opening it reveals the txid (and so
     // which addresses are yours) to whoever runs that explorer.
@@ -1007,6 +1008,13 @@ internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, v
         Spacer(Modifier.height(8.dp))
         Text("tap a movement for its details: copy the txid or open it on $site", style = MaterialTheme.typography.bodySmall, color = TextFaint)
         Spacer(Modifier.height(4.dp))
+        // What was left after each movement: today's balance (mempool included, as at the top),
+        // walking back one movement at a time. Unknown from the first movement without an amount.
+        val after = HashMap<String, Long>()
+        if (balance != null) {
+            var run: Long? = balance
+            for (t in txs) { val r = run ?: break; after[t.txid] = r; run = t.amount?.let { r - it } }
+        }
         txs.take(15).forEach { t ->
             Row(
                 Modifier.fillMaxWidth().clickable { asking = t }.padding(vertical = 3.dp),
@@ -1017,6 +1025,9 @@ internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, v
                     t.amount?.let { a ->
                         Text(street((if (a >= 0) "+" else "−") + groupSats(kotlin.math.abs(a)) + " $unit"),
                              style = MaterialTheme.typography.bodyMedium, color = if (a >= 0) Good else TextMain)
+                    }
+                    after[t.txid]?.let { left ->
+                        Text(street("(left: ${groupSats(left)} $unit)"), style = MaterialTheme.typography.bodySmall, color = TextSoft)
                     }
                     Text(
                         "${t.txid.take(8)}…${t.txid.takeLast(6)}",
