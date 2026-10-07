@@ -171,7 +171,9 @@ object CoinjoinHub {
                 .put("since", System.currentTimeMillis() / 1000 - sinceSeconds)))
         } finally { r.close() }
         val now = System.currentTimeMillis() / 1000
-        return found.values.filter { it.state == "open" && it.expiresAt > now && it.peers < it.maxPeers }
+        return found.values.filter {
+            it.state == "open" && it.expiresAt > now && it.peers < it.maxPeers && now - it.createdAt < Protocol.STALE_AFTER
+        }
             .sortedByDescending { it.createdAt }
     }
 

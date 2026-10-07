@@ -225,8 +225,12 @@ class PoolSession(private val env: Env, private val s: State) {
         return publish(Protocol.KIND_MSG, listOf(listOf("p", toPub)), Nip44.encrypt(o.toString(), conv), from)
     }
 
+    /** When this wallet last published the pool's announcement (creator only, this run). */
+    private var lastAnnounce = 0L
+
     private fun announce() {
         val k = poolKey ?: return
+        lastAnnounce = env.now()
         val state = when (s.phase) {
             Phase.JOINING, Phase.OPEN, Phase.VOTING -> "open"
             Phase.CLOSING, Phase.SIGNING -> "closing"
@@ -592,6 +596,10 @@ class PoolSession(private val env: Env, private val s: State) {
         runCatching {
             val now = env.now()
             ensureConnected()
+            // Heartbeat: an open pool's creator re-announces it, so a pool whose creator's app is
+            // gone stops being listed (see CoinjoinHub.fetchPools) instead of taking join requests
+            // nobody will ever answer.
+            if (s.creator && s.phase in setOf(Phase.OPEN, Phase.VOTING) && now - lastAnnounce > Protocol.HEARTBEAT) announce()
             when (s.phase) {
                 Phase.OPEN, Phase.JOINING -> if (now > terms.expiresAt) {
                     if (s.creator) abort("the pool expired") else { s.phase = Phase.ABORTED; s.reason = "the pool expired"; save(); env.event(Event.Aborted(s.poolId, s.reason)) }

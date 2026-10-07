@@ -30,6 +30,10 @@ import org.json.JSONObject
 object Protocol {
     const val RELAY = "wss://relay.kilombino.com"
     const val KIND_POOL = 32022
+    /** Seconds between an open pool's re-announcements by its creator. */
+    const val HEARTBEAT = 10 * 60L
+    /** An open pool not re-announced for this long has lost its creator and is not listed. */
+    const val STALE_AFTER = 35 * 60L
     const val KIND_MSG = 2023
     const val TAG = "kilojoin"
     const val VERSION = 1
