@@ -1,10 +1,14 @@
 repository: https://github.com/Kilombino/kilowallet
 name: Kilowallet
-summary: Bitcoin BLAKE2b (XBT) wallet with Ark, Lightning and on-device dice seeds
+summary: Bitcoin BLAKE2b wallet: hot + watch-only, coinjoin, Ark and Lightning, full backup
 images:
-  - ./screenshots/1.png
-  - ./screenshots/2.png
-  - ./screenshots/3.jpg
-  - ./screenshots/4.jpg
-  - ./screenshots/5.jpg
+  - ./screenshots/1-onboarding.jpg
+  - ./screenshots/3-hot-wallet.jpg
+  - ./screenshots/4-watch-only.jpg
+  - ./screenshots/5-coinjoin.jpg
+  - ./screenshots/6-ark.jpg
+  - ./screenshots/7-widget.jpg
+  - ./screenshots/8-restore-words.jpg
+  - ./screenshots/2-widget-choice.jpg
+  - ./screenshots/9-update-notice.jpg
 match: '.*\.apk$'
