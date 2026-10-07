@@ -200,6 +200,8 @@ private fun OnboardingScreen(state: UiState, vm: WalletViewModel) {
                 Text("← back to wallet", color = TextSoft, style = MaterialTheme.typography.bodySmall)
             }
         }
+        // The wallet's coin, big, above its name.
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { AppLogo(160) }
         Text("Kilowallet", style = MaterialTheme.typography.displayLarge, color = Purple)
         Text("BITCOIN BLAKE2b (XBT) WALLET", style = MaterialTheme.typography.titleLarge, color = TextSoft)
         if (state.hasWallet) {

@@ -195,7 +195,7 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
             TabChip("SPAMCOIN", chain == Chain.SHA256, Orange, Modifier.weight(1f)) { pick(Chain.SHA256) }
         }
 
-        SimpleBalance(chain, cs, state.market, state.fiat, accent, onFiat = vm::setFiat)
+        SimpleBalance(chain, cs, state.market, state.fiat, accent, state.nextRefreshAt, onFiat = vm::setFiat)
 
         when {
             showSend -> SendSheet(vm, accent) { showSend = false }
@@ -281,15 +281,29 @@ private fun TabChip(label: String, selected: Boolean, accent: Color, modifier: M
 
 @Composable
 private fun SimpleBalance(
-    chain: Chain, cs: ChainState, market: MarketData?, fiat: String, accent: Color, onFiat: (String) -> Unit,
+    chain: Chain, cs: ChainState, market: MarketData?, fiat: String, accent: Color, nextRefreshAt: Long,
+    onFiat: (String) -> Unit,
 ) {
     val btc = chain == Chain.BLAKE2B
     val unit = if (btc) "BTC" else "Spamcoin"
+    // The countdown to the next auto-refresh, as in advanced mode, so the wallet reads as live.
+    var secondsUntilRefresh by remember { mutableStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(nextRefreshAt) {
+        while (true) {
+            secondsUntilRefresh = ((nextRefreshAt - System.currentTimeMillis()) / 1000).toInt().coerceAtLeast(0)
+            kotlinx.coroutines.delay(1_000)
+        }
+    }
     Panel(accent = accent) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SectionLabel("Your $unit", accent)
             Spacer(Modifier.weight(1f))
             StreetEye(TextSoft)
+            if (cs.phase is ScanPhase.Complete) {
+                Text("↻ ${secondsUntilRefresh}s", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+                Spacer(Modifier.width(8.dp))
+                PulseDot(Good, 7)
+            }
         }
         // Until the first check of this launch finishes, a 0 would look like an empty wallet:
         // show the last known figure dimmed, or "…" when there is none, and say what is going on.
