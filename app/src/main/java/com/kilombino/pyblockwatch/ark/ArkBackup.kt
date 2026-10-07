@@ -16,7 +16,10 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * The Ark backup file: the words, the engine's config and its database with the signed
+ * The backup file (.kab). Since 0.20.0 it is the whole wallet: the words, the app's settings
+ * and coinjoin rounds ([app]) and, when Ark is active, its config and database.
+ *
+ * Originally the Ark backup file: the words, the engine's config and its database with the signed
  * recovery transactions. With it the coins can be withdrawn on-chain even if the Ark
  * server disappears; the words alone depend on the server to hand the coins back.
  *
@@ -35,14 +38,19 @@ object ArkBackup {
         val words: List<String>,
         /** The words' BIP-39 passphrase, "" for none. */
         val passphrase: String = "",
-        val config: String,
-        val db: ByteArray,
+        /** The Ark engine's config; null when Ark was never activated. */
+        val config: String?,
+        val db: ByteArray?,
         val dbWal: ByteArray?,
         val movements: Int,
         val created: Long,
         /** The contacts list as JSON, or null when there are none. */
         val contacts: String? = null,
-    )
+        /** Settings and coinjoin rounds ([com.kilombino.pyblockwatch.data.AppBackup]); null in older files. */
+        val app: String? = null,
+    ) {
+        val hasArk: Boolean get() = config != null && db != null && db.isNotEmpty()
+    }
 
     class WrongPassword : Exception("Wrong password.")
 
@@ -56,16 +64,17 @@ object ArkBackup {
             .put("format", "kilombino-ark-backup")
             // Version 2 only when there is a passphrase: an older app, which would restore
             // the words without it and open the wrong wallet, refuses the file instead.
-            .put("version", if (s.passphrase.isEmpty()) 1 else 2)
+            // Version 3 when there is no Ark wallet in it: an older app could not restore it.
+            .put("version", if (!s.hasArk) 3 else if (s.passphrase.isEmpty()) 1 else 2)
             .put("network", "mainnet")
             .put("created", s.created)
             .put("movements", s.movements)
             .put("mnemonic", s.words.joinToString(" "))
             .apply { if (s.passphrase.isNotEmpty()) put("passphrase", s.passphrase) }
-            .put("config", s.config)
-            .put("db", Base64.encodeToString(s.db, Base64.NO_WRAP))
+            .apply { if (s.hasArk) { put("config", s.config); put("db", Base64.encodeToString(s.db, Base64.NO_WRAP)) } }
             .apply { s.dbWal?.let { put("db_wal", Base64.encodeToString(it, Base64.NO_WRAP)) } }
             .apply { s.contacts?.let { put("contacts", JSONArray(it)) } }
+            .apply { s.app?.let { put("app", JSONObject(it)) } }
         val payload = gzip(json.toString().toByteArray(Charsets.UTF_8))
         val out = ByteArrayOutputStream()
         out.write(MAGIC)
@@ -99,17 +108,18 @@ object ArkBackup {
         }
         val j = JSONObject(String(gunzip(payload), Charsets.UTF_8))
         require(j.optString("format") == "kilombino-ark-backup") { "Not a Kilombino Ark backup." }
-        require(j.optInt("version") in 1..2) { "This backup was made by a newer version of the app." }
+        require(j.optInt("version") in 1..3) { "This backup was made by a newer version of the app." }
         require(j.optString("network") == "mainnet") { "This backup is not for XBT mainnet." }
         return Snapshot(
             words = j.getString("mnemonic").trim().split(Regex("\\s+")),
             passphrase = j.optString("passphrase", ""),
-            config = j.getString("config"),
-            db = Base64.decode(j.getString("db"), Base64.NO_WRAP),
+            config = j.optString("config").ifEmpty { null },
+            db = j.optString("db").ifEmpty { null }?.let { Base64.decode(it, Base64.NO_WRAP) },
             dbWal = j.optString("db_wal").takeIf { it.isNotEmpty() }?.let { Base64.decode(it, Base64.NO_WRAP) },
             movements = j.optInt("movements"),
             created = j.optLong("created"),
             contacts = j.optJSONArray("contacts")?.toString(),
+            app = j.optJSONObject("app")?.toString(),
         )
     }
 

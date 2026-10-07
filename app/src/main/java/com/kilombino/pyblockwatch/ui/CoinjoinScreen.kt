@@ -93,6 +93,15 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
         reloadPools()
     }
 
+    // Opt-in: until the user accepts the explainer, the tab shows only that.
+    var enabled by remember { mutableStateOf(vm.coinjoinEnabled()) }
+    if (!enabled) {
+        CoinjoinIntro(accent, onAccept = { vm.answerCoinjoin(true); enabled = true },
+            onDecline = { vm.answerCoinjoin(false); com.kilombino.pyblockwatch.data.OpenTab.flow.value = com.kilombino.pyblockwatch.data.OpenTab.BTC },
+            declineLabel = "NOT NOW")
+        return
+    }
+
     if (!vm.coinjoinSupported()) {
         Panel(accent = accent) {
             SectionLabel("Coinjoin", accent)

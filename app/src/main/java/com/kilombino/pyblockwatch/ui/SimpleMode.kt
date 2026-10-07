@@ -182,7 +182,8 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
     ) {
         Spacer(Modifier.height(28.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("simple mode", style = MaterialTheme.typography.bodySmall, color = TextFaint, modifier = Modifier.weight(1f))
+            Text(state.label.ifBlank { if (state.isHot) "Hot wallet" else "watch-only wallet" },
+                style = MaterialTheme.typography.bodySmall, color = TextFaint, modifier = Modifier.weight(1f))
             TextButton(onClick = { vm.setUiMode("advanced") }) {
                 Text("advanced", style = MaterialTheme.typography.bodySmall, color = TextSoft)
             }

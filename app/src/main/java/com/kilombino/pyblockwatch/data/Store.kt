@@ -187,6 +187,30 @@ class Store(context: Context) {
             ?.let { runCatching { ScriptType.valueOf(it) }.getOrNull() } ?: ScriptType.P2WPKH
         set(v) = prefs.edit().putString(KEY_SCRIPT, v.name).apply()
 
+    // ---------------------------------------------------------------- optional features
+    // Ark and Coinjoin are opt-in: a new user sees what they are and accepts before using them.
+
+    /** The user went through the Coinjoin explainer and accepted it. */
+    var coinjoinEnabled: Boolean
+        get() = prefs.getBoolean("coinjoin_enabled", false)
+        set(v) = prefs.edit().putBoolean("coinjoin_enabled", v).apply()
+
+    /** Notify new coinjoin pools (from the background watcher). Remembered as the user left it. */
+    var coinjoinNotify: Boolean
+        get() = prefs.getBoolean("coinjoin_notify", false)
+        set(v) = prefs.edit().putBoolean("coinjoin_notify", v).apply()
+
+    /** The one-time "interested in coinjoins?" question was answered (yes or no). */
+    var coinjoinAsked: Boolean
+        get() = prefs.getBoolean("coinjoin_asked", false)
+        set(v) = prefs.edit().putBoolean("coinjoin_asked", v).apply()
+
+    /** Every preference of this file, for the full backup (no secrets live here). */
+    fun exportAll(): Map<String, *> = prefs.all
+
+    /** Puts back what [exportAll] saved, over whatever is here. */
+    fun importAll(values: Map<String, *>) = importPrefs(prefs, values)
+
     fun clearWallet() {
         prefs.edit().apply {
             remove(KEY_XPUB); remove(KEY_LABEL)
@@ -197,21 +221,35 @@ class Store(context: Context) {
         }.apply()
     }
 
-    private companion object {
-        const val KEY_XPUB = "xpub"
-        const val KEY_LABEL = "label"
-        const val KEY_CHAIN = "chain"
-        const val KEY_NOTIFY = "notify"
-        const val KEY_SCRIPT = "scripttype"
-        const val KEY_GAP = "gaplimit"
-        fun keyHost(c: Chain) = "host_${c.id}"
-        fun keyPort(c: Chain) = "port_${c.id}"
-        fun keyTotal(c: Chain) = "total_${c.id}"
-        fun keyConf(c: Chain) = "conf_${c.id}"
-        fun keyUnconf(c: Chain) = "unconf_${c.id}"
-        fun keyNotConf(c: Chain) = "notconf_${c.id}"
-        fun keyNotUnconf(c: Chain) = "notunconf_${c.id}"
-        fun keyPending(c: Chain) = "pending_${c.id}"
-        fun keyPin(e: NodeEndpoint) = "pin_${e.host}_${e.port}"
+    companion object {
+        /** Writes a typed key→value map into [p] (Boolean, Int, Long, Float, String, Set<String>). */
+        fun importPrefs(p: android.content.SharedPreferences, values: Map<String, *>) {
+            val e = p.edit()
+            for ((k, v) in values) when (v) {
+                is Boolean -> e.putBoolean(k, v)
+                is Int -> e.putInt(k, v)
+                is Long -> e.putLong(k, v)
+                is Float -> e.putFloat(k, v)
+                is String -> e.putString(k, v)
+                is Set<*> -> e.putStringSet(k, v.filterIsInstance<String>().toSet())
+            }
+            e.apply()
+        }
+
+        private const val KEY_XPUB = "xpub"
+        private const val KEY_LABEL = "label"
+        private const val KEY_CHAIN = "chain"
+        private const val KEY_NOTIFY = "notify"
+        private const val KEY_SCRIPT = "scripttype"
+        private const val KEY_GAP = "gaplimit"
+        private fun keyHost(c: Chain) = "host_${c.id}"
+        private fun keyPort(c: Chain) = "port_${c.id}"
+        private fun keyTotal(c: Chain) = "total_${c.id}"
+        private fun keyConf(c: Chain) = "conf_${c.id}"
+        private fun keyUnconf(c: Chain) = "unconf_${c.id}"
+        private fun keyNotConf(c: Chain) = "notconf_${c.id}"
+        private fun keyNotUnconf(c: Chain) = "notunconf_${c.id}"
+        private fun keyPending(c: Chain) = "pending_${c.id}"
+        private fun keyPin(e: NodeEndpoint) = "pin_${e.host}_${e.port}"
     }
 }

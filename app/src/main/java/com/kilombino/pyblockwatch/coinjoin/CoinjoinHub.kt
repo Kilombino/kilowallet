@@ -78,6 +78,14 @@ object CoinjoinHub {
     val refreshRequests: StateFlow<Int> = _refreshRequests.asStateFlow()
     fun requestRefresh() { _refreshRequests.value++; _version.value++ }
 
+    /** Drop what is in memory and load again from storage (after a restore). */
+    fun reload(ctx: Context) {
+        stopAll()
+        synchronized(this) { sessions.clear() }
+        load(ctx)
+        if (hasActive(ctx)) CoinjoinService.start(ctx)
+    }
+
     fun session(poolId: String): PoolSession? = synchronized(this) { sessions[poolId] }
 
     /** True while some pool still needs this phone online. */
@@ -167,9 +175,23 @@ object CoinjoinHub {
             .sortedByDescending { it.createdAt }
     }
 
+    /**
+     * Right after the user switches coinjoin notifications on: tell them about the newest pool
+     * that is open now, if any, so they see what a notification looks like straight away.
+     */
+    fun notifyOpenNow(ctx: Context) {
+        load(ctx)
+        val ours = synchronized(this) { sessions.keys.toSet() }
+        val open = fetchPools().filter { it.amount >= Protocol.MIN_AMOUNT && !it.private && it.id !in ours }
+        open.maxOfOrNull { it.createdAt }?.let { prefs(ctx).edit().putLong(KEY_LAST_POOL_SEEN, it).apply() }
+        open.firstOrNull()?.let { t -> notify(ctx, t.id.hashCode(), "Coinjoin pool open now",
+            "${sats(t.amount)} sats · ${t.peers}/${t.maxPeers} people · ${t.feeRate} sat/vB") }
+    }
+
     /** For the background watcher: notify pools opened since the last look, other than ours. */
     fun checkNewPools(ctx: Context) {
         load(ctx)
+        if (!Store(ctx).coinjoinNotify) return
         val p = prefs(ctx)
         val last = p.getLong(KEY_LAST_POOL_SEEN, System.currentTimeMillis() / 1000 - 3600)
         val ours = synchronized(this) { sessions.keys.toSet() }

@@ -199,6 +199,12 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 market = com.kilombino.pyblockwatch.data.MarketFeed.cached(app),
             )
         }
+        // 0.19.0 had coinjoin without the opt-in: whoever already took part keeps it on.
+        if (!store.coinjoinAsked) runCatching {
+            if (app.getSharedPreferences("coinjoin", android.content.Context.MODE_PRIVATE).contains("sessions")) {
+                store.coinjoinAsked = true; store.coinjoinEnabled = true; store.coinjoinNotify = true
+            }
+        }
         if (xpub != null) scannableChains().forEach { scan(it) }
         startRefreshLoop()
         refreshMarket()
@@ -501,7 +507,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
      * the same scanner a watch-only xpub uses. Native SegWit (BIP-84) by default.
      */
     fun createHotWallet(
-        mnemonic: List<String>, passphrase: String, encryptCipher: javax.crypto.Cipher, onError: (String) -> Unit,
+        mnemonic: List<String>, passphrase: String, encryptCipher: javax.crypto.Cipher,
+        onDone: () -> Unit = {}, onError: (String) -> Unit,
     ) {
         viewModelScope.launch {
             runCatching {
@@ -530,11 +537,100 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 }
                 scannableChains().forEach { scan(it) }
+                onDone()
             }.onFailure { e ->
                 seedVault.clear()
                 onError(e.message ?: "Could not create the wallet.")
             }
         }
+    }
+
+    // ------------------------------------------------------------------ optional features
+
+    fun coinjoinEnabled(): Boolean = store.coinjoinEnabled
+    fun coinjoinNotify(): Boolean = store.coinjoinNotify
+    fun coinjoinAsked(): Boolean = store.coinjoinAsked
+
+    /** The answer to the coinjoin explainer: yes turns the tab and pool notifications on. */
+    fun answerCoinjoin(accept: Boolean) {
+        store.coinjoinAsked = true
+        store.coinjoinEnabled = accept
+        setCoinjoinNotify(accept)
+    }
+
+    fun setCoinjoinNotify(on: Boolean) {
+        store.coinjoinNotify = on
+        if (on) viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.notifyOpenNow(getApplication()) }
+        }
+    }
+
+    fun disableCoinjoin() { store.coinjoinEnabled = false; store.coinjoinNotify = false }
+
+    // ------------------------------------------------------------------ full backup file
+
+    /**
+     * The whole wallet as a backup file: words, settings, coinjoin rounds, contacts and,
+     * when Ark is active, the Ark wallet (taken from the engine with its own copy of the words).
+     */
+    fun fullSnapshot(words: List<String>, passphrase: String): com.kilombino.pyblockwatch.ark.ArkBackup.Snapshot {
+        val ctx = getApplication<Application>()
+        val ark = com.kilombino.pyblockwatch.ark.Ark
+        if (ark.available && ark.hasWords(ctx) && java.io.File(ctx.filesDir, "ark/db.sqlite").exists()) {
+            val s = ark.snapshot(ctx)
+            // Ark may have its own words; the spending wallet's are what the file restores first.
+            if (s.words == words && s.passphrase == passphrase) return s
+        }
+        return com.kilombino.pyblockwatch.ark.ArkBackup.Snapshot(
+            words = words, passphrase = passphrase, config = null, db = null, dbWal = null,
+            movements = 0, created = System.currentTimeMillis(),
+            contacts = com.kilombino.pyblockwatch.data.Contacts.export(ctx),
+            app = com.kilombino.pyblockwatch.data.AppBackup.export(ctx),
+        )
+    }
+
+    /**
+     * Restores everything in [s]: the spending wallet from its words (stored with the
+     * just-authorised [encryptCipher]), then the settings and coinjoin rounds, the contacts and
+     * the Ark wallet. [onDone] gets a warning when something could not come back (Ark on a
+     * phone that cannot run it).
+     */
+    fun restoreFull(
+        s: com.kilombino.pyblockwatch.ark.ArkBackup.Snapshot, encryptCipher: javax.crypto.Cipher,
+        onDone: (warning: String?) -> Unit, onError: (String) -> Unit,
+    ) {
+        val ctx = getApplication<Application>()
+        createHotWallet(s.words, s.passphrase, encryptCipher, onError = onError, onDone = {
+            viewModelScope.launch {
+                runCatching {
+                    var warning: String? = null
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        s.app?.let { com.kilombino.pyblockwatch.data.AppBackup.import(ctx, it) }
+                        com.kilombino.pyblockwatch.data.Contacts.merge(ctx, s.contacts)
+                        if (s.hasArk) {
+                            val ark = com.kilombino.pyblockwatch.ark.Ark
+                            if (ark.available) { ark.restore(ctx, s); ark.setWordsShared(ctx, true) }
+                            else warning = "This phone cannot run Ark: the Ark part of the backup was not restored."
+                        }
+                    }
+                    reloadFromStore()
+                    warning
+                }.onSuccess(onDone).onFailure { onError(it.message ?: "Could not restore the backup.") }
+            }
+        })
+    }
+
+    /** Re-read every setting after a restore and scan again. */
+    private fun reloadFromStore() {
+        _state.update {
+            it.copy(
+                xpub = store.xpub, label = store.label, scriptType = store.scriptType,
+                notificationsEnabled = store.notificationsEnabled, gapLimit = store.gapLimit,
+                isHot = seedVault.hasSeed(), uiMode = store.uiMode, fiat = store.fiat,
+                chains = Chain.entries.associateWith { ChainState() },
+            )
+        }
+        if (store.xpub != null) scannableChains().forEach { scan(it) }
     }
 
     // ------------------------------------------------------------------ sweep a private key

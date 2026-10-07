@@ -186,6 +186,7 @@ object Ark {
                 movements = movements,
                 created = System.currentTimeMillis(),
                 contacts = Contacts.export(ctx),
+                app = com.kilombino.pyblockwatch.data.AppBackup.export(ctx),
             )
         } finally {
             ensureStarted(ctx)
@@ -210,6 +211,7 @@ object Ark {
     /** Replaces this phone's Ark wallet with the one in [s] and starts it. */
     @Synchronized
     fun restore(ctx: Context, s: ArkBackup.Snapshot) {
+        require(s.hasArk) { "This backup has no Ark wallet in it." }
         stop()
         val dir = datadir(ctx)
         // Keep the engine's own lock files; everything else belongs to the old wallet.
@@ -217,8 +219,8 @@ object Ark {
             if (f.name != "LOCK" && f.name != "barkd.lock") f.deleteRecursively()
         }
         dir.mkdirs()
-        File(dir, "config.toml").writeText(s.config)
-        File(dir, "db.sqlite").writeBytes(s.db)
+        File(dir, "config.toml").writeText(s.config!!)
+        File(dir, "db.sqlite").writeBytes(s.db!!)
         s.dbWal?.let { File(dir, "db.sqlite-wal").writeBytes(it) }
         ArkSeed(ctx).save(s.words, s.passphrase)
         Contacts.merge(ctx, s.contacts)

@@ -1,5 +1,8 @@
 package com.kilombino.pyblockwatch.ui
 
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -178,10 +181,40 @@ fun shortAddress(a: String): String =
 /** The app's own icon, round, for the top of the screen. */
 @Composable
 fun AppLogo(size: Int = 40) {
+    // Tapping the logo shows who makes the wallet.
+    var about by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     androidx.compose.foundation.Image(
         painter = androidx.compose.ui.res.painterResource(com.kilombino.pyblockwatch.R.mipmap.ic_launcher_full),
         contentDescription = "Kilowallet",
-        modifier = Modifier.size(size.dp).clip(androidx.compose.foundation.shape.CircleShape),
+        modifier = Modifier.size(size.dp).clip(androidx.compose.foundation.shape.CircleShape)
+            .clickable { about = true },
+    )
+    if (about) AboutDialog { about = false }
+}
+
+const val KILOMBINO_WEB = "https://kilombino.com"
+
+@Composable
+fun AboutDialog(onClose: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val uri = androidx.compose.ui.platform.LocalUriHandler.current
+    val version = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: ""
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Kilowallet $version") },
+        text = {
+            Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                Text("A wallet for Bitcoin BLAKE2b, made by Kilombino.", style = MaterialTheme.typography.bodySmall)
+                Text("Open source and reproducible: anyone can rebuild this app from its code and check it " +
+                    "is byte for byte the one published. No account, no tracking.", style = MaterialTheme.typography.bodySmall)
+                Text("kilombino.com", style = MaterialTheme.typography.bodyMedium, color = Purple,
+                    modifier = Modifier.clickable { runCatching { uri.openUri(KILOMBINO_WEB) } })
+                Text("github.com/Kilombino/kilowallet", style = MaterialTheme.typography.bodySmall, color = TextSoft,
+                    modifier = Modifier.clickable { runCatching { uri.openUri("https://github.com/Kilombino/kilowallet") } })
+            }
+        },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = onClose) { Text("CLOSE", color = TextSoft) } },
+        containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
     )
 }
 

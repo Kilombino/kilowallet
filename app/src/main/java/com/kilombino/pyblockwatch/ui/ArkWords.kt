@@ -71,7 +71,7 @@ fun WordsGrid(words: List<String>) {
  * Unlocks the spending wallet and hands its words and passphrase to [onWords]; null when
  * there is none.
  */
-private fun withHotWords(
+internal fun withHotWords(
     activity: FragmentActivity, vm: WalletViewModel, why: String,
     onWords: (com.kilombino.pyblockwatch.data.SeedVault.Secret?) -> Unit, onError: (String) -> Unit,
 ) {

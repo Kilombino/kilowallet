@@ -117,6 +117,19 @@ class MainActivity : FragmentActivity() {
                             openTab == com.kilombino.pyblockwatch.data.OpenTab.COINJOIN)) vm.setUiMode("advanced")
                 }
                 Box(Modifier.fillMaxSize().background(Ink)) {
+                    // A new spending wallet is asked once whether it wants coinjoins.
+                    var askCoinjoin by remember { mutableStateOf(false) }
+                    // After the simple/advanced choice, not on top of it.
+                    LaunchedEffect(state.showWallet, state.isHot, state.uiMode) {
+                        askCoinjoin = state.showWallet && state.isHot && state.uiMode != null && !vm.coinjoinAsked()
+                    }
+                    if (askCoinjoin) androidx.compose.ui.window.Dialog(onDismissRequest = {}) {
+                        Column(Modifier.verticalScroll(rememberScrollState())) {
+                            CoinjoinIntro(Good,
+                                onAccept = { vm.answerCoinjoin(true); askCoinjoin = false },
+                                onDecline = { vm.answerCoinjoin(false); askCoinjoin = false })
+                        }
+                    }
                     if (state.showWallet) {
                         // Simple / Advanced: chosen once, switchable from the top of either screen.
                         when (state.uiMode) {
@@ -215,6 +228,8 @@ private fun OnboardingScreen(state: UiState, vm: WalletViewModel) {
                     shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f),
                 ) { Text("RESTORE", style = MaterialTheme.typography.titleMedium) }
             }
+            // The whole wallet from a backup file: words, settings, contacts, Ark, coinjoins.
+            RestoreFromFileButton(vm)
         }
 
         Panel(accent = Orange) {
@@ -329,8 +344,11 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
         onRefresh = {
             pullScope.launch {
                 refreshing = true
-                if (chain == Chain.SHA256 && !arkTab && !cjTab && !vm.hasOwnNode(Chain.SHA256)) warnSpamRefresh = true
-                else if (!vm.hasOwnNode(Chain.BLAKE2B)) remindNode = true
+                // The node reminder belongs to the BTC tab only, not to ARK or COINJOIN.
+                if (!arkTab && !cjTab) {
+                    if (chain == Chain.SHA256 && !vm.hasOwnNode(Chain.SHA256)) warnSpamRefresh = true
+                    else if (chain == Chain.BLAKE2B && !vm.hasOwnNode(Chain.BLAKE2B)) remindNode = true
+                }
                 if (cjTab) com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.requestRefresh()
                 else if (arkTab) arkPull++ else if (!warnSpamRefresh) vm.refresh(chain)
                 kotlinx.coroutines.delay(1_500)
@@ -360,7 +378,9 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
             AppLogo()
         }
 
-        AdvancedTabs(chain, arkTab, cjTab,
+        // A watch-only wallet stays that: no Ark, no coinjoin (it cannot sign).
+        if (!state.isHot && (arkTab || cjTab)) { arkTab = false; cjTab = false }
+        AdvancedTabs(chain, arkTab, cjTab, state.isHot,
             onBtc = { arkTab = false; cjTab = false; if (chain != Chain.BLAKE2B) vm.select(Chain.BLAKE2B) },
             onArk = { arkTab = true; cjTab = false; showSend = false; showReceive = false },
             onCoinjoin = { cjTab = true; arkTab = false; showSend = false; showReceive = false; if (chain != Chain.BLAKE2B) vm.select(Chain.BLAKE2B) })
@@ -457,15 +477,17 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
 
 /** BTC | ARK | COINJOIN, plus SPAMCOIN while the spamchain (opened from settings) is shown. */
 @Composable
-private fun AdvancedTabs(chain: Chain, arkTab: Boolean, cjTab: Boolean, onBtc: () -> Unit, onArk: () -> Unit, onCoinjoin: () -> Unit) {
+private fun AdvancedTabs(chain: Chain, arkTab: Boolean, cjTab: Boolean, hot: Boolean, onBtc: () -> Unit, onArk: () -> Unit, onCoinjoin: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(PanelSoft).padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         val tabs = buildList {
             add(Triple("BTC", !arkTab && !cjTab && chain == Chain.BLAKE2B, Color(Chain.BLAKE2B.accent)) to onBtc)
-            add(Triple("ARK", arkTab, Purple) to onArk)
-            add(Triple("COINJOIN", cjTab, Good) to onCoinjoin)
+            if (hot) {
+                add(Triple("ARK", arkTab, Purple) to onArk)
+                add(Triple("COINJOIN", cjTab, Good) to onCoinjoin)
+            }
             if (!arkTab && !cjTab && chain == Chain.SHA256) add(Triple("SPAMCOIN", true, Color(Chain.SHA256.accent)) to {})
         }
         tabs.forEach { (t, onClick) ->
@@ -684,6 +706,46 @@ private fun SettingsPanel(
                 onCheckedChange = onToggleNotifications,
                 colors = SwitchDefaults.colors(checkedThumbColor = accent),
             )
+        }
+
+        // Optional features (spending wallet only), and the full backup file.
+        if (state.isHot) {
+            val ctx = LocalContext.current
+            Spacer(Modifier.height(14.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Ark", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                    Explain(if (com.kilombino.pyblockwatch.ark.Ark.hasWords(ctx)) "Active: instant payments and Lightning through Ark."
+                        else "Off. Instant payments and Lightning through an Ark server: read how it works first.")
+                }
+                TextButton(onClick = { com.kilombino.pyblockwatch.data.OpenTab.flow.value = com.kilombino.pyblockwatch.data.OpenTab.ARK }) {
+                    Text(if (com.kilombino.pyblockwatch.ark.Ark.hasWords(ctx)) "OPEN" else "LEARN MORE", color = accent,
+                         style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            var cjOn by remember { mutableStateOf(vm.coinjoinEnabled()) }
+            var cjNotify by remember { mutableStateOf(vm.coinjoinNotify()) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Coinjoin", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                    Explain(if (cjOn) "On. Mix your coins with other people's in pools." else "Off. Read how it works first.")
+                }
+                TextButton(onClick = {
+                    if (cjOn) { vm.disableCoinjoin(); cjOn = false; cjNotify = false }
+                    else com.kilombino.pyblockwatch.data.OpenTab.flow.value = com.kilombino.pyblockwatch.data.OpenTab.COINJOIN
+                }) { Text(if (cjOn) "TURN OFF" else "LEARN MORE", color = accent, style = MaterialTheme.typography.bodySmall) }
+            }
+            if (cjOn) Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Notify open coinjoin pools", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                    Explain("Checked every 5 minutes with the balance watcher. Your own rounds always notify.")
+                }
+                Switch(checked = cjNotify, onCheckedChange = { cjNotify = it; vm.setCoinjoinNotify(it) },
+                    colors = SwitchDefaults.colors(checkedThumbColor = accent))
+            }
+            Spacer(Modifier.height(14.dp))
+            FullBackupPanel(vm, accent)
         }
 
         Spacer(Modifier.height(14.dp))
