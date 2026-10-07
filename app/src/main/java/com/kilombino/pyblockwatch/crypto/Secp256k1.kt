@@ -78,6 +78,9 @@ object Secp256k1 {
     }
 
     /** Scalar multiplication by double-and-add, MSB first. */
+    /** k·G for a SECRET k: through libsecp256k1 when present (constant time), else [multiply]. */
+    fun publicPoint(k: BigInteger): Point = NativeSecp.pubkey(k) ?: multiply(k, G)
+
     fun multiply(k: BigInteger, point: Point): Point {
         var scalar = k.mod(N)
         if (scalar.signum() == 0 || point.isInfinity) return INFINITY

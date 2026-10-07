@@ -49,7 +49,12 @@ sealed interface ScanEvent {
 
 /** A wallet transaction and how deep it is: pending (in the mempool) or N confirmations. */
 /** A wallet transaction: its confirmations and, when known, what it did to this wallet (+ in, − out incl. fee). */
-data class TxConf(val txid: String, val confirmations: Int, val pending: Boolean, val amount: Long? = null)
+/**
+ * [spv]: for a confirmed incoming payment, whether its merkle proof checked out against a block
+ * header with real proof of work (true), failed (false), or was not checked (null).
+ */
+data class TxConf(val txid: String, val confirmations: Int, val pending: Boolean, val amount: Long? = null,
+                  val spv: Boolean? = null)
 
 /**
  * Walks an xpub the way every wallet does: derive `chain/index`, ask the server
@@ -140,7 +145,9 @@ class Scanner(
             // Confirmations from the tip: height <= 0 is still in the mempool (0 conf).
             val amounts = netAmounts(client, txHeights.keys, rows.map { it.scriptHash }.toSet())
             val txs = txHeights.map { (id, h) ->
-                TxConf(id, if (h <= 0) 0 else height - h + 1, pending = h <= 0, amount = amounts[id])
+                val a = amounts[id]
+                TxConf(id, if (h <= 0) 0 else height - h + 1, pending = h <= 0, amount = a,
+                    spv = if (h > 0 && a != null && a > 0 && height - h < SPV_WINDOW) spvCheck(client, id, h) else null)
             }.sortedWith(compareBy({ !it.pending }, { it.confirmations }))
             emit(ScanEvent.Done(rows, height, txs))
         } catch (e: Exception) {
@@ -200,7 +207,9 @@ class Scanner(
             }
             val amounts = netAmounts(client, txHeights.keys, rows.map { it.scriptHash }.toSet())
             val txs = txHeights.map { (id, h) ->
-                TxConf(id, if (h <= 0) 0 else tip - h + 1, pending = h <= 0, amount = amounts[id])
+                val a = amounts[id]
+                TxConf(id, if (h <= 0) 0 else tip - h + 1, pending = h <= 0, amount = a,
+                    spv = if (h > 0 && a != null && a > 0 && tip - h < SPV_WINDOW) spvCheck(client, id, h) else null)
             }.sortedWith(compareBy({ !it.pending }, { it.confirmations }))
             Triple(updated, txs, tip)
         } finally {
@@ -240,10 +249,20 @@ class Scanner(
         val client = ElectrumClient(endpoint, pinnedFingerprint)
         return try {
             client.connect()
-            rows.flatMap { r ->
+            val all = rows.flatMap { r ->
                 client.listUnspent(r.scriptHash).map {
                     SpendableUtxo(it.txid, it.vout, it.value, r.chainIndex, r.index, it.height)
                 }
+            }
+            // A mined reward (coinbase) can't be spent until it matures; a spend using one would
+            // only fail at broadcast. Leave out the immature ones.
+            val tip = runCatching { client.blockHeight() }.getOrNull() ?: return all
+            all.filter { u ->
+                if (u.height <= 0 || tip - u.height + 1 >= LONG_MATURITY) return@filter true
+                val tx = txCache[u.txid] ?: runCatching { TxParse.parse(client.transaction(u.txid)) }.getOrNull()
+                    ?.also { txCache[u.txid] = it } ?: return@filter true
+                val coinbase = tx.inputs.size == 1 && tx.inputs[0].txid.all { it == '0' } && tx.inputs[0].vout == -1
+                !coinbase || tip - u.height + 1 >= maturityFor(u.height)
             }
         } finally {
             client.close()
@@ -277,7 +296,43 @@ class Scanner(
         }
     }
 
+    /**
+     * SPV for one incoming payment: the server's merkle branch must lead from [txid] to the
+     * merkle root of block [height]'s header, and that header must carry real proof of work at
+     * no less than [SPV_FLOOR_BITS]. A lying server would have to mine a block to fake one.
+     * Results are kept: a confirmed transaction's block does not change.
+     */
+    private fun spvCheck(client: ElectrumClient, txid: String, height: Int): Boolean? {
+        spvCache[txid]?.let { return it }
+        val ok = runCatching {
+            val header = com.kilombino.pyblockwatch.crypto.BlockHeader.parse(client.blockHeader(height))
+            val (branch, pos) = client.merkle(txid, height)
+            com.kilombino.pyblockwatch.crypto.BlockHeader.inBlock(txid, branch, pos, header) &&
+                com.kilombino.pyblockwatch.crypto.BlockHeader.meetsItsTarget(header) &&
+                com.kilombino.pyblockwatch.crypto.BlockHeader.target(header.bits) <=
+                    com.kilombino.pyblockwatch.crypto.BlockHeader.target(SPV_FLOOR_BITS)
+        }.getOrNull() ?: return null      // the server could not answer: unknown, not "false"
+        spvCache[txid] = ok
+        return ok
+    }
+
     companion object {
+        /**
+         * The easiest block a payment proof is accepted from: about 1/32 of the difficulty in
+         * October 2026 (bits 0x1900d82a). Faking a proof costs mining a block at this level.
+         */
+        const val SPV_FLOOR_BITS = 0x191b0540L
+        /** Payments are proven while they are this young (a day); older ones are long settled. */
+        const val SPV_WINDOW = 144
+        private val spvCache = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+
+        /**
+         * Coinbase maturity on the BLAKE2b chain: the `long_coinbase_maturity` flag day makes
+         * rewards mined in blocks 973 440–979 919 wait 6 480 confirmations; any other, 100.
+         */
+        const val LONG_MATURITY = 6480
+        fun maturityFor(height: Int): Int = if (height in 973_440..979_919) LONG_MATURITY else 100
+
         /** What an address looked like at its last status, so an unchanged one needs no more calls. */
         private class CachedAddress(val status: String?, val history: List<ElectrumClient.HistoryItem>, val balance: ScriptHashBalance)
         private val statusCache = java.util.concurrent.ConcurrentHashMap<String, CachedAddress>()

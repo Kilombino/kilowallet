@@ -12,7 +12,7 @@ object Wif {
 
     class Key(val privateKey: BigInteger, val compressed: Boolean) {
         val pubkey: ByteArray by lazy {
-            val p = Secp256k1.multiply(privateKey, Secp256k1.G)
+            val p = Secp256k1.publicPoint(privateKey)
             if (compressed) Secp256k1.compress(p) else Secp256k1.uncompressed(p)
         }
 

@@ -124,6 +124,9 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
     var renew by remember { mutableStateOf<Ark.Estimate?>(null) }
     // New Ark words, shown once right after activation so they get written down.
     var newWords by remember { mutableStateOf<List<String>?>(null) }
+    // The engine reads the chain through mempool.kilombino.com; the wallet through its Electrum
+    // server. If the two disagree, one of them is behind or hiding blocks.
+    var tipMismatch by remember { mutableStateOf<String?>(null) }
 
     suspend fun reload() {
         val b = withContext(Dispatchers.IO) { runCatching { Ark.balance(ctx) }.getOrNull() }
@@ -131,6 +134,12 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
         expiry = withContext(Dispatchers.IO) { Ark.blocksToNearestExpiry() }
         history = withContext(Dispatchers.IO) { runCatching { Ark.activity() }.getOrDefault(emptyList()) }
         fingerprint = withContext(Dispatchers.IO) { Ark.stateFingerprint() }
+        val arkTip = withContext(Dispatchers.IO) { Ark.tip() }
+        val elTip = vm.state.value.chains[com.kilombino.pyblockwatch.chain.Chain.BLAKE2B]?.height?.takeIf { it > 0 }
+        tipMismatch = if (arkTip != null && elTip != null && kotlin.math.abs(arkTip - elTip) > 3)
+            "The Ark engine's chain source (block $arkTip) and your BTC server (block $elTip) disagree. One of them " +
+                "is behind or not telling the whole story: wait before moving Ark funds, and check your node."
+        else null
         // The same alerts as the background watcher, so a movement pops up while the app is open.
         withContext(Dispatchers.IO) {
             if (com.kilombino.pyblockwatch.data.Store(ctx).notificationsEnabled)
@@ -203,6 +212,7 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
         ArkView.Ready -> {
             ArkBalancePanel(balance, expiry, history.firstOrNull { it.kind == "move into Ark" && it.confirmations != null }?.confirmations,
                             accent, onFiat = vm::setFiat)
+            tipMismatch?.let { Text("⚠ $it", style = MaterialTheme.typography.bodySmall, color = Warn) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ArkButton("RECEIVE", sheet == "receive", accent, Modifier.weight(1f)) { sheet = if (sheet == "receive") null else "receive" }
                 ArkButton("SEND", sheet == "send", accent, Modifier.weight(1f)) { sheet = if (sheet == "send") null else "send" }

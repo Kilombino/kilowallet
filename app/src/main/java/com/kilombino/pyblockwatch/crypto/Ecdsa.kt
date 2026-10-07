@@ -69,6 +69,7 @@ object Ecdsa {
     fun sign(privateKey: BigInteger, hash: ByteArray, grindLowR: Boolean = false): Signature {
         require(hash.size == 32) { "message hash must be 32 bytes" }
         require(privateKey.signum() > 0 && privateKey < N) { "private key out of range" }
+        NativeSecp.ecdsa(privateKey, hash, grindLowR)?.let { return it }
         if (grindLowR) {
             // Bitcoin Core's grind: retry with a 32-byte little-endian counter as extra nonce
             // data until r fits in 32 DER bytes (r < 2^255), so the signature is a byte shorter

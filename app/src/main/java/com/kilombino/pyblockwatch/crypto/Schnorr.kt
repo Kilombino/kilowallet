@@ -23,7 +23,7 @@ object Schnorr {
      * y, plus the tweak `TapTweak(x(P) ‖ merkleRoot)`. No merkle root means BIP-86 (no scripts).
      */
     fun tweakedSecret(internal: BigInteger, merkleRoot: ByteArray? = null): BigInteger {
-        val p = Secp256k1.multiply(internal, Secp256k1.G)
+        val p = Secp256k1.publicPoint(internal)
         val d = if (hasEvenY(p)) internal else N.subtract(internal)
         val t = BigInteger(1, Hashes.taggedHash("TapTweak", Secp256k1.xOnly(p) + (merkleRoot ?: ByteArray(0))))
         require(t < N) { "tweak out of range" }
@@ -34,6 +34,10 @@ object Schnorr {
     fun sign(secret: BigInteger, msg: ByteArray, aux: ByteArray = ByteArray(32).also { SecureRandom().nextBytes(it) }): ByteArray {
         require(msg.size == 32 && aux.size == 32)
         require(secret.signum() > 0 && secret < N) { "secret key out of range" }
+        NativeSecp.schnorr(secret, msg, aux)?.let { sig ->
+            check(verify(Secp256k1.xOnly(Secp256k1.publicPoint(secret)), msg, sig)) { "Schnorr self-check failed" }
+            return sig
+        }
         val p = Secp256k1.multiply(secret, Secp256k1.G)
         val d = if (hasEvenY(p)) secret else N.subtract(secret)
         val px = Secp256k1.xOnly(p)

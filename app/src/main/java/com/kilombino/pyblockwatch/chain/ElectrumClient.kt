@@ -333,6 +333,19 @@ class ElectrumClient(
         return raw
     }
 
+    /** Electrum's merkle branch for [txid] in block [height]: (branch hashes, position). */
+    fun merkle(txid: String, height: Int): Pair<List<String>, Int> {
+        val o = call("blockchain.transaction.get_merkle", JSONArray().put(txid).put(height)) as? JSONObject
+            ?: throw ElectrumException("no merkle proof for $txid")
+        val m = o.getJSONArray("merkle")
+        return (0 until m.length()).map { m.getString(it) } to o.getInt("pos")
+    }
+
+    /** The raw header (hex) of block [height]. */
+    fun blockHeader(height: Int): String =
+        call("blockchain.block.header", JSONArray().put(height))?.toString()
+            ?: throw ElectrumException("no header for block $height")
+
     /** Broadcast a raw (hex) transaction. Returns the txid, or throws with the server's reason. */
     fun broadcast(rawTxHex: String): String {
         val r = call("blockchain.transaction.broadcast", JSONArray().put(rawTxHex))

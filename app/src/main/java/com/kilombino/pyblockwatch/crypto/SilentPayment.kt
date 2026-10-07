@@ -42,7 +42,7 @@ object SilentPayment {
         // a = sum of the input private keys; A = a·G is the sum of the input public keys.
         val a = inputs.fold(BigInteger.ZERO) { acc, i -> acc.add(i.privateKey).mod(N) }
         require(a.signum() != 0) { "sum of input keys is zero" }
-        val sumPubkey = Secp256k1.compress(Secp256k1.multiply(a, Secp256k1.G))
+        val sumPubkey = Secp256k1.compress(Secp256k1.publicPoint(a))
 
         // input_hash commits to the smallest outpoint and A, so the shared secret is unique to
         // this transaction and cannot be replayed with a different set of inputs.

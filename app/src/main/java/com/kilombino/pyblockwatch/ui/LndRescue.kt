@@ -205,10 +205,18 @@ fun LndRescuePanel(vm: WalletViewModel, accent: Color) {
                 OutlinedTextField(value = gap, onValueChange = { gap = it.filter(Char::isDigit) },
                     label = { Text("gap: unused addresses before stopping", style = MaterialTheme.typography.bodySmall) },
                     textStyle = MaterialTheme.typography.bodySmall, singleLine = true, modifier = Modifier.fillMaxWidth())
+                var useSha by remember { mutableStateOf(vm.spamchainConsent) }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { useSha = !useSha }) {
+                    Text(if (useSha) "☑" else "☐", color = accent)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Also look on the SHA-256 chain. That asks public servers (blockstream, acinq, bitaroo, " +
+                        "emzy) about every address of this LND wallet and the channels' transactions; your words " +
+                        "and channel.backup never leave the phone.", color = TextSoft, style = MaterialTheme.typography.bodySmall)
+                }
                 Spacer(Modifier.height(8.dp))
                 Button(
                     onClick = {
-                        vm.rescueScan(words.trim().lowercase().split(Regex("\\s+")), passphrase, gap.toIntOrNull() ?: 50, backup)
+                        vm.rescueScan(words.trim().lowercase().split(Regex("\\s+")), passphrase, gap.toIntOrNull() ?: 50, backup, useSha)
                     },
                     enabled = words.isNotBlank(),
                     colors = ButtonDefaults.buttonColors(containerColor = Warn, contentColor = Ink),

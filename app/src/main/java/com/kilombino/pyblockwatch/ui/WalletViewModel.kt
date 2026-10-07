@@ -406,6 +406,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun endSetup() = _state.update { it.copy(setupMode = false) }
 
     /** The chains the app may contact on its own: BTC, and the spamchain once accepted. */
+    /** The user has accepted talking to SHA-256 (spamchain) servers. */
+    val spamchainConsent: Boolean get() = store.spamchainAccepted
+
     private fun scannableChains() = Chain.entries.filter { it != Chain.SHA256 || store.spamchainAccepted }
 
     /** The user accepted the spamchain warning: remember it and look at that chain now. */
@@ -752,7 +755,10 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 val coins = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     scanKey(chain, key.sweepableTypes)
                 }
+                // The other chain is only asked about with consent: on the SHA-256 side that means
+                // public servers learn this key's addresses.
                 val other = Chain.entries.firstOrNull { it != chain }
+                    ?.takeIf { it != Chain.SHA256 || store.spamchainAccepted }
                 val otherSats = other?.let { c ->
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         runCatching { scanKey(c, key.sweepableTypes).sumOf { it.value } }.getOrNull()
@@ -825,7 +831,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Decipher the LND seed and look for its coins (BLAKE2b) and post-fork closes (SHA-256). */
-    fun rescueScan(words: List<String>, passphrase: String, gap: Int, channelBackup: ByteArray? = null) {
+    fun rescueScan(words: List<String>, passphrase: String, gap: Int, channelBackup: ByteArray? = null,
+                   useSha256: Boolean = false) {
         _rescue.value = RescuePhase.Busy("deciphering the LND seed…")
         viewModelScope.launch {
             runCatching {
@@ -842,7 +849,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     val sha = client(Chain.SHA256)
                     try {
                         xbt.connect()
-                        val shaOk = runCatching { sha.connect() }.isSuccess
+                        // Public SHA-256 servers see every LND address asked about: only with consent.
+                        val shaOk = useSha256 && runCatching { sha.connect() }.isSuccess
                         r.scan(xbt, if (shaOk) sha else null, gap.coerceIn(10, 500)) { _rescue.value = RescuePhase.Busy(it) }
                     } finally { xbt.close(); sha.close() }
                 }

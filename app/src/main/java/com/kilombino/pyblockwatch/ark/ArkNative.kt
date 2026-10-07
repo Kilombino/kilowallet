@@ -17,4 +17,11 @@ internal object ArkNative {
     external fun start(datadir: String, port: Int, mnemonic: String?, passphrase: String): String
 
     external fun stop()
+
+    /** libsecp256k1 (constant time): 65-byte uncompressed public key of a 32-byte secret, or null. */
+    external fun secpPubkey(secret: ByteArray): ByteArray?
+    /** RFC 6979 low-S ECDSA, compact r‖s; [lowR] grinds like Bitcoin Core. Null if invalid. */
+    external fun secpEcdsaSign(secret: ByteArray, hash: ByteArray, lowR: Boolean): ByteArray?
+    /** BIP-340 Schnorr signature. Null if invalid. */
+    external fun secpSchnorrSign(secret: ByteArray, msg: ByteArray, aux: ByteArray): ByteArray?
 }

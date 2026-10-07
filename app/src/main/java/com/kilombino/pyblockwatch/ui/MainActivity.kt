@@ -1090,6 +1090,10 @@ internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, v
                         Text(street((if (a >= 0) "+" else "−") + groupSats(kotlin.math.abs(a)) + " $unit"),
                              style = MaterialTheme.typography.bodyMedium, color = if (a >= 0) Good else TextMain)
                     }
+                    // SPV: an incoming payment the server could not prove into a real block.
+                    if (t.spv == false) Text("⚠ not proven: the server's proof failed. Don't count on it.",
+                        style = MaterialTheme.typography.bodySmall, color = Bad)
+                    else if (t.spv == true) Text("✓ proven in its block", style = MaterialTheme.typography.bodySmall, color = TextFaint)
                     after[t.txid]?.let { left ->
                         Text(street("(left: ${groupSats(left)} $unit)"), style = MaterialTheme.typography.bodySmall, color = TextSoft)
                     }

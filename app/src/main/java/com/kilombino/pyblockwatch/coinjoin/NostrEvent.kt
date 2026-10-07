@@ -64,7 +64,7 @@ data class NostrEvent(
 
         fun sign(secret: BigInteger, kind: Int, tags: List<List<String>>, content: String,
                  createdAt: Long = System.currentTimeMillis() / 1000): NostrEvent {
-            val pub = Secp256k1.xOnly(Secp256k1.multiply(secret, Secp256k1.G)).toHex()
+            val pub = Secp256k1.xOnly(Secp256k1.publicPoint(secret)).toHex()
             val h = hash(pub, createdAt, kind, tags, content)
             return NostrEvent(h.toHex(), pub, createdAt, kind, tags, content, Schnorr.sign(secret, h).toHex())
         }
@@ -87,6 +87,6 @@ data class NostrEvent(
             }
         }
 
-        fun pubOf(secret: BigInteger): String = Secp256k1.xOnly(Secp256k1.multiply(secret, Secp256k1.G)).toHex()
+        fun pubOf(secret: BigInteger): String = Secp256k1.xOnly(Secp256k1.publicPoint(secret)).toHex()
     }
 }

@@ -36,7 +36,7 @@ object LnKeys {
     }
 
     fun commitmentPoint(secret: ByteArray): ByteArray =
-        Secp256k1.compress(Secp256k1.multiply(BigInteger(1, secret), Secp256k1.G))
+        Secp256k1.compress(Secp256k1.publicPoint(BigInteger(1, secret)))
 
     private fun tweak(cp: ByteArray, base: ByteArray) = BigInteger(1, Hashes.sha256(cp + base)).mod(N)
 

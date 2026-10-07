@@ -337,6 +337,15 @@ object Ark {
         if (sats != null) req.put("amount_sat", sats)
         if (maxTotal != null && destination.trim().startsWith("ark1", ignoreCase = true)) req.put("max_total_sat", maxTotal)
         val d = destination.trim()
+        // The engine caps only Ark payments itself. For Lightning and withdrawals, ask for the
+        // cost again right before paying and refuse if it grew past what the user approved.
+        if (maxTotal != null && !d.startsWith("ark1", ignoreCase = true)) {
+            val now = estimateSend(d, sats) ?: error("Could not confirm the cost right before paying; nothing was sent.")
+            // A little slack for an on-chain fee rate that moved in the meantime.
+            require(now.total <= maxTotal + maxOf(20L, maxTotal / 100)) {
+                "The cost went up since you reviewed it (${now.total} sats instead of at most $maxTotal); nothing was sent."
+            }
+        }
         if (!d.startsWith("ark1", ignoreCase = true) && !d.startsWith("ln", ignoreCase = true)) {
             // An XBT address leaves Ark on-chain: an amount, or everything when there is none.
             return if (sats == null) {
@@ -904,6 +913,10 @@ object Ark {
                 .joinToString("\n")
         }
     }.getOrNull()
+
+    /** The chain tip the engine sees (through its Esplora server), or null. */
+    fun tip(): Int? = runCatching { JSONObject(call("GET", "/bitcoin/tip")).optInt("tip_height", -1) }
+        .getOrNull()?.takeIf { it > 0 }
 
     /** Blocks until the next Ark coin expires, from the server's tip; null if unknown. */
     fun blocksToNearestExpiry(): Int? = runCatching {

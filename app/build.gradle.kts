@@ -24,8 +24,8 @@ android {
         applicationId = "com.kilombino.pyblockwatch"
         minSdk = 26
         targetSdk = 35
-        versionCode = 66
-        versionName = "0.20.7"
+        versionCode = 67
+        versionName = "0.21.0"
         // One native library of ours: the Ark engine, arm64-v8a only, rebuilt from a pinned
         // commit and checked against ark-engine/ENGINE before every release build. On other
         // ABIs the wallet runs without Ark. See README-REPRODUCIBLE.md §1.
@@ -149,4 +149,10 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     // The real org.json for JVM tests (Android's copy is only stubs off-device). Test-only: not in the APK.
     testImplementation("org.json:json:20240303")
+}
+
+// Unit tests can load a host build of the Ark engine (for its libsecp256k1 signing) from the
+// directory in KILOMBINO_ARK_HOST_LIB; without it they test the Kotlin code alone.
+tasks.withType<Test>().configureEach {
+    System.getenv("KILOMBINO_ARK_HOST_LIB")?.let { systemProperty("java.library.path", it) }
 }

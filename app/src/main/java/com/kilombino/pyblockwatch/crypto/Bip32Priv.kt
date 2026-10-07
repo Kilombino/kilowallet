@@ -22,7 +22,7 @@ object Bip32Priv {
     ) {
         /** 33-byte compressed public key for this node. */
         fun publicKey(): ByteArray = Secp256k1.compress(point())
-        fun point(): Secp256k1.Point = Secp256k1.multiply(key, Secp256k1.G)
+        fun point(): Secp256k1.Point = Secp256k1.publicPoint(key)
 
         /** 32-byte big-endian serialisation of the private scalar. */
         fun keyBytes(): ByteArray {

@@ -80,6 +80,12 @@ class Notifier(private val context: Context, private val titlePrefix: String = "
         post(idFor(chain, "conf", txid), "First confirmation of the incoming payment",
              "${chain.display} · +${sats(amount)} sats (1 conf)", tabFor(chain))
 
+    /** A confirmed incoming payment whose proof (merkle + block proof of work) did not check out. */
+    fun unprovenIn(chain: Chain, amount: Long, txid: String) =
+        post(idFor(chain, "unproven", txid), "⚠ Incoming payment NOT proven",
+             "${chain.display} · +${sats(amount)} sats: the server says it confirmed, but its proof does not check " +
+                 "out. Do not count on it; check it on your own node or another server.", tabFor(chain))
+
     fun firstConfOut(chain: Chain, amount: Long, txid: String) =
         post(idFor(chain, "conf", txid), "First confirmation of the outgoing payment",
              "${chain.display} · ${sats(amount)} sats (1 conf)", tabFor(chain))
@@ -219,9 +225,11 @@ object BalanceWatch {
         }
 
         // 2) Transactions that were pending and just got their first confirmation.
+        val unproven = txs.filter { it.spv == false }.map { it.txid }.toSet()
         nowConfirmed.forEach { txid ->
             val amount = prevMap[txid] ?: 0L
-            if (amount >= 0) notifier.firstConfIn(chain, amount, txid)
+            if (amount >= 0 && txid in unproven) notifier.unprovenIn(chain, amount, txid)
+            else if (amount >= 0) notifier.firstConfIn(chain, amount, txid)
             else notifier.firstConfOut(chain, -amount, txid)
         }
 
@@ -231,7 +239,10 @@ object BalanceWatch {
         //    only just started following): then say so instead of calling it confirmed.
         if (newPending.isEmpty() && totalDelta != 0L) {
             val stillPending = unconfirmed != prevUnconf
-            if (totalDelta > 0) { if (stillPending) notifier.receivedPending(chain, totalDelta) else notifier.receivedConfirmed(chain, totalDelta) }
+            // A fresh confirmed payment that failed its proof is reported as such, not as received.
+            val freshUnproven = txs.firstOrNull { it.spv == false && it.confirmations in 1..6 }
+            if (totalDelta > 0 && !stillPending && freshUnproven != null) notifier.unprovenIn(chain, totalDelta, freshUnproven.txid)
+            else if (totalDelta > 0) { if (stillPending) notifier.receivedPending(chain, totalDelta) else notifier.receivedConfirmed(chain, totalDelta) }
             else { if (stillPending) notifier.sentPending(chain, -totalDelta) else notifier.sentConfirmed(chain, -totalDelta) }
         }
 
