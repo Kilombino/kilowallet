@@ -581,6 +581,7 @@ class PoolSession(private val env: Env, private val s: State) {
     fun leave() {
         if (s.phase !in setOf(Phase.JOINING, Phase.OPEN, Phase.VOTING)) return
         if (s.creator) { abort("the creator closed the pool"); return }
+        if (s.phase == Phase.JOINING) { s.phase = Phase.ABORTED; s.reason = LEFT_BY_CHOICE; save(); return }
         channel(JSONObject().put("type", "leave").put("token", s.token ?: ""))
         s.phase = Phase.ABORTED; s.reason = LEFT_BY_CHOICE; save()
     }
@@ -594,6 +595,12 @@ class PoolSession(private val env: Env, private val s: State) {
             when (s.phase) {
                 Phase.OPEN, Phase.JOINING -> if (now > terms.expiresAt) {
                     if (s.creator) abort("the pool expired") else { s.phase = Phase.ABORTED; s.reason = "the pool expired"; save(); env.event(Event.Aborted(s.poolId, s.reason)) }
+                } else if (s.phase == Phase.JOINING && !s.creator && now - s.created > JOIN_TIMEOUT) {
+                    // Only the creator's wallet lets people in; if it is closed, or the pool ended
+                    // meanwhile, nobody ever answers. Give up instead of waiting until it expires.
+                    s.phase = Phase.ABORTED
+                    s.reason = "the pool did not answer (it may have ended, or its creator's app is closed)"
+                    save(); env.event(Event.Aborted(s.poolId, s.reason))
                 }
                 Phase.VOTING -> if (s.creator && now > s.voteDeadline) {
                     // Whoever did not answer is left out, if two or more said yes.
@@ -626,6 +633,8 @@ class PoolSession(private val env: Env, private val s: State) {
     companion object {
         /** Reason of a round this wallet left on purpose: its card goes away by itself. */
         const val LEFT_BY_CHOICE = "you left this round"
+        /** Seconds a join request waits for the creator's answer. */
+        const val JOIN_TIMEOUT = 5 * 60
 
         /**
          * Everything to create a seat, done once at join/create time with the coin's key at hand:

@@ -429,6 +429,13 @@ private fun MyPoolCard(
             shape = RoundedCornerShape(12.dp)) { Text(label) }
 
         when (st.phase) {
+            PoolSession.Phase.JOINING -> {
+                Text("Waiting for the pool's creator to let you in. If nobody answers in " +
+                    "${PoolSession.JOIN_TIMEOUT / 60} minutes the request is dropped.",
+                    color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(6.dp))
+                btn("CANCEL", modifier = Modifier.fillMaxWidth()) { act { session?.leave() } }
+            }
             PoolSession.Phase.OPEN, PoolSession.Phase.VOTING -> {
                 var confirmLeave by remember { mutableStateOf(false) }
                 if (confirmLeave) androidx.compose.material3.AlertDialog(
