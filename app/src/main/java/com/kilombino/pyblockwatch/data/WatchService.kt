@@ -95,6 +95,19 @@ class WatchService : Service() {
             if (com.kilombino.pyblockwatch.data.SeedVault(this@WatchService).hasSeed() && com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.supported(store)) {
                 runCatching { com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.checkNewPools(this@WatchService) }
             }
+            // A newer release: notified once per version (the app installs it from inside).
+            runCatching {
+                val prefs = getSharedPreferences("pyblockwatch", MODE_PRIVATE)
+                if (prefs.getBoolean("check_updates", true)) {
+                    val current = packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+                    UpdateCheck.check(current)?.let { r ->
+                        if (prefs.getString("update_notified", null) != r.version) {
+                            notifier.updateAvailable(r.version)
+                            prefs.edit().putString("update_notified", r.version).apply()
+                        }
+                    }
+                }
+            }
             // Home-screen widget: piggy-backs on this loop instead of pulling in WorkManager.
             // MarketFeed only calls the server when its own schedule allows it.
             if (com.kilombino.pyblockwatch.widget.XbtWidget.hasWidgets(this@WatchService)) {

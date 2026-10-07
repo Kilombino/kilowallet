@@ -12,7 +12,8 @@ import java.net.URL
 object UpdateCheck {
     private const val API = "https://api.github.com/repos/Kilombino/kilowallet/releases/latest"
 
-    class Release(val version: String, val url: String, val apkUrl: String?)
+    /** [sha256]: the signed APK's hash as the release notes publish it ("Signed APK SHA-256: `…`"). */
+    class Release(val version: String, val url: String, val apkUrl: String?, val sha256: String? = null)
 
     /** "0.20.0-beta3" → [0, 20, 0] plus whether it is a pre-release. */
     private fun parse(v: String): Pair<List<Int>, Boolean> {
@@ -44,6 +45,7 @@ object UpdateCheck {
         val assets = o.optJSONArray("assets")
         val apk = (0 until (assets?.length() ?: 0)).map { assets!!.getJSONObject(it) }
             .firstOrNull { it.optString("name").endsWith(".apk") }?.optString("browser_download_url")
-        Release(tag.removePrefix("v"), o.getString("html_url"), apk)
+        val sha = Regex("Signed APK SHA-256:\\s*`([0-9a-f]{64})`").find(o.optString("body"))?.groupValues?.get(1)
+        Release(tag.removePrefix("v"), o.getString("html_url"), apk, sha)
     }.getOrNull()
 }

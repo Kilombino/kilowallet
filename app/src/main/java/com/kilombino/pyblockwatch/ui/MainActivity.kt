@@ -1,5 +1,7 @@
 package com.kilombino.pyblockwatch.ui
 
+import com.kilombino.pyblockwatch.data.AppUpdater
+
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -117,31 +119,88 @@ class MainActivity : FragmentActivity() {
                             openTab == com.kilombino.pyblockwatch.data.OpenTab.COINJOIN)) vm.setUiMode("advanced")
                 }
                 Box(Modifier.fillMaxSize().background(Ink)) {
-                    // A newer release on GitHub: offer it once per version.
+                    // A newer release on GitHub: looked for every 5 minutes while the app is open
+                    // (the watcher also looks in the background and notifies), offered once per
+                    // version, and installed from inside the app (AppUpdater).
                     var update by remember { mutableStateOf<com.kilombino.pyblockwatch.data.UpdateCheck.Release?>(null) }
-                    LaunchedEffect(Unit) {
-                        val prefs = getSharedPreferences("pyblockwatch", MODE_PRIVATE)
-                        if (prefs.getBoolean("check_updates", true)) {
-                            val current = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: ""
-                            val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                com.kilombino.pyblockwatch.data.UpdateCheck.check(current)
-                            }
-                            if (r != null && prefs.getString("update_dismissed", null) != r.version) update = r
+                    var forceAsk by remember { mutableStateOf(0) }
+                    LaunchedEffect(openTab) {
+                        if (openTab == com.kilombino.pyblockwatch.data.OpenTab.UPDATE) {
+                            com.kilombino.pyblockwatch.data.OpenTab.flow.value = null; forceAsk++
                         }
                     }
+                    LaunchedEffect(forceAsk) {
+                        val prefs = getSharedPreferences("pyblockwatch", MODE_PRIVATE)
+                        while (true) {
+                            if (prefs.getBoolean("check_updates", true)) {
+                                val current = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: ""
+                                val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    com.kilombino.pyblockwatch.data.UpdateCheck.check(current)
+                                }
+                                if (r != null && (forceAsk > 0 || prefs.getString("update_dismissed", null) != r.version)) update = r
+                            }
+                            kotlinx.coroutines.delay(5 * 60 * 1000L)
+                        }
+                    }
+                    val upd by com.kilombino.pyblockwatch.data.AppUpdater.state.collectAsState()
+                    val uri = androidx.compose.ui.platform.LocalUriHandler.current
                     update?.let { r ->
-                        val uri = androidx.compose.ui.platform.LocalUriHandler.current
-                        AlertDialog(
+                        if (upd is com.kilombino.pyblockwatch.data.AppUpdater.State.Idle) AlertDialog(
                             onDismissRequest = { update = null },
                             title = { Text("Kilowallet ${r.version} is out") },
-                            text = { Text("A newer version is published. Get it from Zapstore, or download the APK from " +
-                                "GitHub (it installs over this one and keeps everything).", style = MaterialTheme.typography.bodySmall) },
-                            confirmButton = { TextButton(onClick = { runCatching { uri.openUri(r.apkUrl ?: r.url) }; update = null }) {
-                                Text("DOWNLOAD", color = Purple) } },
+                            text = { Text("Update now: it downloads here, is checked against the published hash and this " +
+                                "app's certificate, and installs over this one keeping everything." +
+                                (if (r.apkUrl == null) "\n\nThis release has no APK attached: open its page instead." else ""),
+                                style = MaterialTheme.typography.bodySmall) },
+                            confirmButton = { TextButton(onClick = {
+                                if (r.apkUrl != null) com.kilombino.pyblockwatch.data.AppUpdater.start(this@MainActivity, r)
+                                else { runCatching { uri.openUri(r.url) }; update = null }
+                            }) { Text(if (r.apkUrl != null) "UPDATE NOW" else "OPEN", color = Purple) } },
                             dismissButton = { TextButton(onClick = {
                                 getSharedPreferences("pyblockwatch", MODE_PRIVATE).edit().putString("update_dismissed", r.version).apply()
                                 update = null
                             }) { Text("NOT NOW", color = TextSoft) } },
+                            containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
+                        )
+                    }
+                    if (upd !is com.kilombino.pyblockwatch.data.AppUpdater.State.Idle) {
+                        AlertDialog(
+                            onDismissRequest = {},
+                            title = { Text("Updating Kilowallet") },
+                            text = {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    when (val st = upd) {
+                                        is AppUpdater.State.Downloading -> {
+                                            Text("Downloading ${st.version}… ${st.percent}%", style = MaterialTheme.typography.bodyMedium)
+                                            androidx.compose.material3.LinearProgressIndicator(progress = { st.percent / 100f },
+                                                modifier = Modifier.fillMaxWidth(), color = Purple)
+                                        }
+                                        is AppUpdater.State.Verifying -> Text("Checking the hash and the certificate…", style = MaterialTheme.typography.bodyMedium)
+                                        is AppUpdater.State.NeedsPermission -> Text("Android needs you to allow installs from Kilowallet once. " +
+                                            "Turn it on, come back and tap CONTINUE.", style = MaterialTheme.typography.bodySmall)
+                                        is AppUpdater.State.Installing -> Text("Installing… Android may ask you to confirm; the app restarts " +
+                                            "on its own when it is done.", style = MaterialTheme.typography.bodySmall)
+                                        is AppUpdater.State.Failed -> Text(st.message, style = MaterialTheme.typography.bodySmall, color = Bad)
+                                        else -> {}
+                                    }
+                                }
+                            },
+                            confirmButton = {
+                                when (upd) {
+                                    is AppUpdater.State.NeedsPermission -> Row {
+                                        TextButton(onClick = {
+                                            runCatching { startActivity(android.content.Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                                android.net.Uri.parse("package:$packageName"))) }
+                                        }) { Text("ALLOW", color = Purple) }
+                                        TextButton(onClick = { AppUpdater.resume(this@MainActivity) }) { Text("CONTINUE", color = Purple) }
+                                    }
+                                    is AppUpdater.State.Failed -> Row {
+                                        update?.let { r -> TextButton(onClick = { runCatching { uri.openUri(r.url) } }) { Text("GITHUB", color = TextSoft) } }
+                                        TextButton(onClick = { AppUpdater.reset(); update = null }) { Text("CLOSE", color = Purple) }
+                                    }
+                                    else -> {}
+                                }
+                            },
                             containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
                         )
                     }
@@ -359,6 +418,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
     val openTab by com.kilombino.pyblockwatch.data.OpenTab.flow.collectAsState()
     LaunchedEffect(openTab) {
         val t = openTab ?: return@LaunchedEffect
+        if (t == com.kilombino.pyblockwatch.data.OpenTab.UPDATE) return@LaunchedEffect  // the update dialog takes it
         com.kilombino.pyblockwatch.data.OpenTab.flow.value = null
         when (t) {
             com.kilombino.pyblockwatch.data.OpenTab.COINJOIN -> {

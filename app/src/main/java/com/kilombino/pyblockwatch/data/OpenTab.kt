@@ -15,6 +15,8 @@ object OpenTab {
     const val SPAMCOIN = "spamcoin"
     const val ARK = "ark"
     const val COINJOIN = "coinjoin"
+    /** Not a tab: a newer release was found in the background; the app offers it on opening. */
+    const val UPDATE = "update"
 
     /** The tab a notification asked for, until the wallet screen has acted on it. */
     val flow = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)

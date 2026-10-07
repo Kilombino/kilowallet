@@ -144,6 +144,10 @@ class Notifier(private val context: Context, private val titlePrefix: String = "
              if (confirmed) "Ark: on-chain send confirmed" else "Ark: on-chain send in the mempool",
              "${sats(-kotlin.math.abs(amount))} sats from the deposit" + (if (confirmed) "" else " (0 conf)"), OpenTab.ARK)
 
+    fun updateAvailable(version: String) =
+        post(("update:$version").hashCode(), "Kilowallet $version is out",
+             "Tap to update it from inside the app.", OpenTab.UPDATE)
+
     fun arkExpiring(blocks: Int) =
         post(arkId("expiry", ""), "Ark: a coin expires soon",
              "In about ${blocks * 10 / 1440} days ($blocks blocks). Open the Ark tab and tap RENEW, " +
