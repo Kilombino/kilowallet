@@ -599,7 +599,16 @@ class PoolSession(private val env: Env, private val s: State) {
                     // Whoever did not answer is left out, if two or more said yes.
                     val yes = s.seats.filter { it.tokenHash in s.accepts }
                     if (yes.size >= terms.minPeers) callClosing(yes, "agreed")
-                    else channel(JSONObject().put("type", "reopen").put("vote_id", s.voteId))
+                    else {
+                        // Too few for now. Whoever did not answer gives up the seat too, so a
+                        // silent wallet cannot hold the pool (and every later vote) hostage.
+                        val silent = s.seats.filter { it.tokenHash !in s.accepts && it.tokenHash != myTokenHash }
+                        if (silent.isNotEmpty()) {
+                            s.seats.removeAll(silent.toSet()); save()
+                            channel(roster()); announce()
+                        }
+                        channel(JSONObject().put("type", "reopen").put("vote_id", s.voteId))
+                    }
                 }
                 Phase.CLOSING -> if (now > s.phaseDeadline + 60) abort("not everyone sent their output in time")
                 Phase.SIGNING -> if (now > s.phaseDeadline + 60) abort("not everyone signed in time")

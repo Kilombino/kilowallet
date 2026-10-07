@@ -296,8 +296,8 @@ private fun CoinPicker(
         // The perfect coin: exactly the amount plus this pool's fee, so nobody gets change.
         val exact = amount + CoinjoinTx.feeShare(feeRate, false)
         var making by remember { mutableStateOf(false) }
-        if (making) ExactCoinPanel(vm, accent, exact, feeRate) { making = false }
-        else if (list != null && list.none { it.value == exact }) TextButton(onClick = { vm.resetSend(); vm.prepareExactCoin(exact, feeRate); making = true }) {
+        if (making) ExactCoinPanel(vm, accent, exact) { making = false }
+        else if (list != null && list.none { it.value == exact }) TextButton(onClick = { vm.resetSend(); making = true }) {
             Text("＋ PREPARE AN EXACT COIN OF ${groupSats(exact)} SATS", color = accent, style = MaterialTheme.typography.bodySmall)
         }
         Spacer(Modifier.height(10.dp))
@@ -429,7 +429,7 @@ private fun MyPoolCard(
             shape = RoundedCornerShape(12.dp)) { Text(label) }
 
         when (st.phase) {
-            PoolSession.Phase.OPEN -> {
+            PoolSession.Phase.OPEN, PoolSession.Phase.VOTING -> {
                 var confirmLeave by remember { mutableStateOf(false) }
                 if (confirmLeave) androidx.compose.material3.AlertDialog(
                     onDismissRequest = { confirmLeave = false },
@@ -443,19 +443,29 @@ private fun MyPoolCard(
                     dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("STAY", color = TextSoft) } },
                     containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (people >= st.terms.minPeers) btn("ASK TO CLOSE NOW", true, Modifier.weight(1f)) { act { session?.requestClose() } }
-                    btn(if (st.creator) "END POOL" else "LEAVE", modifier = Modifier.weight(1f)) { confirmLeave = true }
-                }
-                if (people < st.terms.minPeers) Text("Closes once ${st.terms.minPeers} people are in.",
-                    color = TextFaint, style = MaterialTheme.typography.bodySmall)
-            }
-            PoolSession.Phase.VOTING -> {
-                val iAsked = st.voteBy == st.token?.let { Protocol.tokenHash(it) }
-                if (iAsked || st.votedOn == st.voteId) Text("Waiting for the others to answer…", color = TextSoft, style = MaterialTheme.typography.bodySmall)
-                else Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    btn("ACCEPT", true, Modifier.weight(1f)) { act { session?.vote(true) } }
-                    btn("NOT YET", modifier = Modifier.weight(1f)) { act { session?.vote(false) } }
+                if (st.phase == PoolSession.Phase.OPEN) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (people >= st.terms.minPeers) btn("ASK TO CLOSE NOW", true, Modifier.weight(1f)) { act { session?.requestClose() } }
+                        btn(if (st.creator) "END POOL" else "LEAVE", modifier = Modifier.weight(1f)) { confirmLeave = true }
+                    }
+                    if (people < st.terms.minPeers) Text("Closes once ${st.terms.minPeers} people are in.",
+                        color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                } else {
+                    val iAsked = st.voteBy == st.token?.let { Protocol.tokenHash(it) }
+                    val by = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(st.voteDeadline * 1000))
+                    if (iAsked || st.votedOn == st.voteId) {
+                        Text("Waiting for the others to answer, until $by. Whoever has not answered by then is left " +
+                            "out; if too few are left, the pool reopens without them.",
+                            color = TextSoft, style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.height(6.dp))
+                        btn(if (st.creator) "END POOL" else "LEAVE", modifier = Modifier.fillMaxWidth()) { confirmLeave = true }
+                    } else {
+                        Text("Answer before $by.", color = TextSoft, style = MaterialTheme.typography.bodySmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            btn("ACCEPT", true, Modifier.weight(1f)) { act { session?.vote(true) } }
+                            btn("NOT YET", modifier = Modifier.weight(1f)) { act { session?.vote(false) } }
+                        }
+                    }
                 }
             }
             PoolSession.Phase.SIGNING -> {
@@ -500,17 +510,50 @@ private fun MyPoolCard(
  * Sends [exact] sats to a fresh address of this wallet, through the normal send review and
  * the fingerprint. Once it has a confirmation it shows up in the coin list, and joining with
  * it leaves no change at all, so the mixed output is tied to nothing.
+ *
+ * Its own fee is chosen here, from the node's estimate: the pool's fee rate only sizes the
+ * coin (it is what the round will pay), it says nothing about how busy the mempool is now.
  */
 @Composable
-private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, feeRate: Double, onDone: () -> Unit) {
+private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, onDone: () -> Unit) {
     val activity = LocalContext.current as FragmentActivity
     val state by vm.state.collectAsState()
+    var suggested by remember { mutableStateOf<Double?>(null) }
+    var asked by remember { mutableStateOf(false) }
+    var rateText by remember { mutableStateOf("") }
+    var started by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val r = runCatching { vm.suggestedBtcFeeRate() }.getOrNull()
+        suggested = r; asked = true
+        if (rateText.isEmpty()) rateText = r?.let { fmtRate(maxOf(1.0, it)) } ?: "1"
+    }
     Panel(accent = accent) {
         SectionLabel("Exact coin · ${groupSats(exact)} sats", accent)
         Spacer(Modifier.height(6.dp))
-        Explain("A payment to yourself of exactly ${groupSats(exact)} sats at $feeRate sat/vB. It needs one confirmation " +
-            "(about 10 minutes) before it can join; then it goes in with no change.")
-        Spacer(Modifier.height(6.dp))
+        if (!started) {
+            Explain("A payment to yourself of exactly ${groupSats(exact)} sats. It needs one confirmation " +
+                "before it can join; then it goes in with no change. Choose what this payment pays to get mined:")
+            Spacer(Modifier.height(6.dp))
+            Text(when {
+                !asked -> "asking your node how busy the mempool is…"
+                suggested != null -> "your node suggests ${fmtRate(suggested!!)} sat/vB for the next few blocks"
+                else -> "your node has no estimate (a quiet mempool): 1 sat/vB is usually enough"
+            }, color = TextSoft, style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(value = rateText, onValueChange = { rateText = it.replace(',', '.').filter { c -> c.isDigit() || c == '.' } },
+                label = { Text("sat/vB", style = MaterialTheme.typography.bodySmall) }, singleLine = true,
+                textStyle = MaterialTheme.typography.bodySmall,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
+            val rate = rateText.toDoubleOrNull()?.takeIf { it in 0.1..1000.0 }
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onDone, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = TextSoft),
+                    shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text("CANCEL") }
+                Button(onClick = { rate?.let { vm.prepareExactCoin(exact, it); started = true } }, enabled = rate != null,
+                    colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
+                    shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text("PREPARE") }
+            }
+            return@Panel
+        }
         when (val p = state.sendPhase) {
             is SendPhase.Review -> {
                 Text("from ${p.draft.inputs.size} coin(s) · fee ${groupSats(p.draft.fee)} sats" +
@@ -537,3 +580,6 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, feeR
         }
     }
 }
+
+private fun fmtRate(r: Double): String =
+    if (r >= 10) "%.0f".format(java.util.Locale.ROOT, r) else "%.1f".format(java.util.Locale.ROOT, r)

@@ -1119,7 +1119,8 @@ internal fun TxDetailDialog(
 ) {
     // The first time, ask which explorer to use (and warn it is an outside site); once the user
     // keeps one, it opens straight away.
-    var own by remember { mutableStateOf(explorer) }
+    // Empty until one is chosen: the point is that people put their own.
+    var own by remember { mutableStateOf(if (vm?.explorerChosen(chain) == true) explorer else "") }
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val uri = LocalUriHandler.current
     val site = explorer.removePrefix("https://").removePrefix("http://")
@@ -1149,15 +1150,22 @@ internal fun TxDetailDialog(
                         "this will not be asked again. You can change it in settings.",
                          style = MaterialTheme.typography.bodySmall, color = Warn)
                     OutlinedTextField(value = own, onValueChange = { own = it.trim() },
-                        label = { Text("explorer (https://…)", style = MaterialTheme.typography.bodySmall) },
+                        label = { Text("your explorer (https://…)", style = MaterialTheme.typography.bodySmall) },
+                        placeholder = { Text("https://mempool.example.com", style = MaterialTheme.typography.bodySmall, color = TextFaint) },
                         textStyle = MaterialTheme.typography.bodySmall, singleLine = true)
-                    TextButton(onClick = {
-                        val u = own.trimEnd('/')
-                        if (u.startsWith("https://") || (u.startsWith("http://") && u.contains(".onion"))) {
-                            vm?.setExplorer(chain, u)
-                            runCatching { uri.openUri("$u/tx/$txid") }; confirmOpen = false
-                        }
-                    }) { Text("SAVE AND OPEN", color = accent) }
+                    val u = own.trimEnd('/')
+                    val valid = u.startsWith("https://") || (u.startsWith("http://") && u.contains(".onion"))
+                    TextButton(enabled = valid, onClick = {
+                        vm?.setExplorer(chain, u)
+                        runCatching { uri.openUri("$u/tx/$txid") }; confirmOpen = false
+                    }) { Text("SAVE AND OPEN", color = if (valid) accent else TextFaint) }
+                    vm?.let { v ->
+                        val kilombino = v.defaultExplorerFor(chain)
+                        TextButton(onClick = {
+                            v.setExplorer(chain, kilombino)
+                            runCatching { uri.openUri("$kilombino/tx/$txid") }; confirmOpen = false
+                        }) { Text("USE KILOMBINO'S (${kilombino.removePrefix("https://")})", color = TextSoft) }
+                    }
                 }
                 onSpeedUp?.let {
                     TextButton(onClick = it) { Text("⚡ SPEED UP (RBF)", color = accent) }

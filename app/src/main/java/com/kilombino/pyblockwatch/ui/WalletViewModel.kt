@@ -1288,6 +1288,14 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun coinjoinSupported(): Boolean = _state.value.isHot && com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.supported(store)
 
     /** Confirmed BLAKE2b coins that can go into a pool, biggest first. */
+    /** The node's fee estimate for the next blocks on BTC, in sat/vB (null if it has none). */
+    suspend fun suggestedBtcFeeRate(): Double? {
+        val endpoint = store.endpoint(Chain.BLAKE2B)
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            scanner.suggestedFeeRate(endpoint, store.pinnedFingerprint(endpoint))
+        }
+    }
+
     suspend fun coinjoinCoins(): List<Scanner.SpendableUtxo> {
         val cs = _state.value.chains[Chain.BLAKE2B] ?: return emptyList()
         val endpoint = store.endpoint(Chain.BLAKE2B)
