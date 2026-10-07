@@ -522,14 +522,14 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
             showSend -> SendSheet(vm, accent) { showSend = false }
             showReceive -> ReceiveSheet(vm, accent) { showReceive = false }
             else -> {
-                // Receive works for any wallet; Send only when a seed is present.
+                // Receive works for any wallet; Send needs a seed, or (watch-only) a signer via PSBT.
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = { showReceive = true },
                         colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = accent),
                         shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f),
                     ) { Text("RECEIVE", style = MaterialTheme.typography.titleMedium) }
-                    if (state.isHot) {
+                    if (state.isHot || vm.psbtSupported()) {
                         Button(
                             onClick = { vm.resetSend(); showSend = true },
                             colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),

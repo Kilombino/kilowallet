@@ -104,6 +104,10 @@ sealed interface SendPhase {
     data object Editing : SendPhase
     data object Preparing : SendPhase
     data class Review(val draft: SendDraft) : SendPhase
+    /** Watch-only: the PSBT is out with the signer; only a signed copy of this exact one is taken back. */
+    data class AwaitingSignature(val draft: SendDraft, val psbt: ByteArray) : SendPhase {
+        val base64: String get() = com.kilombino.pyblockwatch.crypto.Psbt.base64(psbt)
+    }
     data object Broadcasting : SendPhase
     data class Sent(val txid: String) : SendPhase
     data class Failed(val message: String) : SendPhase
@@ -138,6 +142,8 @@ data class UiState(
     val inputError: String? = null,
     /** Can sign right now: a seed is stored AND the wallet is not shown as watch-only. */
     val isHot: Boolean = false,
+    /** Why the last signed PSBT brought back was refused, shown while waiting for another. */
+    val psbtError: String? = null,
     /** A seed is stored on this phone (it may be shown as watch-only). */
     val hasSeed: Boolean = false,
     val sendPhase: SendPhase = SendPhase.Editing,
@@ -1297,6 +1303,78 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ------------------------------------------------------------------ PSBT (watch-only)
+
+    /** Whether this watch-only wallet can send through a PSBT on the current chain. */
+    fun psbtSupported(): Boolean = !_state.value.isHot && _state.value.selected == Chain.BLAKE2B &&
+        store.scriptType in setOf(ScriptType.P2WPKH, ScriptType.P2SH_P2WPKH, ScriptType.P2TR)
+
+    val keyOrigin: String get() = store.keyOrigin
+
+    private fun psbtCoins(draft: SendDraft, origin: com.kilombino.pyblockwatch.crypto.Psbt.Origin?): List<com.kilombino.pyblockwatch.crypto.Psbt.Coin> {
+        val account = com.kilombino.pyblockwatch.crypto.Bip32.parseExtendedPubKey(_state.value.xpub ?: error("No watch-only key."))
+        return draft.inputs.map { u ->
+            com.kilombino.pyblockwatch.crypto.Psbt.Coin(u.txid, u.vout, u.value, store.scriptType,
+                com.kilombino.pyblockwatch.crypto.Bip32.derivePath(account, u.chainIndex, u.index).pubkey(),
+                origin?.child(u.chainIndex, u.index))
+        }
+    }
+
+    /** Make the PSBT for the reviewed draft; [origin] is the optional `[fingerprint/path]`. */
+    fun exportPsbt(origin: String) {
+        val draft = (_state.value.sendPhase as? SendPhase.Review)?.draft ?: return
+        runCatching {
+            require(psbtSupported() && draft.chain == Chain.BLAKE2B) { "Signing elsewhere is for BTC (BLAKE2b) only." }
+            require(draft.silentRecipient == null) { "A silent payment needs the private keys while building it: send it from a hot wallet." }
+            val o = com.kilombino.pyblockwatch.crypto.Psbt.Origin.parse(origin)
+            store.keyOrigin = origin.trim()
+            val account = com.kilombino.pyblockwatch.crypto.Bip32.parseExtendedPubKey(_state.value.xpub!!)
+            // Our change output, so the signer can tell it is not a payment.
+            val change = if (draft.change > 0) {
+                val i = draft.outputs.lastIndex
+                val idx = nextChangeIndex(emptyList())
+                val pub = com.kilombino.pyblockwatch.crypto.Bip32.derivePath(account, 1, idx).pubkey()
+                check(com.kilombino.pyblockwatch.crypto.Address.scriptPubKey(pub, store.scriptType).contentEquals(draft.outputs[i].scriptPubKey)) {
+                    "The change address moved since the review: prepare the send again."
+                }
+                mapOf(i to com.kilombino.pyblockwatch.crypto.Psbt.Change(pub, store.scriptType, o?.child(1, idx)))
+            } else emptyMap()
+            com.kilombino.pyblockwatch.crypto.Psbt.create(psbtCoins(draft, o), draft.outputs, change)
+        }.onSuccess { b -> _state.update { it.copy(sendPhase = SendPhase.AwaitingSignature(draft, b)) } }
+         .onFailure { e -> _state.update { it.copy(sendPhase = SendPhase.Failed(e.message ?: "Could not make the PSBT.")) } }
+    }
+
+    /** Take the signed PSBT back ([text]: base64 or hex), check every signature and broadcast. */
+    fun importSignedPsbt(text: String) = importSignedPsbt { com.kilombino.pyblockwatch.crypto.Psbt.decodeText(text) }
+    fun importSignedPsbtFile(bytes: ByteArray) = importSignedPsbt { com.kilombino.pyblockwatch.crypto.Psbt.decodeFile(bytes) }
+
+    private fun importSignedPsbt(decode: () -> ByteArray) {
+        val phase = _state.value.sendPhase as? SendPhase.AwaitingSignature ?: return
+        val draft = phase.draft
+        _state.update { it.copy(sendPhase = SendPhase.Broadcasting) }
+        viewModelScope.launch {
+            runCatching {
+                val returned = runCatching { decode() }
+                    .getOrElse { error("That is not a PSBT (base64 or hex).") }
+                val signed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    val o = com.kilombino.pyblockwatch.crypto.Psbt.Origin.parse(store.keyOrigin)
+                    com.kilombino.pyblockwatch.crypto.Psbt.finish(phase.psbt, returned, psbtCoins(draft, o), draft.outputs)
+                }
+                val endpoint = store.endpoint(draft.chain)
+                val pin = store.pinnedFingerprint(endpoint)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { scanner.broadcast(signed.rawHex, endpoint, pin) }
+            }.onSuccess { txid ->
+                _state.update { it.copy(sendPhase = SendPhase.Sent(txid)) }
+                refresh(draft.chain)
+            }.onFailure { e ->
+                // Back to waiting: the same PSBT can still be signed properly and brought back.
+                _state.update { it.copy(sendPhase = phase, psbtError = e.message ?: "Could not use that PSBT.") }
+            }
+        }
+    }
+
+    fun clearPsbtError() = _state.update { it.copy(psbtError = null) }
+
     /** Roughly a P2WPKH transaction's vbytes → fee in sats, rounded up. */
     private fun estimateFee(nIn: Int, nOut: Int, ratePerVb: Double): Long {
         val vbytes = 11.0 + 68.0 * nIn + 31.0 * nOut // overhead + inputs + outputs (segwit)
@@ -1310,7 +1388,14 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
      * minimum, and it never propagated.
      */
     private fun estimateFee(nIn: Int, outputScripts: List<ByteArray>, ratePerVb: Double): Long {
-        val vbytes = 10.5 + 68.0 * nIn + outputScripts.sumOf { 9.0 + it.size }
+        // A watch-only wallet may spend nested SegWit or Taproot coins, which weigh differently.
+        val perInput = when {
+            _state.value.isHot -> 68.0
+            store.scriptType == ScriptType.P2SH_P2WPKH -> 91.0
+            store.scriptType == ScriptType.P2TR -> 57.5
+            else -> 68.0
+        }
+        val vbytes = 10.5 + perInput * nIn + outputScripts.sumOf { 9.0 + it.size }
         return kotlin.math.ceil(vbytes * ratePerVb).toLong()
     }
 

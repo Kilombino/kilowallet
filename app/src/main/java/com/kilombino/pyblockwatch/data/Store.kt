@@ -28,6 +28,11 @@ class Store(context: Context, private val profile: String = HOT) {
         get() = prefs.getString(k(KEY_XPUB), null)
         set(v) = prefs.edit().apply { if (v == null) remove(k(KEY_XPUB)) else putString(k(KEY_XPUB), v) }.apply()
 
+    /** Watch-only: the account key's origin, like `[d34db33f/84'/0'/0']`, for PSBT signers ("" = unknown). */
+    var keyOrigin: String
+        get() = prefs.getString(k("key_origin"), "") ?: ""
+        set(v) = prefs.edit().putString(k("key_origin"), v).apply()
+
     var label: String
         get() = prefs.getString(k(KEY_LABEL), "") ?: ""
         set(v) = prefs.edit().putString(k(KEY_LABEL), v).apply()

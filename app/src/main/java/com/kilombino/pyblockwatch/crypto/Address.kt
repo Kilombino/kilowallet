@@ -68,7 +68,7 @@ object Address {
      * BIP-86 key-path Taproot output key: lift the internal key to a point, add
      * `int(TapTweak(P)) · G`, and take the result's x. No script tree.
      */
-    private fun taprootOutputKey(pubkey: ByteArray): ByteArray {
+    fun taprootOutputKey(pubkey: ByteArray): ByteArray {
         val xOnly = pubkey.copyOfRange(1, 33)               // drop the compressed parity byte
         val internal = Secp256k1.liftX(BigInteger(1, xOnly))
         val t = BigInteger(1, Hashes.taggedHash("TapTweak", xOnly)).mod(Secp256k1.N)

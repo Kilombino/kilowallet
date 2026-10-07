@@ -507,6 +507,24 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                 RowLine("Change", if (d.change > 0) "${groupSats(d.change)} sats" else "—", accent)
                 RowLine("Inputs", "${d.inputs.size}", accent)
                 Spacer(Modifier.height(10.dp))
+                if (!state.isHot) {
+                    // Watch-only: the keys are elsewhere. Hand the signer a PSBT.
+                    var origin by remember { mutableStateOf(vm.keyOrigin) }
+                    OutlinedTextField(value = origin, onValueChange = { origin = it },
+                        label = { Text("key origin (optional), e.g. [d34db33f/84'/0'/0']", style = MaterialTheme.typography.bodySmall) },
+                        textStyle = MaterialTheme.typography.bodySmall, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    Text("Some signers need it to find their key; Bitcoin Knots does not.",
+                        color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(6.dp))
+                    Button(onClick = { vm.exportPsbt(origin) },
+                        colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
+                        shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
+                    ) { Text("EXPORT PSBT", style = MaterialTheme.typography.titleMedium) }
+                    TextButton(onClick = { vm.resetSend() }, modifier = Modifier.fillMaxWidth()) {
+                        Text("edit", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                    }
+                    return@Panel
+                }
                 Button(
                     onClick = {
                         runCatching { vm.seedDecryptCipher() }.onSuccess { cipher ->
@@ -524,6 +542,8 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                     Text("edit", color = TextFaint, style = MaterialTheme.typography.bodySmall)
                 }
             }
+
+            is SendPhase.AwaitingSignature -> PsbtExchange(vm, phase, accent)
 
             SendPhase.Preparing, SendPhase.Broadcasting -> {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -721,6 +741,55 @@ private fun RowLine(label: String, value: String, accent: Color) {
              modifier = Modifier.weight(1f))
         Text(value, color = accent, style = MaterialTheme.typography.bodyMedium,
              fontWeight = FontWeight.Bold)
+    }
+}
+
+// ------------------------------------------------------------------- PSBT (watch-only)
+
+/** Give the PSBT to the signer (QR, copy, file) and take the signed one back (paste, QR, file). */
+@Composable
+private fun PsbtExchange(vm: WalletViewModel, phase: SendPhase.AwaitingSignature, accent: Color) {
+    val ctx = LocalContext.current
+    val state by vm.state.collectAsState()
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    var scanning by remember { mutableStateOf(false) }
+    val b64 = phase.base64
+    val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        if (uri != null) runCatching { ctx.contentResolver.openOutputStream(uri)!!.use { it.write(phase.psbt) } }
+    }
+    val open = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) runCatching { ctx.contentResolver.openInputStream(uri)!!.use { it.readBytes() } }
+            .onSuccess { vm.clearPsbtError(); vm.importSignedPsbtFile(it) }
+    }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (ok) scanning = true }
+    if (scanning) QrScannerDialog(onResult = { scanning = false; vm.clearPsbtError(); vm.importSignedPsbt(it) }, onDismiss = { scanning = false })
+
+    Text("1. Sign it elsewhere", color = accent, style = MaterialTheme.typography.titleSmall)
+    Text("Take this PSBT to your signer, for example Bitcoin Knots (walletprocesspsbt). It must sign with the " +
+        "BLAKE2b unified sighash (0x21): an old-style signature would also be valid on the spamchain, so it is refused.",
+        color = TextSoft, style = MaterialTheme.typography.bodySmall)
+    Spacer(Modifier.height(8.dp))
+    if (b64.length <= 2500) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { QrImage(b64, 260) }
+    else Text("Too big for one QR: copy it or save it as a file.", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(onClick = { clipboard.setText(androidx.compose.ui.text.AnnotatedString(b64)) }) { Text("COPY", color = accent) }
+        TextButton(onClick = { save.launch("kilowallet-${phase.draft.amount}.psbt") }) { Text("SAVE FILE", color = accent) }
+    }
+    Spacer(Modifier.height(10.dp))
+    Text("2. Bring the signed PSBT back", color = accent, style = MaterialTheme.typography.titleSmall)
+    Text("Only this same transaction is accepted, and every signature is checked here before anything is sent.",
+        color = TextSoft, style = MaterialTheme.typography.bodySmall)
+    state.psbtError?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall) }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(onClick = { clipboard.getText()?.text?.let { vm.clearPsbtError(); vm.importSignedPsbt(it) } }) { Text("PASTE", color = accent) }
+        TextButton(onClick = {
+            if (ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) scanning = true
+            else camera.launch(android.Manifest.permission.CAMERA)
+        }) { Text("SCAN QR", color = accent) }
+        TextButton(onClick = { open.launch(arrayOf("*/*")) }) { Text("OPEN FILE", color = accent) }
+    }
+    TextButton(onClick = { vm.clearPsbtError(); vm.resetSend() }, modifier = Modifier.fillMaxWidth()) {
+        Text("cancel", color = TextFaint, style = MaterialTheme.typography.bodySmall)
     }
 }
 

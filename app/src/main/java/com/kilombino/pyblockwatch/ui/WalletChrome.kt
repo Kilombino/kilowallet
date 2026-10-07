@@ -87,7 +87,7 @@ fun WatchWalletSetup(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Watch-only is a SECOND wallet, apart from your hot wallet: paste the extended public " +
                     "key (xpub / ypub / zpub) of another wallet to see its balance, get fresh addresses to " +
-                    "receive, and be notified of its movements. It can never spend.",
+                    "receive, and be notified of its movements. It holds no keys: to send (BTC), it hands a PSBT to a separate signer such as Bitcoin Knots.",
                     style = MaterialTheme.typography.bodySmall)
                 Text("One watch-only wallet at most, to keep the phone light. Your hot wallet stays as it is: " +
                     "switch back any time with your fingerprint.", style = MaterialTheme.typography.bodySmall, color = TextFaint)
