@@ -219,18 +219,12 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel, onToggleNotifications: (Bo
                         ) { Text("SEND", style = MaterialTheme.typography.titleMedium) }
                     }
                 }
-                if (!state.hasSeed) {
-                    Button(
-                        onClick = { vm.startSetup() },
-                        colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = accent),
-                        shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
-                    ) { Text("＋  CREATE A SPENDING WALLET", style = MaterialTheme.typography.titleMedium) }
-                }
             }
         }
 
         // The coins with their confirmations first, then the movements.
-        if (!showSend && !showReceive) CoinsCard(state, vm, chain, accent)
+        // Hot: the coins with their confirmations. Watch-only: its addresses, used and unused.
+        if (!showSend && !showReceive) { if (state.isHot) CoinsCard(state, vm, chain, accent) else WatchAddressesCard(state, vm, chain, accent) }
         if (!showSend && !showReceive && cs.transactions.isNotEmpty())
             MovementsCard(cs.transactions, accent, vm.explorerFor(chain), vm, state.isHot,
                 if (chain == Chain.BLAKE2B) "sats" else "poolsats")

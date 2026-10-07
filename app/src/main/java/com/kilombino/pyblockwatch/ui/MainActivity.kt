@@ -420,13 +420,6 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
                         ) { Text("SEND", style = MaterialTheme.typography.titleMedium) }
                     }
                 }
-                if (!state.hasSeed) {
-                    Button(
-                        onClick = { vm.startSetup() },
-                        colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = accent),
-                        shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
-                    ) { Text("＋  CREATE A SPENDING WALLET", style = MaterialTheme.typography.titleMedium) }
-                }
             }
         }
 
@@ -463,7 +456,8 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
             }
         }
 
-        if (cs.rows.isNotEmpty()) AddressList(cs.rows, accent)
+        if (!state.isHot) WatchAddressesCard(state, vm, chain, accent)
+        else if (cs.rows.isNotEmpty()) AddressList(cs.rows, accent)
 
         Panel(accent = accent) {
             SectionLabel("How your coins are found", accent)
@@ -779,65 +773,75 @@ internal fun SettingsPanel(
         }
 
         Spacer(Modifier.height(14.dp))
-        if (chain.allowsCustomNode) {
-            Text("Your own ${chain.display} node",
-                 style = MaterialTheme.typography.bodyMedium, color = TextMain)
-            Explain(if (chain == Chain.BLAKE2B) "One person, one node: put your own here. Leave empty to use " +
-                    "${chain.defaultHost}:${chain.defaultPort}, meant for emergencies."
-                else "Leave empty to use the public servers (companies and institutions, they see your addresses).")
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = host, onValueChange = { host = it },
-                    label = { Text("host", style = MaterialTheme.typography.bodySmall) },
-                    textStyle = MaterialTheme.typography.bodySmall,
-                    singleLine = true, modifier = Modifier.weight(2f),
-                )
-                OutlinedTextField(
-                    value = port, onValueChange = { port = it.filter(Char::isDigit).take(5) },
-                    label = { Text("port", style = MaterialTheme.typography.bodySmall) },
-                    textStyle = MaterialTheme.typography.bodySmall,
-                    singleLine = true, modifier = Modifier.weight(1f),
+        // Node and explorer, folded: they matter once and take a lot of room.
+        var nodeOpen by remember { mutableStateOf(false) }
+        Row(Modifier.fillMaxWidth().clickable { nodeOpen = !nodeOpen }.padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text("${chain.display} node & explorer", style = MaterialTheme.typography.bodyMedium, color = TextMain,
+                modifier = Modifier.weight(1f))
+            Text(if (nodeOpen) "▾" else "▸", color = accent, style = MaterialTheme.typography.titleMedium)
+        }
+        if (nodeOpen) Column {
+            if (chain.allowsCustomNode) {
+                Text("Your own ${chain.display} node",
+                     style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                Explain(if (chain == Chain.BLAKE2B) "One person, one node: put your own here. Leave empty to use " +
+                        "${chain.defaultHost}:${chain.defaultPort}, meant for emergencies."
+                    else "Leave empty to use the public servers (companies and institutions, they see your addresses).")
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = host, onValueChange = { host = it },
+                        label = { Text("host", style = MaterialTheme.typography.bodySmall) },
+                        textStyle = MaterialTheme.typography.bodySmall,
+                        singleLine = true, modifier = Modifier.weight(2f),
+                    )
+                    OutlinedTextField(
+                        value = port, onValueChange = { port = it.filter(Char::isDigit).take(5) },
+                        label = { Text("port", style = MaterialTheme.typography.bodySmall) },
+                        textStyle = MaterialTheme.typography.bodySmall,
+                        singleLine = true, modifier = Modifier.weight(1f),
+                    )
+                }
+                TextButton(onClick = {
+                    vm.setCustomNode(chain, host.ifBlank { null }, port.toIntOrNull() ?: chain.defaultPort)
+                }) { Text("apply and rescan", color = accent, style = MaterialTheme.typography.bodySmall) }
+            } else {
+                Explain(
+                    "The SHA-256 chain is lookup-only: it finds your coins from the xpub, so it " +
+                        "offers no custom node."
                 )
             }
-            TextButton(onClick = {
-                vm.setCustomNode(chain, host.ifBlank { null }, port.toIntOrNull() ?: chain.defaultPort)
-            }) { Text("apply and rescan", color = accent, style = MaterialTheme.typography.bodySmall) }
-        } else {
-            Explain(
-                "The SHA-256 chain is lookup-only: it finds your coins from the xpub, so it " +
-                    "offers no custom node."
-            )
-        }
 
-        Spacer(Modifier.height(14.dp))
-        // Block explorer used to open a movement. Any mempool.space-style site works.
-        var explorer by remember(chain) { mutableStateOf(vm.explorerFor(chain)) }
-        var explorerMsg by remember(chain) { mutableStateOf<String?>(null) }
-        Text("${chain.display} block explorer",
-             style = MaterialTheme.typography.bodyMedium, color = TextMain)
-        Explain("Where a movement opens when you tap it. Default: ${vm.defaultExplorerFor(chain)}.")
-        Spacer(Modifier.height(6.dp))
-        OutlinedTextField(
-            value = explorer, onValueChange = { explorer = it.trim(); explorerMsg = null },
-            label = { Text("https://…", style = MaterialTheme.typography.bodySmall) },
-            textStyle = MaterialTheme.typography.bodySmall,
-            singleLine = true, modifier = Modifier.fillMaxWidth(),
-        )
-        Row {
-            TextButton(onClick = {
-                val u = explorer.trimEnd('/')
-                if (u.startsWith("https://") || (u.startsWith("http://") && u.contains(".onion"))) {
-                    vm.setExplorer(chain, u); explorerMsg = "saved"
-                } else {
-                    explorerMsg = "use an https:// address (http:// only for .onion)"
-                }
-            }) { Text("save", color = accent, style = MaterialTheme.typography.bodySmall) }
-            TextButton(onClick = {
-                vm.setExplorer(chain, null); explorer = vm.defaultExplorerFor(chain); explorerMsg = "back to default"
-            }) { Text("default", color = TextSoft, style = MaterialTheme.typography.bodySmall) }
+            Spacer(Modifier.height(14.dp))
+            // Block explorer used to open a movement. Any mempool.space-style site works.
+            var explorer by remember(chain) { mutableStateOf(vm.explorerFor(chain)) }
+            var explorerMsg by remember(chain) { mutableStateOf<String?>(null) }
+            Text("${chain.display} block explorer",
+                 style = MaterialTheme.typography.bodyMedium, color = TextMain)
+            Explain("Where a movement opens when you tap it. Default: ${vm.defaultExplorerFor(chain)}.")
+            Spacer(Modifier.height(6.dp))
+            OutlinedTextField(
+                value = explorer, onValueChange = { explorer = it.trim(); explorerMsg = null },
+                label = { Text("https://…", style = MaterialTheme.typography.bodySmall) },
+                textStyle = MaterialTheme.typography.bodySmall,
+                singleLine = true, modifier = Modifier.fillMaxWidth(),
+            )
+            Row {
+                TextButton(onClick = {
+                    val u = explorer.trimEnd('/')
+                    if (u.startsWith("https://") || (u.startsWith("http://") && u.contains(".onion"))) {
+                        vm.setExplorer(chain, u); explorerMsg = "saved"
+                    } else {
+                        explorerMsg = "use an https:// address (http:// only for .onion)"
+                    }
+                }) { Text("save", color = accent, style = MaterialTheme.typography.bodySmall) }
+                TextButton(onClick = {
+                    vm.setExplorer(chain, null); explorer = vm.defaultExplorerFor(chain); explorerMsg = "back to default"
+                }) { Text("default", color = TextSoft, style = MaterialTheme.typography.bodySmall) }
+            }
+            explorerMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = TextFaint) }
         }
-        explorerMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = TextFaint) }
 
         Spacer(Modifier.height(10.dp))
         var rescueOpen by remember { mutableStateOf(false) }
@@ -890,6 +894,7 @@ private fun DerivationSelector(current: ScriptType?, accent: Color, onSelect: (S
 
 @Composable
 internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, vm: WalletViewModel, isHot: Boolean, unit: String = "sats") {
+    val chain = if (unit == "sats") Chain.BLAKE2B else Chain.SHA256
     // Tapping a movement asks before leaving the app: opening it reveals the txid (and so
     // which addresses are yours) to whoever runs that explorer.
     var asking by remember { mutableStateOf<TxConf?>(null) }
@@ -900,7 +905,7 @@ internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, v
         TxDetailDialog(t.txid, accent, explorer,
             status = if (t.pending) "in mempool · 0 confirmations" else "${t.confirmations} confirmations",
             onSpeedUp = if (t.pending && isHot) ({ asking = null; bumping = t.txid }) else null,
-            onClose = { asking = null })
+            onClose = { asking = null }, vm = vm, chain = chain)
     }
     Panel(accent = accent) {
         SectionLabel("movements · confirmations", accent)
@@ -1012,10 +1017,14 @@ private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, explore
  * looked up).
  */
 @Composable
-private fun TxDetailDialog(
+internal fun TxDetailDialog(
     txid: String, accent: Color, explorer: String, status: String,
     onSpeedUp: (() -> Unit)?, onClose: () -> Unit,
+    vm: WalletViewModel? = null, chain: Chain = Chain.BLAKE2B,
 ) {
+    // The first time, ask which explorer to use (and warn it is an outside site); once the user
+    // keeps one, it opens straight away.
+    var own by remember { mutableStateOf(explorer) }
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val uri = LocalUriHandler.current
     val site = explorer.removePrefix("https://").removePrefix("http://")
@@ -1034,14 +1043,26 @@ private fun TxDetailDialog(
                     TextButton(onClick = {
                         clipboard.setText(androidx.compose.ui.text.AnnotatedString(txid)); copied = true
                     }) { Text(if (copied) "COPIED ✓" else "📋 COPY TXID", color = accent) }
-                    TextButton(onClick = { confirmOpen = true }) { Text("🔎 EXPLORER", color = accent) }
+                    TextButton(onClick = {
+                        if (vm != null && vm.explorerChosen(chain)) runCatching { uri.openUri("$explorer/tx/$txid") }
+                        else confirmOpen = true
+                    }) { Text("🔎 EXPLORER", color = accent) }
                 }
                 if (confirmOpen) {
-                    Text("Open it on $site? The site will see which transaction you look up.",
+                    Text("This opens an EXTERNAL block explorer: the site sees which transaction you look up " +
+                        "(and so which addresses are yours). Use your own if you run one; it is saved and " +
+                        "this will not be asked again. You can change it in settings.",
                          style = MaterialTheme.typography.bodySmall, color = Warn)
-                    TextButton(onClick = { runCatching { uri.openUri("$explorer/tx/$txid") }; confirmOpen = false }) {
-                        Text("OPEN ON ${site.uppercase()}", color = accent)
-                    }
+                    OutlinedTextField(value = own, onValueChange = { own = it.trim() },
+                        label = { Text("explorer (https://…)", style = MaterialTheme.typography.bodySmall) },
+                        textStyle = MaterialTheme.typography.bodySmall, singleLine = true)
+                    TextButton(onClick = {
+                        val u = own.trimEnd('/')
+                        if (u.startsWith("https://") || (u.startsWith("http://") && u.contains(".onion"))) {
+                            vm?.setExplorer(chain, u)
+                            runCatching { uri.openUri("$u/tx/$txid") }; confirmOpen = false
+                        }
+                    }) { Text("SAVE AND OPEN", color = accent) }
                 }
                 onSpeedUp?.let {
                     TextButton(onClick = it) { Text("⚡ SPEED UP (RBF)", color = accent) }

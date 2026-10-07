@@ -159,9 +159,15 @@ data class UiState(
 
 class WalletViewModel(app: Application) : AndroidViewModel(app) {
 
-    private val store = Store(app)
+    /**
+     * The wallet on screen: the hot one (from the seed) or the separate watch-only xpub.
+     * Global settings (nodes, explorers, mode, coinjoin…) are shared; per-wallet ones are not.
+     */
+    private var store = Store(app, migrateWallets(app))
     private val scanner = Scanner()
-    private val notifier = Notifier(app)
+    /** Notifications of the wallet on screen; the watch-only one says so in the title. */
+    private val notifier: Notifier get() =
+        Notifier(getApplication(), if (store.activeWallet == Store.WATCH) "Watch-only · " else "")
     private val seedVault = com.kilombino.pyblockwatch.data.SeedVault(app)
     private val jobs = mutableMapOf<Chain, Job>()
     private var refreshJob: Job? = null
@@ -196,7 +202,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 selected = Chain.BLAKE2B,
                 notificationsEnabled = store.notificationsEnabled,
                 gapLimit = store.gapLimit,
-                isHot = seedVault.hasSeed() && !store.watchOnlyView,
+                isHot = seedVault.hasSeed() && store.activeWallet != Store.WATCH,
                 hasSeed = seedVault.hasSeed(),
                 uiMode = store.uiMode,
                 fiat = store.fiat,
@@ -287,7 +293,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 if (store.notificationsEnabled) {
                     BalanceWatch.evaluate(store, notifier, chain, conf, unconf, doneTxs)
                 }
-                update(chain) {
+                updateIf(xpub, chain) {
                     it.copy(rows = rows, transactions = doneTxs, height = tip, phase = ScanPhase.Complete)
                 }
             }
@@ -305,6 +311,11 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
             _state.update { it.copy(inputError = why) }
             return
         }
+        // An xpub is always the watch-only wallet, next to (not instead of) a hot one.
+        // Stop whatever the other wallet was scanning, or its results land on this one.
+        jobs.values.forEach(Job::cancel); jobs.clear()
+        store = Store(getApplication(), Store.WATCH)
+        store.activeWallet = Store.WATCH
         store.xpub = trimmed
         store.label = label
         // Default derivation: honour a specific prefix (ypub → nested, zpub → native),
@@ -394,10 +405,18 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         startRefreshLoop()      // restart the timer so it tracks the newly selected chain
     }
 
+    /**
+     * Forget the wallet on screen. The hot one takes its seed with it; the other wallet, if
+     * there is one, then comes on screen.
+     */
     fun forget() {
         jobs.values.forEach(Job::cancel); jobs.clear()
+        val wasWatch = store.activeWallet == Store.WATCH
         store.clearWallet()
-        seedVault.clear()
+        if (!wasWatch) seedVault.clear()
+        val other = if (wasWatch) Store.HOT else Store.WATCH
+        if (Store(getApplication(), other).xpub != null) { switchTo(other); return }
+        store = Store(getApplication(), Store.HOT); store.activeWallet = Store.HOT
         _state.value = UiState(notificationsEnabled = store.notificationsEnabled)
     }
 
@@ -428,6 +447,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun explorerFor(chain: Chain): String = store.explorer(chain)
     fun defaultExplorerFor(chain: Chain): String = store.defaultExplorer(chain)
     fun setExplorer(chain: Chain, url: String?) = store.setExplorer(chain, url)
+    fun explorerChosen(chain: Chain): Boolean = store.explorerChosen(chain)
 
     fun setCustomNode(chain: Chain, host: String?, port: Int) {
         store.setCustomEndpoint(chain, host, port)
@@ -461,7 +481,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         jobs[chain] = viewModelScope.launch {
             val found = mutableListOf<AddressRow>()
             scanner.scan(xpub, chain, endpoint, pin, store.scriptType, store.gapLimit).collect { ev ->
-                update(chain) { st ->
+                updateIf(xpub, chain) { st ->
                     when (ev) {
                         is ScanEvent.Connecting ->
                             st.copy(phase = ScanPhase.Connecting(ev.endpoint), endpoint = ev.endpoint,
@@ -530,8 +550,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                         .fromSeed(com.kilombino.pyblockwatch.crypto.Bip39.toSeed(mnemonic, passphrase))
                     com.kilombino.pyblockwatch.crypto.Bip32Priv.accountXpub(master, purpose = 84, account = 0)
                 }
+                store = Store(getApplication(), Store.HOT)
+                store.activeWallet = Store.HOT
                 store.xpub = zpub
-                store.watchOnlyView = false
                 store.label = "Hot wallet"
                 store.scriptType = ScriptType.P2WPKH
                 _state.update {
@@ -552,17 +573,34 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
 
     // ------------------------------------------------------------------ optional features
 
-    /** Show the spending wallet as watch-only (no fingerprint needed to go that way). */
+    /** A separate watch-only wallet (an xpub) is set up on this phone. */
+    fun hasWatchWallet(): Boolean = Store(getApplication(), Store.WATCH).xpub != null
+    fun watchWalletLabel(): String = Store(getApplication(), Store.WATCH).label
+
+    /** Show the watch-only wallet (it must exist: see [hasWatchWallet]). */
     fun viewAsWatchOnly() {
-        store.watchOnlyView = true
-        _state.update { it.copy(isHot = false, sendPhase = SendPhase.Editing) }
+        if (!hasWatchWallet()) return
+        switchTo(Store.WATCH)
     }
 
-    /** Back to the spending wallet: call only after the fingerprint check passed. */
+    /** Back to the hot wallet: call only after the fingerprint check passed. */
     fun viewAsHot() {
         if (!seedVault.hasSeed()) return
-        store.watchOnlyView = false
-        _state.update { it.copy(isHot = true) }
+        switchTo(Store.HOT)
+    }
+
+    private fun switchTo(wallet: String) {
+        jobs.values.forEach(Job::cancel); jobs.clear()
+        store = Store(getApplication(), wallet)
+        store.activeWallet = wallet
+        _state.update { it.copy(sendPhase = SendPhase.Editing, utxos = null, utxosChain = null) }
+        reloadFromStore()
+    }
+
+    /** Remove only the watch-only wallet; the hot one (if any) stays. */
+    fun forgetWatchWallet() {
+        Store(getApplication(), Store.WATCH).clearWallet()
+        if (store.activeWallet == Store.WATCH) { if (seedVault.hasSeed()) switchTo(Store.HOT) else forget() }
     }
 
     fun coinjoinEnabled(): Boolean = store.coinjoinEnabled
@@ -644,7 +682,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
             it.copy(
                 xpub = store.xpub, label = store.label, scriptType = store.scriptType,
                 notificationsEnabled = store.notificationsEnabled, gapLimit = store.gapLimit,
-                isHot = seedVault.hasSeed() && !store.watchOnlyView, hasSeed = seedVault.hasSeed(),
+                isHot = seedVault.hasSeed() && store.activeWallet != Store.WATCH, hasSeed = seedVault.hasSeed(),
                 uiMode = store.uiMode, fiat = store.fiat,
                 chains = Chain.entries.associateWith { ChainState() },
             )
@@ -1326,6 +1364,11 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         return com.kilombino.pyblockwatch.crypto.Bip32Priv.derivePath(master, coinPath).key
     }
 
+    /** [update], but only while [xpub] is still the wallet on screen (a switch drops late results). */
+    private fun updateIf(xpub: String, chain: Chain, f: (ChainState) -> ChainState) {
+        if (_state.value.xpub == xpub) update(chain, f)
+    }
+
     private fun update(chain: Chain, f: (ChainState) -> ChainState) {
         _state.update { s ->
             s.copy(chains = s.chains + (chain to f(s.chains[chain] ?: ChainState())))
@@ -1333,6 +1376,29 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private companion object {
+        /**
+         * Before 0.20 the one wallet lived in the "hot" slot even when it was only an xpub.
+         * Such a wallet moves to the watch-only slot; returns the wallet to show.
+         */
+        fun migrateWallets(app: Application): String {
+            val g = Store(app)
+            val vault = com.kilombino.pyblockwatch.data.SeedVault(app)
+            val watch = Store(app, Store.WATCH)
+            if (!vault.hasSeed() && g.xpub != null && watch.xpub == null) {
+                watch.xpub = g.xpub; watch.label = g.label; watch.scriptType = g.scriptType
+                g.xpub = null
+                g.activeWallet = Store.WATCH
+            }
+            val prefs = app.getSharedPreferences("pyblockwatch", android.content.Context.MODE_PRIVATE)
+            if (prefs.getBoolean("watch_only_view", false)) { prefs.edit().remove("watch_only_view").apply() }
+            return when {
+                g.activeWallet == Store.WATCH && watch.xpub != null -> Store.WATCH
+                vault.hasSeed() -> Store.HOT
+                watch.xpub != null -> Store.WATCH
+                else -> Store.HOT
+            }
+        }
+
         /** Foreground auto-refresh cadence, and the countdown the UI shows. */
         const val REFRESH_SECONDS = 30
         /** Below this, a change output costs more to spend later than it is worth — fold it into fee. */

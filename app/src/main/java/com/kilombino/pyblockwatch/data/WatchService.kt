@@ -52,23 +52,29 @@ class WatchService : Service() {
     private suspend fun loop() {
         val store = Store(this)
         val scanner = Scanner()
-        val notifier = Notifier(this)
         while (scope.isActive) {
-            val xpub = store.xpub
-            if (xpub == null || !store.notificationsEnabled) { delay(INTERVAL_MS); continue }
+            if (!store.notificationsEnabled) { delay(INTERVAL_MS); continue }
 
-            for (chain in Chain.entries.filter { it != Chain.SHA256 || store.spamchainAccepted }) {
-                runCatching {
-                    val rows = deriveKnownAddresses(xpub, chain, store)
-                    if (rows.isEmpty()) return@runCatching
-                    val endpoint = store.endpoint(chain)
-                    val (updated, txs, _) = scanner.refreshDetails(rows, endpoint, store.pinnedFingerprint(endpoint))
-                    BalanceWatch.evaluate(
-                        store, notifier, chain,
-                        updated.sumOf { it.confirmed }, updated.sumOf { it.unconfirmed }, txs,
-                    )
+            // Both wallets are watched: the hot one and, if set up, the separate watch-only one.
+            // The watch-only one's notifications say so in their title.
+            for (wallet in listOf(Store.HOT, Store.WATCH)) {
+                val ws = Store(this, wallet)
+                val xpub = ws.xpub ?: continue
+                val notifier = Notifier(this, if (wallet == Store.WATCH) "Watch-only · " else "")
+                for (chain in Chain.entries.filter { it != Chain.SHA256 || store.spamchainAccepted }) {
+                    runCatching {
+                        val rows = deriveKnownAddresses(xpub, chain, ws)
+                        if (rows.isEmpty()) return@runCatching
+                        val endpoint = store.endpoint(chain)
+                        val (updated, txs, _) = scanner.refreshDetails(rows, endpoint, store.pinnedFingerprint(endpoint))
+                        BalanceWatch.evaluate(
+                            ws, notifier, chain,
+                            updated.sumOf { it.confirmed }, updated.sumOf { it.unconfirmed }, txs,
+                        )
+                    }
                 }
             }
+            val notifier = Notifier(this)
             // Ark: while this watcher runs, keep the Ark engine up. Its own daemon renews coins
             // before they expire (4,320 blocks); without it the user would have to remember
             // to open the app at least once a month.

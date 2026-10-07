@@ -16,18 +16,21 @@ import com.kilombino.pyblockwatch.crypto.ScriptType
  * will ever use), so `allowBackup=false` keeps it off cloud backups, and Android's
  * per-app sandbox does the rest.
  */
-class Store(context: Context) {
+class Store(context: Context, private val profile: String = HOT) {
+
+    /** Per-wallet keys: the hot wallet keeps the original names, the watch-only one gets "w_". */
+    private fun k(key: String) = if (profile == WATCH) "w_$key" else key
 
     private val prefs = context.applicationContext
         .getSharedPreferences("pyblockwatch", Context.MODE_PRIVATE)
 
     var xpub: String?
-        get() = prefs.getString(KEY_XPUB, null)
-        set(v) = prefs.edit().apply { if (v == null) remove(KEY_XPUB) else putString(KEY_XPUB, v) }.apply()
+        get() = prefs.getString(k(KEY_XPUB), null)
+        set(v) = prefs.edit().apply { if (v == null) remove(k(KEY_XPUB)) else putString(k(KEY_XPUB), v) }.apply()
 
     var label: String
-        get() = prefs.getString(KEY_LABEL, "") ?: ""
-        set(v) = prefs.edit().putString(KEY_LABEL, v).apply()
+        get() = prefs.getString(k(KEY_LABEL), "") ?: ""
+        set(v) = prefs.edit().putString(k(KEY_LABEL), v).apply()
 
     /** Which chain the user last looked at, so the app reopens where they left it. */
     var lastChain: Chain
@@ -82,26 +85,26 @@ class Store(context: Context) {
             .joinToString("") { "%02x".format(it) }
 
     /** Last known total per chain, so the service can tell "changed" from "first run". */
-    fun lastTotal(chain: Chain): Long = prefs.getLong(keyTotal(chain), -1L)
+    fun lastTotal(chain: Chain): Long = prefs.getLong(k(keyTotal(chain)), -1L)
     fun setLastTotal(chain: Chain, sats: Long) {
-        prefs.edit().putLong(keyTotal(chain), sats).apply()
+        prefs.edit().putLong(k(keyTotal(chain)), sats).apply()
     }
 
     // Confirmed and unconfirmed tracked apart so the watcher can tell "arrived in the
     // mempool" from "just confirmed" from "sent", and word the notification accordingly.
-    fun lastConfirmed(chain: Chain): Long = prefs.getLong(keyConf(chain), -1L)
-    fun lastUnconfirmed(chain: Chain): Long = prefs.getLong(keyUnconf(chain), 0L)
+    fun lastConfirmed(chain: Chain): Long = prefs.getLong(k(keyConf(chain)), -1L)
+    fun lastUnconfirmed(chain: Chain): Long = prefs.getLong(k(keyUnconf(chain)), 0L)
     fun setLastBalance(chain: Chain, confirmed: Long, unconfirmed: Long) {
-        prefs.edit().putLong(keyConf(chain), confirmed).putLong(keyUnconf(chain), unconfirmed).apply()
+        prefs.edit().putLong(k(keyConf(chain)), confirmed).putLong(k(keyUnconf(chain)), unconfirmed).apply()
     }
 
     // The watcher keeps its OWN baseline of what it has already notified about, separate
     // from the figures the foreground app records — otherwise every open would reset the
     // baseline and the background notification could never fire.
-    fun lastNotifiedConf(chain: Chain): Long = prefs.getLong(keyNotConf(chain), -1L)
-    fun lastNotifiedUnconf(chain: Chain): Long = prefs.getLong(keyNotUnconf(chain), 0L)
+    fun lastNotifiedConf(chain: Chain): Long = prefs.getLong(k(keyNotConf(chain)), -1L)
+    fun lastNotifiedUnconf(chain: Chain): Long = prefs.getLong(k(keyNotUnconf(chain)), 0L)
     fun setLastNotified(chain: Chain, confirmed: Long, unconfirmed: Long) {
-        prefs.edit().putLong(keyNotConf(chain), confirmed).putLong(keyNotUnconf(chain), unconfirmed).apply()
+        prefs.edit().putLong(k(keyNotConf(chain)), confirmed).putLong(k(keyNotUnconf(chain)), unconfirmed).apply()
     }
 
     /**
@@ -113,7 +116,7 @@ class Store(context: Context) {
      * (it only moves sats from unconfirmed to confirmed) and carries no delta of its own.
      */
     fun pendingMap(chain: Chain): MutableMap<String, Long> {
-        val raw = prefs.getString(keyPending(chain), null) ?: return mutableMapOf()
+        val raw = prefs.getString(k(keyPending(chain)), null) ?: return mutableMapOf()
         return runCatching {
             val obj = org.json.JSONObject(raw)
             val out = mutableMapOf<String, Long>()
@@ -125,7 +128,7 @@ class Store(context: Context) {
     fun setPendingMap(chain: Chain, map: Map<String, Long>) {
         val obj = org.json.JSONObject()
         map.forEach { (k, v) -> obj.put(k, v) }
-        prefs.edit().putString(keyPending(chain), obj.toString()).apply()
+        prefs.edit().putString(k(keyPending(chain)), obj.toString()).apply()
     }
 
     /**
@@ -147,6 +150,7 @@ class Store(context: Context) {
         val clean = url?.trim()?.trimEnd('/')
         if (clean.isNullOrBlank()) prefs.edit().remove("explorer_${chain.id}").apply()
         else prefs.edit().putString("explorer_${chain.id}", clean).apply()
+        setExplorerChosen(chain)
     }
 
     fun defaultExplorer(chain: Chain): String = when (chain) {
@@ -183,20 +187,21 @@ class Store(context: Context) {
      * Taproot (BIP-86). Independent of the xpub prefix, so a plain `xpub` still works.
      */
     var scriptType: ScriptType
-        get() = prefs.getString(KEY_SCRIPT, null)
+        get() = prefs.getString(k(KEY_SCRIPT), null)
             ?.let { runCatching { ScriptType.valueOf(it) }.getOrNull() } ?: ScriptType.P2WPKH
-        set(v) = prefs.edit().putString(KEY_SCRIPT, v.name).apply()
+        set(v) = prefs.edit().putString(k(KEY_SCRIPT), v.name).apply()
 
     // ---------------------------------------------------------------- optional features
     // Ark and Coinjoin are opt-in: a new user sees what they are and accepts before using them.
 
-    /**
-     * A spending wallet shown as watch-only: nothing can be signed or revealed until the owner
-     * switches back with the fingerprint. Kept across restarts and locks.
-     */
-    var watchOnlyView: Boolean
-        get() = prefs.getBoolean("watch_only_view", false)
-        set(v) = prefs.edit().putBoolean("watch_only_view", v).apply()
+    /** Which wallet is on screen: [HOT] (the seed's) or [WATCH] (a separate xpub). Global. */
+    var activeWallet: String
+        get() = prefs.getString("active_wallet", HOT) ?: HOT
+        set(v) = prefs.edit().putString("active_wallet", v).apply()
+
+    /** The user picked their own block explorer (or kept the default on purpose): stop asking. */
+    fun explorerChosen(chain: Chain): Boolean = prefs.getBoolean("explorer_chosen_${chain.id}", false)
+    fun setExplorerChosen(chain: Chain) = prefs.edit().putBoolean("explorer_chosen_${chain.id}", true).apply()
 
     /** The user went through the Coinjoin explainer and accepted it. */
     var coinjoinEnabled: Boolean
@@ -221,15 +226,18 @@ class Store(context: Context) {
 
     fun clearWallet() {
         prefs.edit().apply {
-            remove(KEY_XPUB); remove(KEY_LABEL)
+            remove(k(KEY_XPUB)); remove(k(KEY_LABEL))
             Chain.entries.forEach {
-                remove(keyTotal(it)); remove(keyConf(it)); remove(keyUnconf(it))
-                remove(keyNotConf(it)); remove(keyNotUnconf(it)); remove(keyPending(it))
+                remove(k(keyTotal(it))); remove(k(keyConf(it))); remove(k(keyUnconf(it)))
+                remove(k(keyNotConf(it))); remove(k(keyNotUnconf(it))); remove(k(keyPending(it)))
             }
         }.apply()
     }
 
     companion object {
+        const val HOT = "hot"
+        const val WATCH = "watch"
+
         /** Writes a typed key→value map into [p] (Boolean, Int, Long, Float, String, Set<String>). */
         fun importPrefs(p: android.content.SharedPreferences, values: Map<String, *>) {
             val e = p.edit()

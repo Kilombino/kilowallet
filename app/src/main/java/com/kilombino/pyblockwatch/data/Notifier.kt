@@ -13,7 +13,7 @@ import com.kilombino.pyblockwatch.chain.Chain
  * the SAME wording fires whether the change was caught by the 5-minute background watcher
  * or by the 30-second refresh while the app is open — one voice, one set of channels.
  */
-class Notifier(private val context: Context) {
+class Notifier(private val context: Context, private val titlePrefix: String = "") {
 
     private fun manager() =
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -40,7 +40,7 @@ class Notifier(private val context: Context) {
         ensureChannels()
         val n = Notification.Builder(context, CHANNEL_ALERTS)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentTitle(title)
+            .setContentTitle(titlePrefix + title)
             .setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(text))
             .setAutoCancel(true)
@@ -150,7 +150,7 @@ class Notifier(private val context: Context) {
                  "or the coin has to be withdrawn on-chain.", OpenTab.ARK)
 
     private fun idFor(chain: Chain, phase: String, txid: String): Int =
-        (chain.id + phase + txid).hashCode()
+        (titlePrefix + chain.id + phase + txid).hashCode()
 
     companion object {
         const val CHANNEL_ONGOING = "watch_ongoing"

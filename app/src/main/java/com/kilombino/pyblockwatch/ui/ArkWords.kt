@@ -389,9 +389,10 @@ fun ArkBackupPanel(fingerprint: String?, accent: Color, onMessage: (String) -> U
         }
         Text(status, style = MaterialTheme.typography.bodySmall, color = color)
         Spacer(Modifier.height(4.dp))
-        Explain("Words: the Ark server hands your coins back on a new phone. Backup file: also works " +
-            "if the server disappears (emergency withdrawal on-chain), and keeps your history. Save " +
-            "it again after each movement or renewal." +
+        Explain("Words: the Ark server hands your coins and your movements back on a new phone. The " +
+            "backup file is STILL needed: if the server ever disappears, only the file lets you withdraw " +
+            "your coins on-chain (the emergency exit). Save it again after each movement or renewal; " +
+            "Settings → \"Save a backup file\" includes it." +
             (if (shared) " Your Ark and XBT spending wallets share the same words." else ""))
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
