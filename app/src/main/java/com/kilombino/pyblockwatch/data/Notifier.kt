@@ -149,9 +149,9 @@ class Notifier(private val context: Context, private val titlePrefix: String = "
              "Tap to update it from inside the app.", OpenTab.UPDATE)
 
     fun arkExpiring(blocks: Int) =
-        post(arkId("expiry", ""), "Ark: a coin expires soon",
-             "In about ${blocks * 10 / 1440} days ($blocks blocks). Open the Ark tab and tap RENEW, " +
-                 "or the coin has to be withdrawn on-chain.", OpenTab.ARK)
+        post(arkId("expiry", ""), if (blocks < 432) "Ark: a coin expires in ${blocks * 10 / 60} hours" else "Ark: a coin expires soon",
+             "In about ${blocks * 10 / 1440} days ($blocks blocks). Open the Ark tab and tap RENEW: " +
+                 "once it expires, the Ark server can take it.", OpenTab.ARK)
 
     private fun idFor(chain: Chain, phase: String, txid: String): Int =
         (titlePrefix + chain.id + phase + txid).hashCode()

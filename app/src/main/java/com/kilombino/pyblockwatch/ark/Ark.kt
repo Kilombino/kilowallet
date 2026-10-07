@@ -518,8 +518,13 @@ object Ark {
             val t = txs.firstOrNull { it.txid == txid } ?: return null
             return if (t.height == null) 0 else if (tip < 0) null else (tip - t.height + 1).coerceAtLeast(1)
         }
+        val lost = lostExits()
         val moves = history().map { m ->
-            if (m.kind == "move into Ark" && m.status != "successful") m.copy(confirmations = confs(m.onchainTxid)) else m
+            when {
+                m.kind == "move into Ark" && m.status != "successful" -> m.copy(confirmations = confs(m.onchainTxid))
+                m.kind == "emergency exit" && m.status == "pending" && m.vtxos.any { it in lost } -> m.copy(status = "lost")
+                else -> m
+            }
         }
         val anchored = moves.mapNotNull { it.onchainTxid }.toSet()
         val now = System.currentTimeMillis()
@@ -537,6 +542,87 @@ object Ark {
             )
         }
         return (moves + deposits).sortedByDescending { it.time }
+    }
+
+    /**
+     * Coins in an emergency exit that can no longer finish: the coin expired more than
+     * [Protocol]-style 144 blocks ago and the exit never became claimable, so the server has
+     * swept that branch of its tree (what Ark does with expired coins). The engine keeps
+     * retrying them; the app shows them as lost instead of pending forever.
+     */
+    fun lostExits(): Set<String> = runCatching {
+        val tip = JSONObject(call("GET", "/bitcoin/tip")).optInt("tip_height", -1)
+        if (tip < 0) return@runCatching emptySet<String>()
+        val open = exits().filter { it.type != "claimable" && it.type != "claimed" && it.type != "claim-in-progress" }.map { it.vtxo }.toSet()
+        val arr = JSONArray(call("GET", "/wallet/vtxos"))
+        (0 until arr.length()).map { arr.getJSONObject(it) }
+            .filter { it.optString("id") in open && it.optInt("expiry_height", Int.MAX_VALUE) + 144 < tip }
+            .map { it.getString("id") }.toSet()
+    }.getOrDefault(emptySet())
+
+    // ---------------------------------------------------------------- renewal with rejections
+
+    /** Coins the server refused in a renewal ("input vtxo(s) not spendable"), remembered. */
+    fun rejected(ctx: Context): Set<String> = prefs(ctx).getStringSet("server_rejected", emptySet()) ?: emptySet()
+    private fun setRejected(ctx: Context, ids: Set<String>) = prefs(ctx).edit().putStringSet("server_rejected", ids).apply()
+
+    /**
+     * The coins the last failed round says the server refused. The engine only reports it in
+     * its log ("unusable inputs: [id, id]"), from rounds that finished after [sinceMs].
+     */
+    private fun rejectedSince(ctx: Context, sinceMs: Long): Set<String> {
+        val log = engineLogTail(ctx, 200_000) ?: return emptySet()
+        val iso = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+        val out = HashSet<String>()
+        for (line in log.lines()) {
+            val i = line.indexOf("unusable inputs: [")
+            if (i < 0) continue
+            val at = runCatching { iso.parse(line.substring(1, 20))!!.time }.getOrNull() ?: continue
+            if (at + 1000 < sinceMs) continue
+            line.substring(i + 18).substringBefore(']').split(',').map { it.trim() }.filter { it.contains(':') }.forEach { out += it }
+        }
+        return out
+    }
+
+    /** Waits for the renewal that started after [known] movements to finish: its status, or null on time out. */
+    private fun awaitRenewal(known: Set<String>, timeoutMs: Long = 240_000): String? {
+        val end = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < end) {
+            Thread.sleep(5_000)
+            val m = history().firstOrNull { it.kind == "renewal" && it.id !in known } ?: continue
+            if (m.status != "pending") return m.status
+        }
+        return null
+    }
+
+    /**
+     * Renew [coins], and if the server refuses some of them, set those aside (remembered) and
+     * renew the rest: one bad coin must not sink the round for all the others. Blocking.
+     */
+    fun renewSkippingRejected(ctx: Context, coins: List<String>): String {
+        var todo = coins.filter { it !in rejected(ctx) }.ifEmpty { coins }
+        val refused = LinkedHashSet<String>()
+        repeat(3) {
+            val known = history().filter { it.kind == "renewal" }.map { it.id }.toSet()
+            val start = System.currentTimeMillis()
+            renewCoins(todo)
+            when (awaitRenewal(known)) {
+                "successful" -> {
+                    // Renewed coins are new coins: whatever is still remembered as rejected stays.
+                    return "Renewed ${todo.size} coin(s)." +
+                        (if (refused.isNotEmpty()) " The server refused ${refused.size} other coin(s); they are set aside." else "")
+                }
+                null -> return "Renewal requested; it completes in a coming round."
+                else -> {
+                    val bad = rejectedSince(ctx, start).filter { it in todo }
+                    if (bad.isEmpty()) error("The renewal round failed. SHARE ENGINE LOG (below) says why.")
+                    refused += bad; setRejected(ctx, rejected(ctx) + bad)
+                    todo = todo - bad.toSet()
+                    if (todo.isEmpty()) error("The server refused every chosen coin as not spendable; they are set aside.")
+                }
+            }
+        }
+        error("The renewal kept failing. SHARE ENGINE LOG (below) says why.")
     }
 
     // ---------------------------------------------------------------- coin control

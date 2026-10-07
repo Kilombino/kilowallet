@@ -46,7 +46,8 @@ fun ArkEmergencyPanel(accent: androidx.compose.ui.graphics.Color, activity: andr
     var dest by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf<String?>(null) }
 
-    suspend fun reload() { exits = withContext(Dispatchers.IO) { Ark.exits() } }
+    var lost by remember { mutableStateOf<Set<String>>(emptySet()) }
+    suspend fun reload() { exits = withContext(Dispatchers.IO) { Ark.exits() }; lost = withContext(Dispatchers.IO) { Ark.lostExits() } }
     LaunchedEffect(open) { if (open) reload() }
 
     if (confirm) {
@@ -118,7 +119,7 @@ fun ArkEmergencyPanel(accent: androidx.compose.ui.graphics.Color, activity: andr
         } else {
             exits.forEach { e ->
                 val left = if (e.claimableHeight != null && e.tip != null) e.claimableHeight - e.tip else null
-                val state = when (e.type) {
+                val state = if (e.vtxo in lost) "lost: the coin expired and the server swept it" else when (e.type) {
                     "claimable" -> "ready to claim"
                     "awaiting-delta" -> "waiting the safety delay" + (left?.let { " · claimable in $it blocks (~${it * 10 / 60} h)" } ?: "")
                     "processing" -> "broadcasting its transactions"

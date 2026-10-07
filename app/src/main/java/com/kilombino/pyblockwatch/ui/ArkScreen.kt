@@ -223,8 +223,9 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
                     onConfirm = { chosen ->
                         renew = null
                         secured("Renew Ark coins", "Renewing coins…") {
-                            withContext(Dispatchers.IO) { if (chosen == null) Ark.refreshAll() else Ark.renewCoins(chosen) }
-                            "Renewal requested; it completes in the next round."
+                            withContext(Dispatchers.IO) {
+                                Ark.renewSkippingRejected(ctx, chosen ?: Ark.arkCoins().map { it.id })
+                            }
                         }
                     },
                     onDismiss = { renew = null })
@@ -819,12 +820,15 @@ private fun ArkMovementDialog(m: Ark.Movement, accent: Color, explorer: String, 
  */
 @Composable
 private fun ArkRenewDialog(e: Ark.Estimate, accent: Color, onConfirm: (List<String>?) -> Unit, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
     var coins by remember { mutableStateOf<List<Ark.Coin>>(emptyList()) }
     var picked by remember { mutableStateOf<Set<String>?>(null) }
     var quote by remember { mutableStateOf(e) }
     LaunchedEffect(Unit) {
+        val refused = Ark.rejected(ctx)
         coins = withContext(Dispatchers.IO) { Ark.arkCoins() }
-        picked = coins.map { it.id }.toSet()
+            .map { if (it.id in refused) it.copy(note = it.note + " · REFUSED BY THE SERVER") else it }
+        picked = coins.map { it.id }.filter { it !in refused }.toSet()
     }
     val sel = picked
     LaunchedEffect(sel) {

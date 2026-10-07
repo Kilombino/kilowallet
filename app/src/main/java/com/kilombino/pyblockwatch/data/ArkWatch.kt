@@ -56,7 +56,9 @@ object ArkWatch {
 
         Ark.blocksToNearestExpiry()?.let { blocks ->
             val last = prefs.getLong("expiry_warned", 0)
-            if (blocks in 0 until EXPIRY_WARN_BLOCKS && System.currentTimeMillis() - last > EXPIRY_REPEAT_MS) {
+            // Under 3 days, every 6 hours: an expired coin is the server's to sweep.
+            val every = if (blocks < 432) 6 * 3600 * 1000L else EXPIRY_REPEAT_MS
+            if (blocks in 0 until EXPIRY_WARN_BLOCKS && System.currentTimeMillis() - last > every) {
                 notifier.arkExpiring(blocks)
                 prefs.edit().putLong("expiry_warned", System.currentTimeMillis()).apply()
             }
