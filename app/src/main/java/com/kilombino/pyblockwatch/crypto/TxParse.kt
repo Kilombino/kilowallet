@@ -30,6 +30,31 @@ object TxParse {
         return Tx(version, raw.mapIndexed { i, r -> In(r.first.first, r.first.second, r.second, r.third, wit[i]) }, outs, locktime)
     }
 
+    /**
+     * The txid of [tx]: double SHA-256 of its serialisation without witnesses, shown reversed.
+     * Lets the wallet check that a transaction a server hands back is the one it asked for.
+     */
+    fun txid(tx: Tx): String {
+        val out = java.io.ByteArrayOutputStream()
+        fun le(v: Long, n: Int) { for (i in 0 until n) out.write(((v ushr (8 * i)) and 0xFF).toInt()) }
+        fun varint(n: Long) = when {
+            n < 0xfd -> out.write(n.toInt())
+            n <= 0xffff -> { out.write(0xfd); le(n, 2) }
+            n <= 0xffffffffL -> { out.write(0xfe); le(n, 4) }
+            else -> { out.write(0xff); le(n, 8) }
+        }
+        le(tx.version, 4)
+        varint(tx.inputs.size.toLong())
+        for (i in tx.inputs) {
+            out.write(Hashes.hexToBytes(i.txid).reversedArray()); le(i.vout.toLong(), 4)
+            varint(i.scriptSig.size.toLong()); out.write(i.scriptSig); le(i.sequence, 4)
+        }
+        varint(tx.outputs.size.toLong())
+        for (o in tx.outputs) { le(o.value, 8); varint(o.scriptPubKey.size.toLong()); out.write(o.scriptPubKey) }
+        le(tx.locktime, 4)
+        return with(Hashes) { doubleSha256(out.toByteArray()).reversedArray().toHex() }
+    }
+
     /** A 2-of-2 P2WSH multisig witness script: OP_2 <33> <33> OP_2 OP_CHECKMULTISIG. */
     private fun isTwoOfTwo(ws: ByteArray) = ws.size == 71 && ws[0] == 0x52.toByte() && ws[1] == 0x21.toByte() &&
         ws[35] == 0x21.toByte() && ws[69] == 0x52.toByte() && ws[70] == 0xae.toByte()

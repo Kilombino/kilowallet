@@ -21,7 +21,7 @@ data class ScriptHashBalance(val confirmed: Long, val unconfirmed: Long) {
     val total: Long get() = confirmed + unconfirmed
 }
 
-class ElectrumException(message: String, cause: Throwable? = null) : Exception(message, cause)
+open class ElectrumException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 /**
  * A minimal Electrum protocol 1.4 client.
@@ -105,7 +105,10 @@ class ElectrumClient(
                 val fp = Hashes.sha256(chain[0].encoded).toHex()
                 serverFingerprint = fp
                 if (pinnedFingerprint != null && !pinnedFingerprint.equals(fp, ignoreCase = true)) {
+                    // The pin is enforced: nothing at all is said to a server whose certificate
+                    // changed until the user has checked and accepted the new one.
                     fingerprintChanged = true
+                    throw java.security.cert.CertificateException("certificate changed")
                 }
             }
             override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
@@ -118,9 +121,11 @@ class ElectrumClient(
             ssl.startHandshake()
         } catch (e: Exception) {
             runCatching { ssl.close() }
+            if (fingerprintChanged) throw CertificateChangedException(endpoint, serverFingerprint ?: "")
             // A node on the user's own network (Fulcrum's plain port, usually 50001) often
-            // has no TLS at all: there, and only there, talk to it in the clear.
-            if (isLocal(endpoint.host)) return connectPlain()
+            // has no TLS at all: there, and only there, talk to it in the clear. Never for a
+            // server we hold a pin for: that would be a downgrade around the pin.
+            if (isLocal(endpoint.host) && pinnedFingerprint == null) return connectPlain()
             throw ElectrumException("Could not establish TLS with ${endpoint}: ${e.message}", e)
         }
         socket = ssl
@@ -317,9 +322,16 @@ class ElectrumClient(
     }
 
     /** The raw (hex) transaction for [txid]; throws when the server does not know it. */
-    fun transaction(txid: String): String =
-        call("blockchain.transaction.get", JSONArray().put(txid).put(false))?.toString()
+    fun transaction(txid: String): String {
+        val raw = call("blockchain.transaction.get", JSONArray().put(txid).put(false))?.toString()
             ?: throw ElectrumException("unknown transaction $txid")
+        // Never trust the server's word for what a transaction says: it must hash to the txid
+        // asked for, or a lying server could feed a made-up one (e.g. to a "speed up" that
+        // copies its recipients).
+        val got = runCatching { com.kilombino.pyblockwatch.crypto.TxParse.txid(com.kilombino.pyblockwatch.crypto.TxParse.parse(raw)) }.getOrNull()
+        if (!txid.equals(got, ignoreCase = true)) throw ElectrumException("The server returned a transaction that is not $txid")
+        return raw
+    }
 
     /** Broadcast a raw (hex) transaction. Returns the txid, or throws with the server's reason. */
     fun broadcast(rawTxHex: String): String {
@@ -336,3 +348,7 @@ class ElectrumClient(
         socket = null; reader = null; writer = null
     }
 }
+
+/** The server's TLS certificate is not the pinned one; [fingerprint] is the new one, for the user to check. */
+class CertificateChangedException(val endpoint: NodeEndpoint, val fingerprint: String) :
+    ElectrumException("The certificate of $endpoint has CHANGED; nothing was sent to it. Check the new fingerprint before trusting it.")

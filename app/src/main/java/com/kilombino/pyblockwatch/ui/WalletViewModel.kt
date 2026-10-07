@@ -285,6 +285,10 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                         is ScanEvent.Connected ->
                             if (pin == null && ev.fingerprint != null) ws.pinFingerprint(endpoint, ev.fingerprint)
                         is ScanEvent.Done -> { doneRows = ev.rows; doneTxs = ev.txs; tip = ev.height }
+                        // Shown even on a silent refresh: the user has to decide about it.
+                        is ScanEvent.CertificateChanged -> updateIf(xpub, chain) {
+                            it.copy(fingerprint = ev.fingerprint, fingerprintChanged = true, phase = ScanPhase.Error(ev.message))
+                        }
                         else -> {}
                     }
                 }
@@ -527,6 +531,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                             )
                         }
                         is ScanEvent.Failed -> st.copy(phase = ScanPhase.Error(ev.message))
+                        is ScanEvent.CertificateChanged -> st.copy(phase = ScanPhase.Error(ev.message),
+                            fingerprint = ev.fingerprint, fingerprintChanged = true)
                     }
                 }
             }

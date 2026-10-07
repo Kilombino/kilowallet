@@ -43,6 +43,8 @@ sealed interface ScanEvent {
     data class GapProgress(val chainIndex: Int, val consecutiveEmpty: Int, val gapLimit: Int) : ScanEvent
     data class Done(val rows: List<AddressRow>, val height: Int, val txs: List<TxConf>) : ScanEvent
     data class Failed(val message: String) : ScanEvent
+    /** The server's certificate is not the pinned one: nothing was asked; the user must check [fingerprint]. */
+    data class CertificateChanged(val fingerprint: String, val message: String) : ScanEvent
 }
 
 /** A wallet transaction and how deep it is: pending (in the mempool) or N confirmations. */
@@ -83,6 +85,8 @@ class Scanner(
         val client = ElectrumClient(endpoint, pinnedFingerprint)
         try {
             client.connect()
+        } catch (e: com.kilombino.pyblockwatch.chain.CertificateChangedException) {
+            emit(ScanEvent.CertificateChanged(e.fingerprint, e.message ?: "certificate changed")); return@flow
         } catch (e: Exception) {
             emit(ScanEvent.Failed(e.message ?: "Could not connect")); return@flow
         }
