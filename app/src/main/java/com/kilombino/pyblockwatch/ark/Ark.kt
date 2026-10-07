@@ -239,8 +239,22 @@ object Ark {
         val onchainPending: Long,
         /** Lightning payments received but not yet settled into Ark coins, and sends in flight. */
         val lightningPending: Long = 0,
+        /** Coins the wallet still lists but the server says were spent already (stale state, e.g. an old backup). */
+        val refused: Long = 0,
     ) {
         val arkTotal: Long get() = spendable + pendingBoard + pendingRound
+    }
+
+    /**
+     * The balance without coins the server refused as already spent: those are leftovers of
+     * an older wallet state (an old backup restored, say) and can never be spent again.
+     */
+    fun balance(ctx: Context): Balance {
+        val b = balance()
+        val bad = rejected(ctx)
+        if (bad.isEmpty()) return b
+        val sum = runCatching { arkCoins().filter { it.id in bad }.sumOf { it.amount } }.getOrDefault(0L)
+        return b.copy(spendable = (b.spendable - sum).coerceAtLeast(0), refused = sum)
     }
 
     fun balance(): Balance {
@@ -610,7 +624,7 @@ object Ark {
                 "successful" -> {
                     // Renewed coins are new coins: whatever is still remembered as rejected stays.
                     return "Renewed ${todo.size} coin(s)." +
-                        (if (refused.isNotEmpty()) " The server refused ${refused.size} other coin(s); they are set aside." else "")
+                        (if (refused.isNotEmpty()) " The server says ${refused.size} other coin(s) were already spent earlier (an older wallet state); they no longer count in your balance." else "")
                 }
                 null -> return "Renewal requested; it completes in a coming round."
                 else -> {
@@ -618,7 +632,7 @@ object Ark {
                     if (bad.isEmpty()) error("The renewal round failed. SHARE ENGINE LOG (below) says why.")
                     refused += bad; setRejected(ctx, rejected(ctx) + bad)
                     todo = todo - bad.toSet()
-                    if (todo.isEmpty()) error("The server refused every chosen coin as not spendable; they are set aside.")
+                    if (todo.isEmpty()) error("The server says every chosen coin was already spent earlier (an older wallet state); they no longer count in your balance.")
                 }
             }
         }

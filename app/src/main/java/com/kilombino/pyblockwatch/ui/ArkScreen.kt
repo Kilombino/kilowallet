@@ -126,7 +126,7 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
     var newWords by remember { mutableStateOf<List<String>?>(null) }
 
     suspend fun reload() {
-        val b = withContext(Dispatchers.IO) { runCatching { Ark.balance() }.getOrNull() }
+        val b = withContext(Dispatchers.IO) { runCatching { Ark.balance(ctx) }.getOrNull() }
         balance = b
         expiry = withContext(Dispatchers.IO) { Ark.blocksToNearestExpiry() }
         history = withContext(Dispatchers.IO) { runCatching { Ark.activity() }.getOrDefault(emptyList()) }
@@ -320,6 +320,9 @@ private fun ArkBalancePanel(b: Ark.Balance?, expiry: Int?, boardConfs: Int?, acc
         // Where it is: Ark coins, the on-chain deposit, and Lightning still settling.
         Spacer(Modifier.height(6.dp))
         PocketRow("In Ark", b.spendable, "spendable", Good)
+        if (b.refused > 0) Text("Not counted: " + street("${groupSats(b.refused)} sats") + " in coins the server says were " +
+            "already spent earlier (left over from an older wallet state, such as an old backup).",
+            style = MaterialTheme.typography.bodySmall, color = Warn)
         PocketRow("On-chain deposit", deposit,
             if (b.onchainPending > 0) street(groupSats(b.onchainPending)) + " unconfirmed · not in Ark yet" else "not in Ark yet", TextSoft)
         if (b.lightningPending > 0) PocketRow("Lightning", b.lightningPending, "settling", Warn)
@@ -827,7 +830,7 @@ private fun ArkRenewDialog(e: Ark.Estimate, accent: Color, onConfirm: (List<Stri
     LaunchedEffect(Unit) {
         val refused = Ark.rejected(ctx)
         coins = withContext(Dispatchers.IO) { Ark.arkCoins() }
-            .map { if (it.id in refused) it.copy(note = it.note + " · REFUSED BY THE SERVER") else it }
+            .map { if (it.id in refused) it.copy(note = it.note + " · ALREADY SPENT (says the server)") else it }
         picked = coins.map { it.id }.filter { it !in refused }.toSet()
     }
     val sel = picked
