@@ -190,6 +190,14 @@ class Store(context: Context) {
     // ---------------------------------------------------------------- optional features
     // Ark and Coinjoin are opt-in: a new user sees what they are and accepts before using them.
 
+    /**
+     * A spending wallet shown as watch-only: nothing can be signed or revealed until the owner
+     * switches back with the fingerprint. Kept across restarts and locks.
+     */
+    var watchOnlyView: Boolean
+        get() = prefs.getBoolean("watch_only_view", false)
+        set(v) = prefs.edit().putBoolean("watch_only_view", v).apply()
+
     /** The user went through the Coinjoin explainer and accepted it. */
     var coinjoinEnabled: Boolean
         get() = prefs.getBoolean("coinjoin_enabled", false)

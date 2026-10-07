@@ -134,7 +134,10 @@ data class UiState(
     /** When the next foreground refresh is due (ms since the epoch). */
     val nextRefreshAt: Long = 0,
     val inputError: String? = null,
+    /** Can sign right now: a seed is stored AND the wallet is not shown as watch-only. */
     val isHot: Boolean = false,
+    /** A seed is stored on this phone (it may be shown as watch-only). */
+    val hasSeed: Boolean = false,
     val sendPhase: SendPhase = SendPhase.Editing,
     val setupMode: Boolean = false,
     val utxos: List<com.kilombino.pyblockwatch.data.Scanner.SpendableUtxo>? = null, // null = not loaded
@@ -193,7 +196,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 selected = Chain.BLAKE2B,
                 notificationsEnabled = store.notificationsEnabled,
                 gapLimit = store.gapLimit,
-                isHot = seedVault.hasSeed(),
+                isHot = seedVault.hasSeed() && !store.watchOnlyView,
+                hasSeed = seedVault.hasSeed(),
                 uiMode = store.uiMode,
                 fiat = store.fiat,
                 market = com.kilombino.pyblockwatch.data.MarketFeed.cached(app),
@@ -314,7 +318,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         _state.update {
             it.copy(
                 xpub = trimmed, label = label, scriptType = chosen, inputError = null,
-                isHot = false, setupMode = false,
+                isHot = false, hasSeed = false, setupMode = false,
                 chains = Chain.entries.associateWith { ChainState() },
             )
         }
@@ -527,12 +531,13 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     com.kilombino.pyblockwatch.crypto.Bip32Priv.accountXpub(master, purpose = 84, account = 0)
                 }
                 store.xpub = zpub
+                store.watchOnlyView = false
                 store.label = "Hot wallet"
                 store.scriptType = ScriptType.P2WPKH
                 _state.update {
                     it.copy(
                         xpub = zpub, label = "Hot wallet", scriptType = ScriptType.P2WPKH,
-                        isHot = true, inputError = null, setupMode = false,
+                        isHot = true, hasSeed = true, inputError = null, setupMode = false,
                         chains = Chain.entries.associateWith { ChainState() },
                     )
                 }
@@ -546,6 +551,19 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ------------------------------------------------------------------ optional features
+
+    /** Show the spending wallet as watch-only (no fingerprint needed to go that way). */
+    fun viewAsWatchOnly() {
+        store.watchOnlyView = true
+        _state.update { it.copy(isHot = false, sendPhase = SendPhase.Editing) }
+    }
+
+    /** Back to the spending wallet: call only after the fingerprint check passed. */
+    fun viewAsHot() {
+        if (!seedVault.hasSeed()) return
+        store.watchOnlyView = false
+        _state.update { it.copy(isHot = true) }
+    }
 
     fun coinjoinEnabled(): Boolean = store.coinjoinEnabled
     fun coinjoinNotify(): Boolean = store.coinjoinNotify
@@ -626,7 +644,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
             it.copy(
                 xpub = store.xpub, label = store.label, scriptType = store.scriptType,
                 notificationsEnabled = store.notificationsEnabled, gapLimit = store.gapLimit,
-                isHot = seedVault.hasSeed(), uiMode = store.uiMode, fiat = store.fiat,
+                isHot = seedVault.hasSeed() && !store.watchOnlyView, hasSeed = seedVault.hasSeed(),
+                uiMode = store.uiMode, fiat = store.fiat,
                 chains = Chain.entries.associateWith { ChainState() },
             )
         }

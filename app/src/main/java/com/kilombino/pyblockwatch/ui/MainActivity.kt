@@ -123,10 +123,11 @@ class MainActivity : FragmentActivity() {
                     LaunchedEffect(state.showWallet, state.isHot, state.uiMode) {
                         askCoinjoin = state.showWallet && state.isHot && state.uiMode != null && !vm.coinjoinAsked()
                     }
+                    val askNotif = rememberNotificationPermission()
                     if (askCoinjoin) androidx.compose.ui.window.Dialog(onDismissRequest = {}) {
                         Column(Modifier.verticalScroll(rememberScrollState())) {
                             CoinjoinIntro(Good,
-                                onAccept = { vm.answerCoinjoin(true); askCoinjoin = false },
+                                onAccept = { vm.answerCoinjoin(true); askCoinjoin = false; askNotif() },
                                 onDecline = { vm.answerCoinjoin(false); askCoinjoin = false })
                         }
                     }
@@ -134,7 +135,7 @@ class MainActivity : FragmentActivity() {
                         // Simple / Advanced: chosen once, switchable from the top of either screen.
                         when (state.uiMode) {
                             null -> ModeChooser(vm)
-                            "simple" -> SimpleScreen(state, vm)
+                            "simple" -> SimpleScreen(state, vm, onToggleNotifications = { on -> toggleNotifications(vm, on) })
                             else -> WalletScreen(
                                 state = state, vm = vm,
                                 onToggleNotifications = { on -> toggleNotifications(vm, on) },
@@ -153,6 +154,7 @@ class MainActivity : FragmentActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) {
+            getSharedPreferences("pyblockwatch", MODE_PRIVATE).edit().putBoolean("notif_asked", true).apply()
             notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         vm.setNotificationsEnabled(enable)
@@ -366,10 +368,8 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
         Spacer(Modifier.height(28.dp))
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                state.label.ifBlank { if (state.isHot) "spending wallet" else "watch-only wallet" },
-                style = MaterialTheme.typography.bodySmall, color = TextFaint, modifier = Modifier.weight(1f),
-            )
+            WalletModeSwitch(state, vm, accent)
+            Spacer(Modifier.weight(1f))
             TextButton(onClick = { vm.setUiMode("simple") }) {
                 Text("simple", style = MaterialTheme.typography.bodySmall, color = TextSoft)
             }
@@ -420,14 +420,13 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
                         ) { Text("SEND", style = MaterialTheme.typography.titleMedium) }
                     }
                 }
-                if (!state.isHot) {
+                if (!state.hasSeed) {
                     Button(
                         onClick = { vm.startSetup() },
                         colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = accent),
                         shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
                     ) { Text("＋  CREATE A SPENDING WALLET", style = MaterialTheme.typography.titleMedium) }
                 }
-                if (state.isHot) HotWordsPanel(vm, accent)
             }
         }
 
@@ -457,7 +456,11 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
         }
 
         Reveal(showSettings) {
-            SettingsPanel(state, vm, accent, onToggleNotifications) { vm.forget() }
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                SettingsPanel(state, vm, accent, onToggleNotifications) { vm.forget() }
+                // The recovery words live at the very end of settings.
+                if (state.isHot) HotWordsPanel(vm, accent)
+            }
         }
 
         if (cs.rows.isNotEmpty()) AddressList(cs.rows, accent)
@@ -664,7 +667,7 @@ private fun AddressList(rows: List<AddressRow>, accent: Color) {
 }
 
 @Composable
-private fun SettingsPanel(
+internal fun SettingsPanel(
     state: UiState,
     vm: WalletViewModel,
     accent: Color,
@@ -743,7 +746,8 @@ private fun SettingsPanel(
                     Text("Notify open coinjoin pools", style = MaterialTheme.typography.bodyMedium, color = TextMain)
                     Explain("Checked every 5 minutes with the balance watcher. Your own rounds always notify.")
                 }
-                Switch(checked = cjNotify, onCheckedChange = { cjNotify = it; vm.setCoinjoinNotify(it) },
+                val askNotif = rememberNotificationPermission()
+                Switch(checked = cjNotify, onCheckedChange = { cjNotify = it; vm.setCoinjoinNotify(it); if (it) askNotif() },
                     colors = SwitchDefaults.colors(checkedThumbColor = accent))
             }
             Spacer(Modifier.height(14.dp))
@@ -855,7 +859,7 @@ private fun SettingsPanel(
             onClick = { vm.startSetup() },
             colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = accent),
             shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
-        ) { Text(if (state.isHot) "SWITCH / NEW WALLET" else "CREATE A SPENDING WALLET",
+        ) { Text(if (state.hasSeed) "SWITCH / NEW WALLET" else "CREATE A SPENDING WALLET",
                  style = MaterialTheme.typography.titleMedium) }
         TextButton(onClick = onForget) {
             Text("forget this wallet", color = Bad, style = MaterialTheme.typography.bodySmall)

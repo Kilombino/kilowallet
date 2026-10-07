@@ -118,7 +118,7 @@ private fun ModeCard(title: String, lines: List<String>, accent: Color, onClick:
 }
 
 @Composable
-fun SimpleScreen(state: UiState, vm: WalletViewModel) {
+fun SimpleScreen(state: UiState, vm: WalletViewModel, onToggleNotifications: (Boolean) -> Unit = { vm.setNotificationsEnabled(it) }) {
     // Two tabs: BTC (the BLAKE2b chain) and Spamcoin (the SHA-256 spamchain). Ark lives
     // in advanced mode. Send/Receive work on the selected chain.
     val chain = state.selected
@@ -181,9 +181,13 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Spacer(Modifier.height(28.dp))
+        var showSettings by remember { mutableStateOf(false) }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(state.label.ifBlank { if (state.isHot) "Hot wallet" else "watch-only wallet" },
-                style = MaterialTheme.typography.bodySmall, color = TextFaint, modifier = Modifier.weight(1f))
+            WalletModeSwitch(state, vm, accent)
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = { showSettings = !showSettings }) {
+                Text(if (showSettings) "close" else "settings", style = MaterialTheme.typography.bodySmall, color = TextSoft)
+            }
             TextButton(onClick = { vm.setUiMode("advanced") }) {
                 Text("advanced", style = MaterialTheme.typography.bodySmall, color = TextSoft)
             }
@@ -215,20 +219,29 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel) {
                         ) { Text("SEND", style = MaterialTheme.typography.titleMedium) }
                     }
                 }
-                if (!state.isHot) {
+                if (!state.hasSeed) {
                     Button(
                         onClick = { vm.startSetup() },
                         colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = accent),
                         shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
                     ) { Text("＋  CREATE A SPENDING WALLET", style = MaterialTheme.typography.titleMedium) }
                 }
-                if (state.isHot) HotWordsPanel(vm, accent)
             }
         }
 
+        // The coins with their confirmations first, then the movements.
+        if (!showSend && !showReceive) CoinsCard(state, vm, chain, accent)
         if (!showSend && !showReceive && cs.transactions.isNotEmpty())
             MovementsCard(cs.transactions, accent, vm.explorerFor(chain), vm, state.isHot,
                 if (chain == Chain.BLAKE2B) "sats" else "poolsats")
+
+        // Settings, with the recovery words at their very end.
+        Reveal(showSettings) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                SettingsPanel(state, vm, accent, onToggleNotifications) { vm.forget() }
+                if (state.isHot) HotWordsPanel(vm, accent)
+            }
+        }
 
         AddWidgetButton(accent)
         Spacer(Modifier.height(30.dp))
