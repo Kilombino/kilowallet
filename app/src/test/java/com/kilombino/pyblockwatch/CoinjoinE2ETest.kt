@@ -113,4 +113,52 @@ class CoinjoinE2ETest {
         assertNotNull(a.state.txid)
         a.stop(); b.stop()
     }
+    /**
+     * A private pool on the live relay: a join with the wrong password is refused, one with
+     * the right password gets in, and the round completes to a confirmed regtest transaction.
+     * KILOJOIN_E2E_PRIVATE=<coins file> with three funded coins.
+     */
+    @Test fun privatePool() {
+        val path = System.getenv("KILOJOIN_E2E_PRIVATE") ?: return
+        Protocol.NETWORK = "blake2b-regtest"
+        val coins = java.io.File(path).readLines().filter { it.isNotBlank() }.map { it.trim().split(" ") }
+            .map { (seed, txid, vout, value) -> seed.toInt() to CoinjoinTx.Coin(txid, vout.toInt(), value.toLong(), pub(key(seed.toInt()))) }
+        val salt = System.nanoTime() % 1_000_000
+        val (terms, secret) = PoolSession.newPool(100_000, 3.0, 5, 1, private = true)
+        assertEquals(true, terms.private)
+        val a = PoolSession(Env("A"), PoolSession.newState(terms, true, secret, coins[0].second, key(coins[0].first), "a",
+            script(60_000 + salt), script(61_000 + salt), password = "secreto"))
+        a.start(); waitFor("A open") { a.state.phase == PoolSession.Phase.OPEN }
+
+        // The terms as anyone sees them on the relay: marked private.
+        val found = java.util.concurrent.CompletableFuture<Protocol.Terms>()
+        val r = RelayClient(Protocol.RELAY, { _, ev -> Protocol.Terms.parse(ev)?.let { if (it.id == terms.id) found.complete(it) } })
+        r.connect(); r.subscribe("p", listOf(JSONObject().put("kinds", JSONArray().put(Protocol.KIND_POOL)).put("#d", JSONArray().put(terms.id))))
+        val seen = found.get(30, java.util.concurrent.TimeUnit.SECONDS); r.close()
+        assertEquals(true, seen.private)
+
+        val wrong = PoolSession(Env("B-wrong"), PoolSession.newState(seen, false, null, coins[1].second, key(coins[1].first), "b",
+            script(62_000 + salt), script(63_000 + salt), password = "mal"))
+        wrong.start()
+        waitFor("wrong password refused") { wrong.state.phase == PoolSession.Phase.REJECTED }
+        assertEquals("wrong password", wrong.state.reason)
+        assertEquals(1, a.state.seats.size)
+        wrong.stop()
+
+        val right = PoolSession(Env("C-right"), PoolSession.newState(seen, false, null, coins[2].second, key(coins[2].first), "c",
+            script(64_000 + salt), script(65_000 + salt), password = "secreto"))
+        right.start()
+        waitFor("right password welcomed") { right.state.phase == PoolSession.Phase.OPEN && right.state.seats.size == 2 }
+
+        right.requestClose()
+        waitFor("A asked") { a.state.phase == PoolSession.Phase.VOTING }
+        a.vote(true)
+        waitFor("signing", 180) { a.state.phase == PoolSession.Phase.SIGNING && right.state.phase == PoolSession.Phase.SIGNING }
+        a.sign(key(coins[0].first)); right.sign(key(coins[2].first))
+        waitFor("broadcast") { a.state.txid != null && right.state.txid != null }
+        rpc("generatetoaddress", 1, rpc("getnewaddress") as String)
+        waitFor("confirmed", 60) { a.state.phase == PoolSession.Phase.CONFIRMED && right.state.phase == PoolSession.Phase.CONFIRMED }
+        println("private txid ${a.state.txid}")
+        a.stop(); right.stop()
+    }
 }
