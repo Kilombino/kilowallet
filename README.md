@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/icon.png" alt="Kilowallet" width="160"></p>
+
 # Kilowallet
 
 Kilombino's Bitcoin BLAKE2b (XBT) wallet, formerly "Kilombino Bitcoin-Blake2b wallet".
