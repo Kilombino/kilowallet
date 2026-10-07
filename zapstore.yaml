@@ -1,6 +1,6 @@
 repository: https://github.com/Kilombino/kilowallet
 name: Kilowallet
-summary: Bitcoin BLAKE2b wallet: hot + watch-only, coinjoin, Ark and Lightning, full backup
+summary: "Bitcoin BLAKE2b wallet: hot + watch-only, coinjoin, Ark and Lightning, full backup"
 images:
   - ./screenshots/1-onboarding.jpg
   - ./screenshots/3-hot-wallet.jpg
