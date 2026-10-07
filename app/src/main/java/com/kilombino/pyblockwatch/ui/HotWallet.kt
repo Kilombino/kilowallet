@@ -356,7 +356,8 @@ private fun SeedBackup(
 @Composable
 fun RestoreScreen(vm: WalletViewModel, onBack: () -> Unit) {
     val activity = LocalContext.current as FragmentActivity
-    var phrase by remember { mutableStateOf("") }
+    // The words as 12 (or 24) boxes; see SeedWordsInput.
+    val words = remember { androidx.compose.runtime.mutableStateListOf<String>().apply { repeat(12) { add("") } } }
     var passphrase by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -374,22 +375,18 @@ fun RestoreScreen(vm: WalletViewModel, onBack: () -> Unit) {
         Panel(accent = Purple) {
             SectionLabel("Enter your seed words")
             Spacer(Modifier.height(8.dp))
-            Explain("Type your 12 or 24 BIP-39 words, separated by spaces. They are checked before " +
-                "anything is stored, and then encrypted behind your biometric. If the wallet had a " +
-                "passphrase, type it below exactly; if it had none, leave it empty.")
+            Explain("Type your 12 or 24 BIP-39 words, one per box (or paste them all in the first). " +
+                "Tap a suggestion to fill a word in. They are checked before anything is stored, and " +
+                "then encrypted behind your biometric. If the wallet had a passphrase, type it below " +
+                "exactly; if it had none, leave it empty.")
         }
-        OutlinedTextField(
-            value = phrase, onValueChange = { phrase = it; error = null },
-            label = { Text("seed words", style = MaterialTheme.typography.bodySmall) },
-            textStyle = MaterialTheme.typography.bodyMedium,
-            minLines = 3, modifier = Modifier.fillMaxWidth(),
-        )
-        PassphraseFields(phrase.trim().lowercase().split(Regex("\\s+")), passphrase, { passphrase = it }, null, null)
+        SeedWordsInput(words)
+        PassphraseFields(words.toList(), passphrase, { passphrase = it }, null, null)
         error?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall) }
         Button(
             onClick = {
-                val words = phrase.trim().lowercase().split(Regex("\\s+"))
-                if (!Bip39.isValid(words)) { error = "Those words are not a valid BIP-39 seed."; return@Button }
+                val words = seedWordsOrNull(words) ?: run { error = "Fill in every word with a BIP-39 word."; return@Button }
+                if (!Bip39.isValid(words)) { error = "These words are not a valid seed: one is wrong or out of order (the checksum fails)."; return@Button }
                 runCatching { vm.seedEncryptCipher() }.onSuccess { cipher ->
                     Biometric.authenticate(
                         activity, "Protect your seed", "Unlock to encrypt and store it", cipher,
@@ -398,7 +395,7 @@ fun RestoreScreen(vm: WalletViewModel, onBack: () -> Unit) {
                     )
                 }.onFailure { error = it.message }
             },
-            enabled = phrase.isNotBlank(),
+            enabled = words.all { it.isNotBlank() },
             colors = ButtonDefaults.buttonColors(containerColor = Purple, contentColor = Ink),
             shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
         ) { Text("RESTORE", style = MaterialTheme.typography.titleMedium) }
