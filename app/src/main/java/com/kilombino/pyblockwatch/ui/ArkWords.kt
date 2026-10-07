@@ -212,7 +212,8 @@ fun ArkActivate(vm: WalletViewModel, accent: Color, onReady: (newWords: List<Str
         }
         Spacer(Modifier.height(10.dp))
         Explain(if (hot) "Ark will use the same words as your XBT spending wallet, so one set of words " +
-                    "backs up both. You will be asked to unlock."
+                    "backs up both. You will be asked to unlock. Ark keeps them so it can renew coins in the " +
+                    "background, so on an unlocked phone they are readable without the fingerprint."
                 else "Ark gets new words. Write them down when they appear. If you create an XBT " +
                     "spending wallet later, it can use these same words.")
         Spacer(Modifier.height(12.dp))

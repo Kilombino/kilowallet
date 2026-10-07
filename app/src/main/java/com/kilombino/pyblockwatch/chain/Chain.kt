@@ -46,6 +46,8 @@ enum class Chain(
     val allowsCustomNode: Boolean get() = true
 
     companion object {
+        /** BLAKE2b proof of work from this block on; coins older than it exist on both chains. */
+        const val BLAKE2B_FORK_HEIGHT = 961_640
         /**
          * Well-known public Electrum servers for the SHA-256 chain, tried in this order
          * when one does not answer. Each was checked to answer every call the app makes.

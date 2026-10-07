@@ -485,6 +485,16 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                 if (d.chain == com.kilombino.pyblockwatch.chain.Chain.BLAKE2B)
                     Text("Signed with the unified sighash: valid only on BTC, it can't be replayed on the spamchain.",
                          color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                // A spamchain spend is signed the legacy way (the SHA-256 chain knows nothing
+                // else), so if its coins existed before the fork the same bytes are also valid on
+                // BTC: anyone can rebroadcast them there.
+                if (d.chain == com.kilombino.pyblockwatch.chain.Chain.SHA256 &&
+                    d.inputs.any { it.height in 1 until com.kilombino.pyblockwatch.chain.Chain.BLAKE2B_FORK_HEIGHT })
+                    Text("⚠️ Some of these coins are from before the fork (block ${com.kilombino.pyblockwatch.chain.Chain.BLAKE2B_FORK_HEIGHT}). " +
+                        "This spend is then valid on BTC too: anyone can rebroadcast it there, moving the same coins on BTC " +
+                        "to the same addresses. Move those coins on the BTC tab first (that splits them), or only send to " +
+                        "an address you also control on BTC.",
+                        color = Warn, style = MaterialTheme.typography.bodySmall)
                 RowLine("Fee", "${groupSats(d.fee)} sats", accent)
                 RowLine("Change", if (d.change > 0) "${groupSats(d.change)} sats" else "—", accent)
                 RowLine("Inputs", "${d.inputs.size}", accent)
