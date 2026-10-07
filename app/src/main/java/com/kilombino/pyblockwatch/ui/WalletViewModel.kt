@@ -257,6 +257,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
      * change deserves a notification (mempool arrival, first confirmation, …).
      */
     fun refresh(chain: Chain) {
+        // This wallet's store and notifier, fixed now: a switch to the other wallet while this
+        // runs must not file its figures (or its notifications) under the other one.
+        val ws = store; val nf = notifier
         if (!mayContact(chain)) return
         val xpub = _state.value.xpub ?: return
         val cs = _state.value.chains[chain] ?: return
@@ -268,8 +271,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch {
             runCatching {
-                val endpoint = store.endpoint(chain)
-                val pin = store.pinnedFingerprint(endpoint)
+                val endpoint = ws.endpoint(chain)
+                val pin = ws.pinnedFingerprint(endpoint)
                 // A SILENT gap-walk (no "scanning" flicker): unlike a plain balance refresh it
                 // re-derives the branches, so a payment to a freshly handed-out receive address,
                 // and the change address a spend just created, are DISCOVERED while the app is
@@ -277,20 +280,20 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 var doneRows: List<AddressRow>? = null
                 var doneTxs: List<TxConf> = emptyList()
                 var tip = cs.height
-                scanner.scan(xpub, chain, endpoint, pin, store.scriptType, store.gapLimit).collect { ev ->
+                scanner.scan(xpub, chain, endpoint, pin, ws.scriptType, ws.gapLimit).collect { ev ->
                     when (ev) {
                         is ScanEvent.Connected ->
-                            if (pin == null && ev.fingerprint != null) store.pinFingerprint(endpoint, ev.fingerprint)
+                            if (pin == null && ev.fingerprint != null) ws.pinFingerprint(endpoint, ev.fingerprint)
                         is ScanEvent.Done -> { doneRows = ev.rows; doneTxs = ev.txs; tip = ev.height }
                         else -> {}
                     }
                 }
                 val rows = doneRows ?: return@runCatching
-                noteUsed(rows)
+                if (_state.value.xpub == xpub) noteUsed(rows)
                 val conf = rows.sumOf { it.confirmed }
                 val unconf = rows.sumOf { it.unconfirmed }
-                store.setLastBalance(chain, conf, unconf)
-                if (store.notificationsEnabled) {
+                ws.setLastBalance(chain, conf, unconf)
+                if (ws.notificationsEnabled) {
                     BalanceWatch.evaluate(store, notifier, chain, conf, unconf, doneTxs)
                 }
                 updateIf(xpub, chain) {
@@ -315,6 +318,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         // Stop whatever the other wallet was scanning, or its results land on this one.
         jobs.values.forEach(Job::cancel); jobs.clear()
         store = Store(getApplication(), Store.WATCH)
+        store.clearWallet() // a new watch-only wallet starts with no notification baseline
         store.activeWallet = Store.WATCH
         // Watch-only never asks simple/advanced: it starts simple.
         if (store.uiMode == null) store.uiMode = "simple"
@@ -475,15 +479,18 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun scan(chain: Chain) {
+        // This wallet's store and notifier, fixed now: a switch to the other wallet while this
+        // runs must not file its figures (or its notifications) under the other one.
+        val ws = store; val nf = notifier
         if (!mayContact(chain)) return
         val xpub = _state.value.xpub ?: return
         jobs[chain]?.cancel()
-        val endpoint = store.endpoint(chain)
-        val pin = store.pinnedFingerprint(endpoint)
+        val endpoint = ws.endpoint(chain)
+        val pin = ws.pinnedFingerprint(endpoint)
 
         jobs[chain] = viewModelScope.launch {
             val found = mutableListOf<AddressRow>()
-            scanner.scan(xpub, chain, endpoint, pin, store.scriptType, store.gapLimit).collect { ev ->
+            scanner.scan(xpub, chain, endpoint, pin, ws.scriptType, ws.gapLimit).collect { ev ->
                 updateIf(xpub, chain) { st ->
                     when (ev) {
                         is ScanEvent.Connecting ->
@@ -492,7 +499,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                         is ScanEvent.Connected -> {
                             // First sight of this server's certificate: pin it silently.
                             // A CHANGE is never auto-accepted — the UI asks.
-                            if (pin == null && ev.fingerprint != null) store.pinFingerprint(endpoint, ev.fingerprint)
+                            if (pin == null && ev.fingerprint != null) ws.pinFingerprint(endpoint, ev.fingerprint)
                             st.copy(server = ev.server, height = ev.height, fingerprint = ev.fingerprint,
                                     fingerprintChanged = ev.fingerprintChanged)
                         }
@@ -509,7 +516,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                             noteUsed(ev.rows)
                             // Reset the notification baseline to what the user is now looking at,
                             // so the watcher only fires on genuinely new movement.
-                            store.setLastBalance(
+                            ws.setLastBalance(
                                 chain,
                                 ev.rows.sumOf { it.confirmed },
                                 ev.rows.sumOf { it.unconfirmed },
