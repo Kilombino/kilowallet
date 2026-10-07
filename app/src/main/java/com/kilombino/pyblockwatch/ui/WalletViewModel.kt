@@ -316,6 +316,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         jobs.values.forEach(Job::cancel); jobs.clear()
         store = Store(getApplication(), Store.WATCH)
         store.activeWallet = Store.WATCH
+        // Watch-only never asks simple/advanced: it starts simple.
+        if (store.uiMode == null) store.uiMode = "simple"
         store.xpub = trimmed
         store.label = label
         // Default derivation: honour a specific prefix (ypub → nested, zpub → native),
@@ -329,7 +331,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         _state.update {
             it.copy(
                 xpub = trimmed, label = label, scriptType = chosen, inputError = null,
-                isHot = false, hasSeed = false, setupMode = false,
+                isHot = false, hasSeed = seedVault.hasSeed(), setupMode = false, uiMode = store.uiMode,
                 chains = Chain.entries.associateWith { ChainState() },
             )
         }
@@ -362,6 +364,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     /** Open the wallet chooser (dice / restore / watch-only) even when a wallet already exists. */
     /** Remember which home screen to show. */
     fun setUiMode(mode: String) {
+        if (store.activeWallet != Store.WATCH) store.hotModeChosen = true
         store.uiMode = mode
         _state.update { it.copy(uiMode = mode) }
     }
@@ -552,13 +555,14 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 store = Store(getApplication(), Store.HOT)
                 store.activeWallet = Store.HOT
+                if (!store.hotModeChosen) store.uiMode = null
                 store.xpub = zpub
                 store.label = "Hot wallet"
                 store.scriptType = ScriptType.P2WPKH
                 _state.update {
                     it.copy(
                         xpub = zpub, label = "Hot wallet", scriptType = ScriptType.P2WPKH,
-                        isHot = true, hasSeed = true, inputError = null, setupMode = false,
+                        isHot = true, hasSeed = true, inputError = null, setupMode = false, uiMode = store.uiMode,
                         chains = Chain.entries.associateWith { ChainState() },
                     )
                 }
@@ -593,6 +597,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         jobs.values.forEach(Job::cancel); jobs.clear()
         store = Store(getApplication(), wallet)
         store.activeWallet = wallet
+        // First time on the hot wallet: ask simple or advanced.
+        if (wallet == Store.HOT && !store.hotModeChosen) store.uiMode = null
         _state.update { it.copy(sendPhase = SendPhase.Editing, utxos = null, utxosChain = null) }
         reloadFromStore()
     }

@@ -117,6 +117,34 @@ class MainActivity : FragmentActivity() {
                             openTab == com.kilombino.pyblockwatch.data.OpenTab.COINJOIN)) vm.setUiMode("advanced")
                 }
                 Box(Modifier.fillMaxSize().background(Ink)) {
+                    // A newer release on GitHub: offer it once per version.
+                    var update by remember { mutableStateOf<com.kilombino.pyblockwatch.data.UpdateCheck.Release?>(null) }
+                    LaunchedEffect(Unit) {
+                        val prefs = getSharedPreferences("pyblockwatch", MODE_PRIVATE)
+                        if (prefs.getBoolean("check_updates", true)) {
+                            val current = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: ""
+                            val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                com.kilombino.pyblockwatch.data.UpdateCheck.check(current)
+                            }
+                            if (r != null && prefs.getString("update_dismissed", null) != r.version) update = r
+                        }
+                    }
+                    update?.let { r ->
+                        val uri = androidx.compose.ui.platform.LocalUriHandler.current
+                        AlertDialog(
+                            onDismissRequest = { update = null },
+                            title = { Text("Kilowallet ${r.version} is out") },
+                            text = { Text("A newer version is published. Get it from Zapstore, or download the APK from " +
+                                "GitHub (it installs over this one and keeps everything).", style = MaterialTheme.typography.bodySmall) },
+                            confirmButton = { TextButton(onClick = { runCatching { uri.openUri(r.apkUrl ?: r.url) }; update = null }) {
+                                Text("DOWNLOAD", color = Purple) } },
+                            dismissButton = { TextButton(onClick = {
+                                getSharedPreferences("pyblockwatch", MODE_PRIVATE).edit().putString("update_dismissed", r.version).apply()
+                                update = null
+                            }) { Text("NOT NOW", color = TextSoft) } },
+                            containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
+                        )
+                    }
                     // A new spending wallet is asked once whether it wants coinjoins.
                     var askCoinjoin by remember { mutableStateOf(false) }
                     // After the simple/advanced choice, not on top of it.
@@ -209,10 +237,14 @@ private fun OnboardingScreen(state: UiState, vm: WalletViewModel) {
         if (state.hasWallet) {
             Explain("Creating or importing a wallet here REPLACES the current one. Your coins are " +
                 "safe on-chain; make sure you still have this wallet's backup before switching.")
+        } else {
+            Explain("Kilowallet holds two different wallets that live side by side: a HOT wallet you " +
+                "spend from, and a WATCH-ONLY one that only looks at another wallet. Start with " +
+                "whichever you want; you can add the other one later from the top of the screen.")
         }
 
         Panel(accent = Purple) {
-            SectionLabel("A spending wallet")
+            SectionLabel("Hot wallet")
             Spacer(Modifier.height(8.dp))
             Explain(
                 "Create a wallet you can send from. Its seed is generated on THIS phone — roll " +
@@ -237,7 +269,7 @@ private fun OnboardingScreen(state: UiState, vm: WalletViewModel) {
         }
 
         Panel(accent = Orange) {
-            SectionLabel("Or watch only", Orange)
+            SectionLabel("Watch-only wallet", Orange)
             Spacer(Modifier.height(8.dp))
             Explain(
                 "Paste an extended PUBLIC key (xpub/ypub/zpub) to watch balances without any way " +
@@ -279,6 +311,31 @@ private fun OnboardingScreen(state: UiState, vm: WalletViewModel) {
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("WATCH BOTH CHAINS", style = MaterialTheme.typography.titleMedium) }
+        }
+
+        // The home-screen widget, for those who only want the price.
+        Panel(accent = Good) {
+            SectionLabel("Widget", Good)
+            Spacer(Modifier.height(8.dp))
+            Explain("Only the price? Put the BTC widget on your home screen: price and Poolsats with their " +
+                "24h change, network hashrate, mining figures and a converter. No wallet needed.")
+            Spacer(Modifier.height(8.dp))
+            androidx.compose.foundation.Image(
+                painter = androidx.compose.ui.res.painterResource(com.kilombino.pyblockwatch.R.drawable.widget_preview),
+                contentDescription = "The BTC widget", contentScale = androidx.compose.ui.layout.ContentScale.FillWidth,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)))
+            Spacer(Modifier.height(8.dp))
+            val ctx = LocalContext.current
+            val mgr = ctx.getSystemService(android.appwidget.AppWidgetManager::class.java)
+            Button(
+                onClick = { runCatching { mgr?.requestPinAppWidget(
+                    android.content.ComponentName(ctx, com.kilombino.pyblockwatch.widget.XbtWidget::class.java), null, null) } },
+                enabled = mgr?.isRequestPinAppWidgetSupported == true,
+                colors = ButtonDefaults.buttonColors(containerColor = Good, contentColor = Ink),
+                shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
+            ) { Text("＋ ADD THE WIDGET TO MY HOME SCREEN", style = MaterialTheme.typography.titleSmall) }
+            if (mgr?.isRequestPinAppWidgetSupported != true)
+                Explain("Your launcher does not let apps add widgets: long-press the home screen → Widgets → Kilowallet.")
         }
 
         Explain(
@@ -777,13 +834,13 @@ internal fun SettingsPanel(
         var nodeOpen by remember { mutableStateOf(false) }
         Row(Modifier.fillMaxWidth().clickable { nodeOpen = !nodeOpen }.padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Text("${chain.display} node & explorer", style = MaterialTheme.typography.bodyMedium, color = TextMain,
+            Text("${if (chain == Chain.BLAKE2B) "BTC" else "Spamcoin"} node & explorer", style = MaterialTheme.typography.bodyMedium, color = TextMain,
                 modifier = Modifier.weight(1f))
             Text(if (nodeOpen) "▾" else "▸", color = accent, style = MaterialTheme.typography.titleMedium)
         }
         if (nodeOpen) Column {
             if (chain.allowsCustomNode) {
-                Text("Your own ${chain.display} node",
+                Text("Your own ${if (chain == Chain.BLAKE2B) "BTC" else "Spamcoin"} node",
                      style = MaterialTheme.typography.bodyMedium, color = TextMain)
                 Explain(if (chain == Chain.BLAKE2B) "One person, one node: put your own here. Leave empty to use " +
                         "${chain.defaultHost}:${chain.defaultPort}, meant for emergencies."
@@ -817,7 +874,7 @@ internal fun SettingsPanel(
             // Block explorer used to open a movement. Any mempool.space-style site works.
             var explorer by remember(chain) { mutableStateOf(vm.explorerFor(chain)) }
             var explorerMsg by remember(chain) { mutableStateOf<String?>(null) }
-            Text("${chain.display} block explorer",
+            Text("${if (chain == Chain.BLAKE2B) "BTC" else "Spamcoin"} block explorer",
                  style = MaterialTheme.typography.bodyMedium, color = TextMain)
             Explain("Where a movement opens when you tap it. Default: ${vm.defaultExplorerFor(chain)}.")
             Spacer(Modifier.height(6.dp))
@@ -858,12 +915,50 @@ internal fun SettingsPanel(
                 style = MaterialTheme.typography.bodySmall, color = TextFaint,
             )
         }
+        // The extended public key, behind the fingerprint: QR and text, a tap copies it.
+        run {
+            val activity = LocalContext.current as FragmentActivity
+            val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+            var showXpub by remember { mutableStateOf(false) }
+            var copied by remember { mutableStateOf(false) }
+            val key = state.xpub
+            if (key != null) {
+                Spacer(Modifier.height(10.dp))
+                TextButton(onClick = {
+                    if (showXpub) showXpub = false
+                    else Biometric.confirm(activity, "Show the public key", "It reveals every address of this wallet",
+                        onSuccess = { showXpub = true }, onError = {})
+                }) { Text(if (showXpub) "hide ${key.take(4)}" else "SHOW ${key.take(4).uppercase()} (QR)", color = accent,
+                        style = MaterialTheme.typography.bodySmall) }
+                if (showXpub) {
+                    Explain("Anyone with it sees every address and payment of this wallet (but cannot spend). Share it only " +
+                        "with software you trust, e.g. to watch this wallet from another phone.")
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { QrImage(key, 240) }
+                    Text(key, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = TextMain,
+                        modifier = Modifier.clickable { clipboard.setText(androidx.compose.ui.text.AnnotatedString(key)); copied = true })
+                    Text(if (copied) "copied ✓" else "tap the key to copy it", style = MaterialTheme.typography.bodySmall,
+                        color = if (copied) Good else TextFaint)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            var updates by remember { mutableStateOf(activity.getSharedPreferences("pyblockwatch", android.content.Context.MODE_PRIVATE).getBoolean("check_updates", true)) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Check for new versions", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                    Explain("When the app opens it asks GitHub whether a newer Kilowallet is out (GitHub sees the request).")
+                }
+                Switch(checked = updates, onCheckedChange = {
+                    updates = it
+                    activity.getSharedPreferences("pyblockwatch", android.content.Context.MODE_PRIVATE).edit().putBoolean("check_updates", it).apply()
+                }, colors = SwitchDefaults.colors(checkedThumbColor = accent))
+            }
+        }
         Spacer(Modifier.height(6.dp))
         Button(
             onClick = { vm.startSetup() },
             colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = accent),
             shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
-        ) { Text(if (state.hasSeed) "SWITCH / NEW WALLET" else "CREATE A SPENDING WALLET",
+        ) { Text(if (state.isHot) "SWITCH / NEW WALLET" else "CREATE A DIFFERENT HOT WALLET",
                  style = MaterialTheme.typography.titleMedium) }
         TextButton(onClick = onForget) {
             Text("forget this wallet", color = Bad, style = MaterialTheme.typography.bodySmall)

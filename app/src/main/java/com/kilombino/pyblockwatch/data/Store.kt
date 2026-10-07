@@ -199,6 +199,16 @@ class Store(context: Context, private val profile: String = HOT) {
         get() = prefs.getString("active_wallet", HOT) ?: HOT
         set(v) = prefs.edit().putString("active_wallet", v).apply()
 
+    /** Simple/advanced was chosen for the hot wallet (watch-only never asks). */
+    var hotModeChosen: Boolean
+        get() = prefs.getBoolean("hot_mode_chosen", prefs.getString("ui_mode", null) != null && prefs.getString("xpub", null) != null)
+        set(v) = prefs.edit().putBoolean("hot_mode_chosen", v).apply()
+
+    /** Look on GitHub for a newer release when the app opens. */
+    var checkUpdates: Boolean
+        get() = prefs.getBoolean("check_updates", true)
+        set(v) = prefs.edit().putBoolean("check_updates", v).apply()
+
     /** The user picked their own block explorer (or kept the default on purpose): stop asking. */
     fun explorerChosen(chain: Chain): Boolean = prefs.getBoolean("explorer_chosen_${chain.id}", false)
     fun setExplorerChosen(chain: Chain) = prefs.edit().putBoolean("explorer_chosen_${chain.id}", true).apply()
