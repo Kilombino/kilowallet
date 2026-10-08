@@ -293,6 +293,16 @@ private fun CoinPicker(
                 }
             }
         }
+        // Coins that cover the amount but not this pool's fee (an exact coin made for a pool at a
+        // lower rate, say): shown, not hidden, so it is clear why they can't be picked.
+        list?.filter { it.value in amount until min }?.sortedByDescending { it.value }?.forEach { u ->
+            Column(Modifier.fillMaxWidth().padding(10.dp)) {
+                Text("${groupSats(u.value)} sats", color = TextFaint, style = MaterialTheme.typography.bodyMedium)
+                Text("${groupSats(min - u.value)} sats short of this pool's fee (${fmtRate(feeRate)} sat/vB): " +
+                    "it fits a pool at a lower rate", color = Warn, style = MaterialTheme.typography.bodySmall)
+                Text("${u.txid.take(10)}…:${u.vout}", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+            }
+        }
         // The perfect coin: exactly the amount plus this pool's fee, so nobody gets change.
         val exact = amount + CoinjoinTx.feeShare(feeRate, false)
         var making by remember { mutableStateOf(false) }

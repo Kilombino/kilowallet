@@ -224,8 +224,7 @@ object CoinjoinHub {
                 return try { c.connect(); f(c) } finally { c.close() }
             }
             override fun coinUnspent(coin: CoinjoinTx.Coin): Boolean = electrum { c ->
-                c.listUnspent(Address.electrumScriptHash(coin.script))
-                    .any { it.txid == coin.txid && it.vout == coin.vout && it.value == coin.value }
+                c.isUnspent(Address.electrumScriptHash(coin.script), coin.txid, coin.vout, coin.value)
             }
             override fun broadcast(rawHex: String): String = electrum { it.broadcast(rawHex) }
             override fun confirmations(txid: String): Int? = electrum { c ->

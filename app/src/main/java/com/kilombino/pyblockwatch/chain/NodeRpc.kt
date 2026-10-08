@@ -321,6 +321,12 @@ class NodeRpcBackend(private val node: RpcNode) {
 
     fun listUnspent(sh: String): List<ElectrumClient.Utxo> = utxos[sh].orEmpty()
 
+    /** Any coin, ours or not, unspent with exactly [value] sats (mempool spends count as spent). */
+    fun isUnspent(txid: String, vout: Int, value: Long): Boolean {
+        val o = call("gettxout", txid, vout, true) as? JSONObject ?: return false
+        return Math.round(o.getDouble("value") * 1e8) == value
+    }
+
     fun estimateFeePerKb(blocks: Int): Double = runCatching {
         (call("estimatesmartfee", blocks) as JSONObject).let { if (it.has("feerate")) it.getDouble("feerate") else -1.0 }
     }.getOrDefault(-1.0)

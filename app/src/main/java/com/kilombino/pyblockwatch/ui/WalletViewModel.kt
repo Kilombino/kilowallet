@@ -1569,6 +1569,16 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Every coin in [rows] (immature mined rewards included), by scripthash: for showing, not spending. */
+    suspend fun addressCoins(chain: Chain, rows: List<AddressRow>): Map<String, List<Scanner.SpendableUtxo>> {
+        val endpoint = store.endpoint(chain)
+        val u = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            scanner.listCoins(rows, endpoint, store.pinnedFingerprint(endpoint))
+        }
+        val byKey = rows.associateBy { it.chainIndex to it.index }
+        return u.groupBy { byKey[it.chainIndex to it.index]?.scriptHash ?: "" }
+    }
+
     suspend fun coinjoinCoins(): List<Scanner.SpendableUtxo> {
         val cs = _state.value.chains[Chain.BLAKE2B] ?: return emptyList()
         val endpoint = store.endpoint(Chain.BLAKE2B)

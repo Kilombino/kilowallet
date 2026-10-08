@@ -242,6 +242,21 @@ class Scanner(
         val chainIndex: Int, val index: Int, val height: Int,
     )
 
+    /** Every unspent output in [rows], immature mined rewards included (for display). */
+    suspend fun listCoins(
+        rows: List<AddressRow>, endpoint: NodeEndpoint, pinnedFingerprint: String?,
+    ): List<SpendableUtxo> {
+        val client = ElectrumClient(endpoint, pinnedFingerprint)
+        return try {
+            client.connect()
+            rows.flatMap { r ->
+                client.listUnspent(r.scriptHash).map { SpendableUtxo(it.txid, it.vout, it.value, r.chainIndex, r.index, it.height) }
+            }
+        } finally {
+            client.close()
+        }
+    }
+
     /** Every unspent output the wallet's discovered addresses hold — the coins a send can draw on. */
     suspend fun gatherUtxos(
         rows: List<AddressRow>, endpoint: NodeEndpoint, pinnedFingerprint: String?,

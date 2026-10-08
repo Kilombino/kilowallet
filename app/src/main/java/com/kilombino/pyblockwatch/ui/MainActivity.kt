@@ -1,5 +1,6 @@
 package com.kilombino.pyblockwatch.ui
 
+import com.kilombino.pyblockwatch.data.Scanner
 import com.kilombino.pyblockwatch.data.AppUpdater
 
 import android.Manifest
@@ -610,7 +611,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
         }
 
         if (!state.isHot) WatchAddressesCard(state, vm, chain, accent)
-        else if (cs.rows.isNotEmpty()) AddressList(cs.rows, accent)
+        else if (cs.rows.isNotEmpty()) AddressList(cs.rows, accent, vm, chain, cs.height)
 
         Panel(accent = accent) {
             SectionLabel("How your coins are found", accent)
@@ -787,12 +788,38 @@ private fun ScanStatus(cs: ChainState, accent: Color, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun AddressList(rows: List<AddressRow>, accent: Color) {
+private fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewModel, chain: Chain, tip: Int) {
+    // Only the addresses that hold something now; spent-out ones are history, not coins.
+    val held = rows.filter { it.total > 0 }
+    if (held.isEmpty()) return
+    // The coins in each address, with their height, for the confirmations.
+    var coins by remember { mutableStateOf<Map<String, List<Scanner.SpendableUtxo>>?>(null) }
+    LaunchedEffect(held.map { it.scriptHash to it.total }) {
+        coins = runCatching { vm.addressCoins(chain, held) }.getOrNull()
+    }
+    var open by remember { mutableStateOf<AddressRow?>(null) }
+    fun conf(u: Scanner.SpendableUtxo) = if (u.height <= 0 || tip <= 0) 0 else tip - u.height + 1
+    fun confText(u: Scanner.SpendableUtxo) = conf(u).let { c -> if (c == 0) "in mempool · 0 conf" else "$c conf" + if (c >= 6) "  ✓" else "" }
+    open?.let { row ->
+        val cs = coins?.get(row.scriptHash).orEmpty()
+        TxDetailDialog(row.address, accent, vm.explorerFor(chain),
+            status = "${row.path} · ${if (row.chainIndex == 0) "receive" else "change"} · ${street("${groupSats(row.total)} sats")}",
+            onSpeedUp = null, onClose = { open = null }, vm = vm, chain = chain, kind = "address",
+            extra = {
+                cs.forEach { u ->
+                    Text(street("${groupSats(u.value)} sats") + " · " + confText(u) + " · ${u.txid.take(8)}…:${u.vout}",
+                        style = MaterialTheme.typography.bodySmall, color = TextSoft)
+                }
+            })
+    }
     Panel(accent = accent) {
-        SectionLabel("addresses with activity", accent)
-        Spacer(Modifier.height(10.dp))
-        rows.forEach { row ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        SectionLabel("addresses with balance · confirmations", accent)
+        Spacer(Modifier.height(4.dp))
+        Text("tap an address to copy it or open it on the explorer", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+        Spacer(Modifier.height(6.dp))
+        held.forEach { row ->
+            val cs = coins?.get(row.scriptHash)
+            Row(Modifier.fillMaxWidth().clickable { open = row }.padding(vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(shortAddress(row.address),
@@ -802,12 +829,21 @@ private fun AddressList(rows: List<AddressRow>, accent: Color) {
                         style = MaterialTheme.typography.bodySmall, color = TextFaint,
                     )
                 }
-                Text(
-                    if (row.total > 0) street("${groupSats(row.total)} sats") else "—",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (row.total > 0) accent else TextFaint,
-                    fontWeight = FontWeight.Bold,
-                )
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(street("${groupSats(row.total)} sats"),
+                        style = MaterialTheme.typography.bodyMedium, color = accent, fontWeight = FontWeight.Bold)
+                    when {
+                        cs == null -> Text("…", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+                        // The least-confirmed coin is the one that decides whether it can be spent.
+                        cs.isNotEmpty() -> cs.minByOrNull { conf(it) }!!.let { u ->
+                            val c = conf(u)
+                            Text(confText(u) + if (cs.size > 1) " (${cs.size} coins)" else "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (c == 0) Warn else if (c >= 6) Good else TextSoft)
+                        }
+                        else -> Text("not yet spendable (mined reward maturing)", style = MaterialTheme.typography.bodySmall, color = Warn)
+                    }
+                }
             }
         }
     }
@@ -1299,6 +1335,9 @@ internal fun TxDetailDialog(
     txid: String, accent: Color, explorer: String, status: String,
     onSpeedUp: (() -> Unit)?, onClose: () -> Unit,
     vm: WalletViewModel? = null, chain: Chain = Chain.BLAKE2B, speedUpLabel: String = "⚡ SPEED UP (RBF)",
+    /** "tx" for a transaction, "address" for one of the wallet's addresses (the explorer path). */
+    kind: String = "tx",
+    extra: (@Composable () -> Unit)? = null,
 ) {
     // The first time, ask which explorer to use (and warn it is an outside site); once the user
     // keeps one, it opens straight away.
@@ -1311,24 +1350,25 @@ internal fun TxDetailDialog(
     var confirmOpen by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onClose,
-        title = { Text("Transaction") },
+        title = { Text(if (kind == "address") "Address" else "Transaction") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(status, style = MaterialTheme.typography.bodySmall, color = accent)
+                extra?.invoke()
                 SelectionContainer {
                     Text(txid, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = TextMain)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = {
                         clipboard.setText(androidx.compose.ui.text.AnnotatedString(txid)); copied = true
-                    }) { Text(if (copied) "COPIED ✓" else "📋 COPY TXID", color = accent) }
+                    }) { Text(if (copied) "COPIED ✓" else if (kind == "address") "📋 COPY ADDRESS" else "📋 COPY TXID", color = accent) }
                     TextButton(onClick = {
-                        if (vm != null && vm.explorerChosen(chain)) runCatching { uri.openUri("$explorer/tx/$txid") }
+                        if (vm != null && vm.explorerChosen(chain)) runCatching { uri.openUri("$explorer/$kind/$txid") }
                         else confirmOpen = true
                     }) { Text("🔎 EXPLORER", color = accent) }
                 }
                 if (confirmOpen) {
-                    Text("This opens an EXTERNAL block explorer: the site sees which transaction you look up " +
+                    Text("This opens an EXTERNAL block explorer: the site sees which ${if (kind == "address") "address" else "transaction"} you look up " +
                         "(and so which addresses are yours). Use your own if you run one; it is saved and " +
                         "this will not be asked again. You can change it in settings.",
                          style = MaterialTheme.typography.bodySmall, color = Warn)
@@ -1340,13 +1380,13 @@ internal fun TxDetailDialog(
                     val valid = u.startsWith("https://") || (u.startsWith("http://") && u.contains(".onion"))
                     TextButton(enabled = valid, onClick = {
                         vm?.setExplorer(chain, u)
-                        runCatching { uri.openUri("$u/tx/$txid") }; confirmOpen = false
+                        runCatching { uri.openUri("$u/$kind/$txid") }; confirmOpen = false
                     }) { Text("SAVE AND OPEN", color = if (valid) accent else TextFaint) }
                     vm?.let { v ->
                         val kilombino = v.defaultExplorerFor(chain)
                         TextButton(onClick = {
                             v.setExplorer(chain, kilombino)
-                            runCatching { uri.openUri("$kilombino/tx/$txid") }; confirmOpen = false
+                            runCatching { uri.openUri("$kilombino/$kind/$txid") }; confirmOpen = false
                         }) { Text("USE KILOMBINO'S (${kilombino.removePrefix("https://")})", color = TextSoft) }
                     }
                 }

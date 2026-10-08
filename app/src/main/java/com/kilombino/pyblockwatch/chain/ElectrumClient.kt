@@ -306,6 +306,16 @@ class ElectrumClient(
     /** One spendable output under a scripthash. `height <= 0` means it is still unconfirmed. */
     data class Utxo(val txid: String, val vout: Int, val value: Long, val height: Int)
 
+    /**
+     * Whether someone else's coin is unspent with exactly [value] (a coinjoin seat). Over
+     * Electrum, by its scripthash; on a node by RPC, with gettxout: its watch-only wallet only
+     * knows our own addresses, so listUnspent would say no to every coin that is not ours.
+     */
+    fun isUnspent(scriptHash: String, txid: String, vout: Int, value: Long): Boolean {
+        node?.let { return it.isUnspent(txid, vout, value) }
+        return listUnspent(scriptHash).any { it.txid == txid && it.vout == vout && it.value == value }
+    }
+
     /** The unspent outputs a scripthash controls — the coins a send can draw on. */
     fun listUnspent(scriptHash: String): List<Utxo> {
         node?.let { return it.listUnspent(scriptHash) }
