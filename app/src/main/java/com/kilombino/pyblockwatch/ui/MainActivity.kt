@@ -215,6 +215,30 @@ class MainActivity : FragmentActivity() {
                             containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
                         )
                     }
+                    // The last run ended on an error: offer to share what failed (nothing is sent by itself).
+                    var crash by remember { mutableStateOf(com.kilombino.pyblockwatch.data.CrashLog.pending(this@MainActivity)) }
+                    crash?.let { report ->
+                        AlertDialog(
+                            onDismissRequest = {},
+                            title = { Text("Kilowallet closed unexpectedly") },
+                            text = { Text("The last time, the app closed on an error. The report says where in the code it " +
+                                "failed, the app version and the phone model; no words, keys or addresses. Share it with the " +
+                                "developer to get it fixed? Nothing is sent unless you do.", style = MaterialTheme.typography.bodySmall) },
+                            confirmButton = { TextButton(onClick = {
+                                val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(android.content.Intent.EXTRA_SUBJECT, "Kilowallet crash report")
+                                    putExtra(android.content.Intent.EXTRA_TEXT, report)
+                                }
+                                runCatching { startActivity(android.content.Intent.createChooser(send, "Share the crash report")) }
+                                com.kilombino.pyblockwatch.data.CrashLog.clear(this@MainActivity); crash = null
+                            }) { Text("SHARE REPORT", color = Purple) } },
+                            dismissButton = { TextButton(onClick = {
+                                com.kilombino.pyblockwatch.data.CrashLog.clear(this@MainActivity); crash = null
+                            }) { Text("DISMISS", color = TextSoft) } },
+                            containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
+                        )
+                    }
                     // A new spending wallet is asked once whether it wants coinjoins.
                     var askCoinjoin by remember { mutableStateOf(false) }
                     // After the simple/advanced choice, not on top of it.

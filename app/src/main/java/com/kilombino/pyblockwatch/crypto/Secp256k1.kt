@@ -24,6 +24,9 @@ import java.math.BigInteger
  * a few milliseconds total — performance is irrelevant at this scale, clarity is not.
  */
 object Secp256k1 {
+    // BigInteger.TWO only exists from Android 13 (API 33): on older phones it crashed the app.
+    private val TWO: BigInteger = BigInteger.valueOf(2)
+
 
     /** Field prime: 2^256 − 2^32 − 977. */
     val P: BigInteger = BigInteger(
@@ -64,9 +67,9 @@ object Secp256k1 {
             if (mod(py + qy).signum() == 0) return INFINITY
             // Doubling: λ = 3x² / 2y   (a = 0, so no + a term)
             val num = mod(BigInteger.valueOf(3) * px * px)
-            val den = mod(BigInteger.TWO * py).modInverse(P)
+            val den = mod(TWO * py).modInverse(P)
             val lam = mod(num * den)
-            val rx = mod(lam * lam - BigInteger.TWO * px)
+            val rx = mod(lam * lam - TWO * px)
             val ry = mod(lam * (px - rx) - py)
             return Point(rx, ry)
         }
