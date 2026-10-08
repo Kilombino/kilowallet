@@ -31,6 +31,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -510,7 +513,11 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
         when (val phase = state.sendPhase) {
             is SendPhase.Sent -> {
                 // A payment to yourself (an exact coin, a consolidation) is not a contact.
-                if (!askedSave && !vm.isOwnAddress(to)) SaveContactPrompt(to.trim(), accent) { askedSave = true }
+                // Checking every derived address is slow (pure-Kotlin EC math): once, off the main thread.
+                val own by produceState<Boolean?>(null, phase.txid) {
+                    value = withContext(Dispatchers.Default) { vm.isOwnAddress(to) }
+                }
+                if (!askedSave && own == false) SaveContactPrompt(to.trim(), accent) { askedSave = true }
                 Text("Broadcast ✓", color = Good, style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
                 SelectionContainer { Text(phase.txid, color = TextSoft,
