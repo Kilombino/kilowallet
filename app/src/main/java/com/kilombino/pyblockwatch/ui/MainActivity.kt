@@ -1049,9 +1049,42 @@ internal fun SettingsPanel(
             shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
         ) { Text(if (state.isHot) "SWITCH / NEW WALLET" else "CREATE A DIFFERENT HOT WALLET",
                  style = MaterialTheme.typography.titleMedium) }
-        TextButton(onClick = onForget) {
+        // Forgetting a hot wallet deletes its seed from this phone: never in one tap.
+        val forgetActivity = LocalContext.current as androidx.fragment.app.FragmentActivity
+        var askForget by remember { mutableStateOf(false) }
+        var haveWords by remember { mutableStateOf(false) }
+        TextButton(onClick = { haveWords = false; askForget = true }) {
             Text("forget this wallet", color = Bad, style = MaterialTheme.typography.bodySmall)
         }
+        if (askForget) AlertDialog(
+            onDismissRequest = { askForget = false },
+            title = { Text("Forget this wallet?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(if (state.isHot)
+                        "This DELETES the wallet's seed from this phone. The coins stay on-chain, but the only way back to " +
+                            "them is your recovery words (and passphrase, if it has one). Without them, the money is lost."
+                    else "This removes the watch-only wallet from this phone. Nothing on-chain changes; you can add the xpub again.",
+                        style = MaterialTheme.typography.bodySmall)
+                    if (state.isHot) Row(verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { haveWords = !haveWords }) {
+                        Text(if (haveWords) "☑" else "☐", color = Bad, style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.width(8.dp))
+                        Text("I have my recovery words written down", style = MaterialTheme.typography.bodySmall, color = TextMain)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = !state.isHot || haveWords, onClick = {
+                    askForget = false
+                    if (state.isHot) Biometric.confirm(forgetActivity, "Forget this wallet", "Its seed is deleted from this phone",
+                        onSuccess = onForget, onError = { })
+                    else onForget()
+                }) { Text("FORGET", color = if (!state.isHot || haveWords) Bad else TextFaint) }
+            },
+            dismissButton = { TextButton(onClick = { askForget = false }) { Text("KEEP IT", color = TextSoft) } },
+            containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
+        )
     }
 }
 

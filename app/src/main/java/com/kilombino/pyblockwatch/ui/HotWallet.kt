@@ -311,6 +311,8 @@ private fun SeedBackup(
     SecureWhileShown()
     var passphrase by remember { mutableStateOf(initialPassphrase) }
     var repeat by remember { mutableStateOf(initialPassphrase) }
+    var checking by remember { mutableStateOf(false) }
+    if (checking) { WordsCheck(words, onBack = { checking = false }, onOk = { onConfirm(passphrase) }); return }
     Panel(accent = Bad) {
         SectionLabel("Write these ${words.size} words down", Bad)
         Spacer(Modifier.height(6.dp))
@@ -340,6 +342,11 @@ private fun SeedBackup(
     Spacer(Modifier.height(12.dp))
     PassphraseFields(words, passphrase, { passphrase = it }, repeat, { repeat = it })
     Spacer(Modifier.height(12.dp))
+    // Optional: ask some of the words back before creating it.
+    TextButton(onClick = { checking = true }, enabled = passphrase.isEmpty() || repeat == passphrase,
+        modifier = Modifier.fillMaxWidth()) {
+        Text("CHECK MY WORDS FIRST (optional)", color = Purple, style = MaterialTheme.typography.bodyMedium)
+    }
     Button(
         onClick = { onConfirm(passphrase) },
         enabled = passphrase.isEmpty() || repeat == passphrase,
@@ -349,6 +356,51 @@ private fun SeedBackup(
              else "I'VE WRITTEN BOTH DOWN — CREATE", style = MaterialTheme.typography.titleMedium) }
     TextButton(onClick = onDiscard, modifier = Modifier.fillMaxWidth()) {
         Text("start over", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+/**
+ * Before the wallet is created, three of the words asked back at random positions: proof they
+ * were really written down (and in order), with the same suggestions as when restoring.
+ */
+@Composable
+private fun WordsCheck(words: List<String>, onBack: () -> Unit, onOk: () -> Unit) {
+    SecureWhileShown()
+    val picks = remember { words.indices.shuffled().take(3).sorted() }
+    val typed = remember { androidx.compose.runtime.mutableStateListOf("", "", "") }
+    var wrong by remember { mutableStateOf(false) }
+    Panel(accent = Purple) {
+        SectionLabel("Check your words", Purple)
+        Spacer(Modifier.height(6.dp))
+        Explain("From what you wrote down, type these words. If one does not match, go back and correct your copy. " +
+            "This check is optional: you can also go back and create the wallet straight away.")
+        Spacer(Modifier.height(8.dp))
+        picks.forEachIndexed { k, i ->
+            OutlinedTextField(value = typed[k], onValueChange = { typed[k] = it.trim().lowercase(); wrong = false },
+                label = { Text("word ${i + 1}", style = MaterialTheme.typography.bodySmall) },
+                singleLine = true, textStyle = MaterialTheme.typography.bodyMedium,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.None, autoCorrectEnabled = false,
+                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Password),
+                modifier = Modifier.fillMaxWidth())
+            val sugg = typed[k].takeIf { it.length >= 2 && it !in com.kilombino.pyblockwatch.crypto.Bip39Wordlist.WORDS }
+                ?.let { t -> com.kilombino.pyblockwatch.crypto.Bip39Wordlist.WORDS.filter { it.startsWith(t) }.take(4) }.orEmpty()
+            if (sugg.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                sugg.forEach { w -> TextButton(onClick = { typed[k] = w }) { Text(w, color = Purple, style = MaterialTheme.typography.bodySmall) } }
+            }
+        }
+        if (wrong) Text("At least one does not match. Check your copy against the words shown.", color = Bad,
+            style = MaterialTheme.typography.bodySmall)
+    }
+    Spacer(Modifier.height(10.dp))
+    Button(
+        onClick = { if (picks.indices.all { typed[it] == words[picks[it]] }) onOk() else wrong = true },
+        enabled = typed.all { it.isNotBlank() },
+        colors = ButtonDefaults.buttonColors(containerColor = Purple, contentColor = Ink),
+        shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
+    ) { Text("CHECK — CREATE", style = MaterialTheme.typography.titleMedium) }
+    TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
+        Text("show the words again", color = TextFaint, style = MaterialTheme.typography.bodySmall)
     }
 }
 
