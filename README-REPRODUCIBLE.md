@@ -24,6 +24,12 @@ pulled transitively and pinned by hash like every other dependency:
 `libandroidx.graphics.path.so` (a Compose path parser), and
 `libimage_processing_util_jni.so` and `libsurface_util_jni.so` from CameraX.
 
+Since 0.24.0 it also carries **Tor**: `lib/arm64-v8a/libtor.so` from Guardian Project's
+`info.guardianproject:tor-android:0.4.9.5` (BSD-3), prebuilt and pinned by hash in
+`gradle/verification-metadata.xml` like every other dependency. It only runs when a
+connection goes to a `.onion` (your node reached from outside); the other ABIs' copies
+are left out of the APK.
+
 ## 2. Toolchain pins
 
 | Component | Version |

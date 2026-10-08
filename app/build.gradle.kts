@@ -24,8 +24,8 @@ android {
         applicationId = "com.kilombino.pyblockwatch"
         minSdk = 26
         targetSdk = 35
-        versionCode = 73
-        versionName = "0.23.2"
+        versionCode = 74
+        versionName = "0.24.0"
         // One native library of ours: the Ark engine, arm64-v8a only, rebuilt from a pinned
         // commit and checked against ark-engine/ENGINE before every release build. On other
         // ABIs the wallet runs without Ark. See README-REPRODUCIBLE.md §1.
@@ -78,12 +78,18 @@ android {
     }
     buildFeatures { compose = true }
 
+    // A call that does not exist on older Android crashes there (BigInteger.TWO did, on 8–12):
+    // the release build stops on any.
+    lint { fatal += "NewApi" }
+
     packaging {
         resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
         // The Ark engine is a large native library: store it compressed in the APK (Android
         // extracts it at install) instead of uncompressed and page-aligned, which would make
         // the download several times bigger.
         jniLibs.useLegacyPackaging = true
+        // Tor ships for every ABI; only arm64 phones run this wallet's engines, so keep just that one.
+        jniLibs.excludes += setOf("lib/armeabi-v7a/libtor.so", "lib/x86/libtor.so", "lib/x86_64/libtor.so")
     }
 }
 
@@ -140,6 +146,9 @@ dependencies {
     // biometric 1.1.0 pins an old androidx.fragment (1.2.x); registerForActivityResult needs
     // 1.3.0+, so pull a current fragment forward explicitly.
     implementation("androidx.fragment:fragment:1.8.5")
+    // Tor inside the app (no Orbot), for a node reached by .onion. BSD-3, Guardian Project.
+    implementation("info.guardianproject:tor-android:0.4.9.5")
+    implementation("info.guardianproject:jtorctl:0.4.5.7")
 
     // NOTE: there is deliberately no crypto dependency here — no BouncyCastle, no
     // bdk, no secp256k1 JNI. secp256k1, RIPEMD-160, Base58 and Bech32 all live in

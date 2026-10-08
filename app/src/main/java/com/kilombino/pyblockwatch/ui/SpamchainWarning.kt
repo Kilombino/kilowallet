@@ -66,9 +66,12 @@ fun OwnNodeReminder(vm: WalletViewModel, onClose: () -> Unit) {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("You are reading BTC through ${Chain.BLAKE2B.defaultHost}. Whoever runs a " +
                     "server sees the addresses you ask about and your IP address. Run your own node and " +
-                    "point the wallet at it; use ${Chain.BLAKE2B.defaultHost} only in an emergency.",
+                    "point the wallet at it: an Electrum server of yours, or your node itself by RPC. Use " +
+                    "${Chain.BLAKE2B.defaultHost} only in an emergency.",
                     style = MaterialTheme.typography.bodySmall)
                 OwnNodeFields(vm, Chain.BLAKE2B, onClose)
+                // Or the node itself, by RPC: no Electrum server needed.
+                RpcNodePanel(vm, Purple, onSaved = { if (vm.useRpc()) onClose() })
                 Text("Until you choose, the wallet does not connect anywhere.",
                     style = MaterialTheme.typography.bodySmall, color = TextFaint)
                 Text("Once your node is saved this reminder stops. You can change it any time in settings. " +

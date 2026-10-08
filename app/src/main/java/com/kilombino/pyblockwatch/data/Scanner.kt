@@ -303,6 +303,7 @@ class Scanner(
      * Results are kept: a confirmed transaction's block does not change.
      */
     private fun spvCheck(client: ElectrumClient, txid: String, height: Int): Boolean? {
+        if (client.isOwnNode) return true // your own node validated the block itself
         spvCache[txid]?.let { return it }
         val ok = runCatching {
             val header = com.kilombino.pyblockwatch.crypto.BlockHeader.parse(client.blockHeader(height))

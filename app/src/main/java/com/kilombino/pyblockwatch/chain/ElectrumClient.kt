@@ -46,6 +46,12 @@ class ElectrumClient(
     private val requested: NodeEndpoint,
     private val pinnedFingerprint: String?,
 ) {
+    /** Set when the endpoint is the user's own node by RPC: then every question goes to it instead. */
+    private val node: NodeRpcBackend? = requested.rpc?.let { NodeRpcBackend(it) }
+
+    /** True when answers come from the user's own node (no SPV check needed against it). */
+    val isOwnNode: Boolean get() = node != null
+
     /** The server actually in use: [requested], or for the SHA-256 default one of [Chain.publicServers]. */
     var endpoint: NodeEndpoint = requested
         private set
@@ -77,6 +83,7 @@ class ElectrumClient(
      * silently accepting are both wrong.
      */
     fun connect() {
+        node?.let { it.connect(); serverVersion = it.version; return }
         // The SHA-256 chain is read from well-known public servers: try them in turn,
         // starting with the one that answered last time.
         if (requested != NodeEndpoint.default(Chain.SHA256)) return connectTo(requested, public = false)
@@ -254,12 +261,14 @@ class ElectrumClient(
     }
 
     fun blockHeight(): Int {
+        node?.let { return it.blockHeight() }
         val r = call("blockchain.headers.subscribe", JSONArray()) as? JSONObject
             ?: throw ElectrumException("unexpected response from headers.subscribe")
         return r.getInt("height")
     }
 
     fun balance(scriptHash: String): ScriptHashBalance {
+        node?.let { return it.balance(scriptHash) }
         val r = call("blockchain.scripthash.get_balance", JSONArray().put(scriptHash)) as? JSONObject
             ?: throw ElectrumException("unexpected response from get_balance")
         return ScriptHashBalance(r.optLong("confirmed"), r.optLong("unconfirmed"))
@@ -270,7 +279,7 @@ class ElectrumClient(
      * none. It changes exactly when the history does, so one call tells whether anything
      * happened since last time.
      */
-    fun status(scriptHash: String): String? =
+    fun status(scriptHash: String): String? = if (node != null) node.status(scriptHash) else
         call("blockchain.scripthash.subscribe", JSONArray().put(scriptHash))?.takeIf { it != JSONObject.NULL }?.toString()
 
     /** One entry of an address's on-chain history. height <= 0 means still in the mempool. */
@@ -278,6 +287,7 @@ class ElectrumClient(
 
     /** Full history touching this scripthash — tx ids and their block heights (0 = mempool). */
     fun history(scriptHash: String): List<HistoryItem> {
+        node?.let { return it.history(scriptHash) }
         val r = call("blockchain.scripthash.get_history", JSONArray().put(scriptHash)) as? JSONArray
             ?: return emptyList()
         return (0 until r.length()).map {
@@ -288,6 +298,7 @@ class ElectrumClient(
 
     /** Number of transactions touching this scripthash — how we detect a used address. */
     fun historyCount(scriptHash: String): Int {
+        node?.let { return it.history(scriptHash).size }
         val r = call("blockchain.scripthash.get_history", JSONArray().put(scriptHash)) as? JSONArray
         return r?.length() ?: 0
     }
@@ -297,6 +308,7 @@ class ElectrumClient(
 
     /** The unspent outputs a scripthash controls — the coins a send can draw on. */
     fun listUnspent(scriptHash: String): List<Utxo> {
+        node?.let { return it.listUnspent(scriptHash) }
         val r = call("blockchain.scripthash.listunspent", JSONArray().put(scriptHash)) as? JSONArray
             ?: return emptyList()
         return (0 until r.length()).map {
@@ -311,18 +323,21 @@ class ElectrumClient(
      * [relayFee]. Multiply by 1e5 to get sats/vByte.
      */
     fun estimateFeePerKb(blocks: Int): Double {
+        node?.let { return it.estimateFeePerKb(blocks) }
         val r = call("blockchain.estimatefee", JSONArray().put(blocks))
         return (r as? Number)?.toDouble() ?: -1.0
     }
 
     /** The server's minimum relay fee, in BTC per kilobyte — the floor a transaction must clear. */
     fun relayFeePerKb(): Double {
+        node?.let { return it.relayFeePerKb() }
         val r = call("blockchain.relayfee", JSONArray())
         return (r as? Number)?.toDouble() ?: 0.0
     }
 
     /** The raw (hex) transaction for [txid]; throws when the server does not know it. */
     fun transaction(txid: String): String {
+        node?.let { return it.transaction(txid) }
         val raw = call("blockchain.transaction.get", JSONArray().put(txid).put(false))?.toString()
             ?: throw ElectrumException("unknown transaction $txid")
         // Never trust the server's word for what a transaction says: it must hash to the txid
@@ -335,6 +350,7 @@ class ElectrumClient(
 
     /** Electrum's merkle branch for [txid] in block [height]: (branch hashes, position). */
     fun merkle(txid: String, height: Int): Pair<List<String>, Int> {
+        if (node != null) throw ElectrumException("no merkle proofs from a node")
         val o = call("blockchain.transaction.get_merkle", JSONArray().put(txid).put(height)) as? JSONObject
             ?: throw ElectrumException("no merkle proof for $txid")
         val m = o.getJSONArray("merkle")
@@ -348,6 +364,7 @@ class ElectrumClient(
 
     /** Broadcast a raw (hex) transaction. Returns the txid, or throws with the server's reason. */
     fun broadcast(rawTxHex: String): String {
+        node?.let { return it.broadcast(rawTxHex) }
         val r = call("blockchain.transaction.broadcast", JSONArray().put(rawTxHex))
         val txid = r?.toString()
         if (txid == null || txid.length != 64) {

@@ -104,6 +104,7 @@ class MainActivity : FragmentActivity() {
             com.kilombino.pyblockwatch.coinjoin.CoinjoinService.start(this)
         enableEdgeToEdge()
         StreetMode.init(this)
+        com.kilombino.pyblockwatch.chain.Tor.install(this)
         setContent {
             PyBlockWatchTheme {
                 val vm: WalletViewModel = viewModel()
@@ -962,6 +963,7 @@ internal fun SettingsPanel(
                 TextButton(onClick = {
                     vm.setCustomNode(chain, host.ifBlank { null }, port.toIntOrNull() ?: chain.defaultPort)
                 }) { Text("apply and rescan", color = accent, style = MaterialTheme.typography.bodySmall) }
+                if (chain == Chain.BLAKE2B) { Spacer(Modifier.height(10.dp)); RpcNodePanel(vm, accent) }
             } else {
                 Explain(
                     "The SHA-256 chain is lookup-only: it finds your coins from the xpub, so it " +

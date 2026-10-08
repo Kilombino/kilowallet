@@ -39,6 +39,7 @@ class WatchService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        com.kilombino.pyblockwatch.chain.Tor.install(this) // a .onion node is reachable from the background too
         startForeground(ONGOING_ID, ongoingNotification())
         if (job?.isActive != true) job = scope.launch { loop() }
         return START_STICKY

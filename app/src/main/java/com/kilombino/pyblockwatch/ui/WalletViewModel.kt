@@ -487,6 +487,29 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun setExplorer(chain: Chain, url: String?) = store.setExplorer(chain, url)
     fun explorerChosen(chain: Chain): Boolean = store.explorerChosen(chain)
 
+    // ------------------------------------------------------------------ your own node by RPC
+
+    fun rpcConns(): List<com.kilombino.pyblockwatch.chain.RpcConn> = store.rpcConns
+    fun useRpc(): Boolean = store.useRpc
+
+    fun setRpcConns(list: List<com.kilombino.pyblockwatch.chain.RpcConn>) {
+        store.rpcConns = list
+        if (list.isEmpty()) store.useRpc = false
+        if (store.useRpc) scan(Chain.BLAKE2B)
+    }
+
+    /** Read BTC from the node by RPC (on) or an Electrum server (off); rescans. */
+    fun setUseRpc(on: Boolean) {
+        store.useRpc = on && store.rpcConns.isNotEmpty()
+        scan(Chain.BLAKE2B)
+    }
+
+    /** What is at [c]: node version, height and whether it is on BLAKE2b, or why it failed. */
+    suspend fun testRpc(c: com.kilombino.pyblockwatch.chain.RpcConn): String =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { com.kilombino.pyblockwatch.chain.NodeRpcBackend.test(c) }.getOrElse { "✗ " + (it.message ?: it.javaClass.simpleName) }
+        }
+
     fun setCustomNode(chain: Chain, host: String?, port: Int) {
         store.setCustomEndpoint(chain, host, port)
         scan(chain)

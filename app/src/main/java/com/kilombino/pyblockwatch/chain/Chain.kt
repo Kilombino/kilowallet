@@ -70,8 +70,8 @@ enum class Chain(
 }
 
 /** Where to reach a chain: the bundled default, or a node the user typed in. */
-data class NodeEndpoint(val host: String, val port: Int, val isCustom: Boolean = false) {
-    override fun toString() = "$host:$port"
+data class NodeEndpoint(val host: String, val port: Int, val isCustom: Boolean = false, val rpc: RpcNode? = null) {
+    override fun toString() = if (rpc != null) "your node (RPC)" else "$host:$port"
     companion object {
         fun default(chain: Chain) = NodeEndpoint(chain.defaultHost, chain.defaultPort, false)
     }

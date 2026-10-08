@@ -5,3 +5,7 @@
 # Readable crash reports (CrashLog): keep file names and line numbers.
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
+
+# Tor (tor-android): its native code reads TorService fields by name.
+-keep class org.torproject.jni.** { *; }
+-keep class net.freehaven.tor.control.** { *; }

@@ -64,7 +64,10 @@ account. Apache-2.0, reproducible, and every line of cryptography is in this rep
   the same xpub is meaningful on both, and the balances diverge at the fork.
 - **xpub, ypub or zpub.** Legacy, wrapped SegWit and native SegWit, detected from the
   SLIP-132 version bytes and explained in the UI.
-- **Your own node.** The BLAKE2b side can point at any Electrum server you run.
+- **Your own node.** The BLAKE2b side can point at any Electrum server you run, or straight at your
+  Bitcoin node by RPC (no Electrum server): the node gets a watch-only wallet for the account, the keys
+  stay on the phone. Several ways to reach it (home, a `.onion` from outside) are tried in order, and
+  `.onion` goes through Tor built into the app (tor-android, no Orbot needed).
 - **Balance-change notifications** without a push server: the phone asks the Electrum
   server itself, on a visible foreground service you opt into.
 - **Simple or Advanced.** On first open you choose. *Simple* is one screen: your XBT

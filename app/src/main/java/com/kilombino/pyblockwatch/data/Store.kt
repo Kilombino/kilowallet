@@ -42,7 +42,26 @@ class Store(context: Context, private val profile: String = HOT) {
         get() = Chain.entries.firstOrNull { it.id == prefs.getString(KEY_CHAIN, null) } ?: Chain.BLAKE2B
         set(v) = prefs.edit().putString(KEY_CHAIN, v.id).apply()
 
+    /** The user's own node by RPC (BTC only), in the order to try them; shared by both wallets. */
+    var rpcConns: List<com.kilombino.pyblockwatch.chain.RpcConn>
+        get() = runCatching {
+            val a = org.json.JSONArray(prefs.getString("rpc_conns", "[]"))
+            (0 until a.length()).map { com.kilombino.pyblockwatch.chain.RpcConn.fromJson(a.getJSONObject(it)) }
+        }.getOrDefault(emptyList())
+        set(v) = prefs.edit().putString("rpc_conns", org.json.JSONArray(v.map { it.toJson() }).toString()).apply()
+
+    /** Read BTC from the node by RPC (true) or from an Electrum server (false). */
+    var useRpc: Boolean
+        get() = prefs.getBoolean("use_rpc", false)
+        set(v) = prefs.edit().putBoolean("use_rpc", v).apply()
+
     fun endpoint(chain: Chain): NodeEndpoint {
+        if (chain == Chain.BLAKE2B && useRpc) {
+            val conns = rpcConns
+            val key = xpub
+            if (conns.isNotEmpty() && key != null)
+                return NodeEndpoint("node", 0, isCustom = true, rpc = com.kilombino.pyblockwatch.chain.RpcNode(conns, key, scriptType))
+        }
         if (!chain.allowsCustomNode) return NodeEndpoint.default(chain)
         val host = prefs.getString(keyHost(chain), null) ?: return NodeEndpoint.default(chain)
         val port = prefs.getInt(keyPort(chain), chain.defaultPort)
