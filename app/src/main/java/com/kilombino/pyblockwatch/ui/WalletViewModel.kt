@@ -505,9 +505,10 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** What is at [c]: node version, height and whether it is on BLAKE2b, or why it failed. */
-    suspend fun testRpc(c: com.kilombino.pyblockwatch.chain.RpcConn): String =
+    suspend fun testRpc(c: com.kilombino.pyblockwatch.chain.RpcConn): Pair<String, String?> =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            runCatching { com.kilombino.pyblockwatch.chain.NodeRpcBackend.test(c) }.getOrElse { "✗ " + (it.message ?: it.javaClass.simpleName) }
+            runCatching { com.kilombino.pyblockwatch.chain.NodeRpcBackend.test(c) }
+                .getOrElse { ("✗ " + (it.message ?: it.javaClass.simpleName)) to null }
         }
 
     fun setCustomNode(chain: Chain, host: String?, port: Int) {

@@ -13,13 +13,18 @@ import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 
 /** One way to reach the node's RPC: a URL (http://host:port, or a .onion through Tor) and its login. */
-data class RpcConn(val url: String, val user: String, val pass: String) {
+/**
+ * [pin]: for https (a StartOS node serves its RPC over TLS with its own certificate authority),
+ * the SHA-256 of the certificate trusted when the connection was added; any other is refused.
+ */
+data class RpcConn(val url: String, val user: String, val pass: String, val pin: String = "") {
     val isOnion: Boolean get() = runCatching { URL(url).host.endsWith(".onion") }.getOrDefault(false)
+    val isTls: Boolean get() = url.startsWith("https://", ignoreCase = true)
 
-    fun toJson(): JSONObject = JSONObject().put("url", url).put("user", user).put("pass", pass)
+    fun toJson(): JSONObject = JSONObject().put("url", url).put("user", user).put("pass", pass).put("pin", pin)
 
     companion object {
-        fun fromJson(o: JSONObject) = RpcConn(o.getString("url"), o.optString("user"), o.optString("pass"))
+        fun fromJson(o: JSONObject) = RpcConn(o.getString("url"), o.optString("user"), o.optString("pass"), o.optString("pin"))
 
         /**
          * A connection from what a QR or a paste gives: `http://user:pass@host:port`,
@@ -53,6 +58,12 @@ class NodeRpcBackend(private val node: RpcNode) {
     val walletName by lazy { "kilowallet-" + Hashes.sha256(descKey.toByteArray()).toHex().take(10) }
 
     private val history = HashMap<String, MutableSet<Pair<String, Int>>>()
+    /** TLS: the pin the current request must match ("" = record whatever comes, for TEST). */
+    private var pinFor = ""
+    /** TLS: the fingerprint of the certificate the last request saw. */
+    var lastFingerprint: String? = null
+        private set
+    private var testing = false
     private val utxos = HashMap<String, MutableList<ElectrumClient.Utxo>>()
 
     class NodeException(message: String) : ElectrumException(message)
@@ -63,7 +74,14 @@ class NodeRpcBackend(private val node: RpcNode) {
         val body = JSONObject().put("jsonrpc", "1.0").put("id", "kw").put("method", method)
             .put("params", JSONArray().also { a -> params.forEach { a.put(it ?: JSONObject.NULL) } }).toString()
         val auth = "Basic " + Base64.getEncoder().encodeToString("${c.user}:${c.pass}".toByteArray())
-        val (code, text) = post(URL(target), body, auth, proxy, if (c.isOnion) 60_000 else 10_000, timeoutMs)
+        if (c.isTls && c.pin.isEmpty() && !testing) throw NodeException("${c.url} has no trusted certificate yet: remove it and add it again.")
+        pinFor = c.pin
+        val (code, text) = try { post(URL(target), body, auth, proxy, if (c.isOnion) 60_000 else 10_000, timeoutMs) } catch (e: java.net.SocketException) {
+            // Through Tor, "connection refused" means the .onion was reached but nothing listens on that port.
+            if (c.isOnion && e.message?.contains("refused", true) == true)
+                throw NodeException("The .onion was reached, but nothing answers on port ${URL(target).port}. Copy the full address, port included, from your node's RPC interface.")
+            throw e
+        }
         if (code == 401 || code == 403) throw NodeException("The node refused the RPC login (user or password).")
         if (text.isBlank()) throw NodeException("HTTP $code from the node")
         val o = runCatching { JSONObject(text) }.getOrElse {
@@ -80,10 +98,32 @@ class NodeRpcBackend(private val node: RpcNode) {
      */
     private fun post(u: URL, body: String, auth: String, proxy: java.net.Proxy?, connectMs: Int, readMs: Int): Pair<Int, String> {
         if (u.protocol == "https") {
-            val h = (if (proxy != null) u.openConnection(proxy) else u.openConnection()) as HttpURLConnection
+            // The node's own certificate (StartOS signs it with its own CA, unknown to the phone):
+            // trusted by its fingerprint, pinned when the connection was added.
+            var leaf: java.security.cert.X509Certificate? = null
+            val tm = object : javax.net.ssl.X509TrustManager {
+                override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
+                override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {
+                    leaf = chain.firstOrNull()
+                    val fp = leaf?.let { Hashes.sha256(it.encoded).toHex() }
+                    if (pinFor.isNotEmpty() && fp != pinFor) throw java.security.cert.CertificateException("CHANGED:$fp")
+                }
+                override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = emptyArray()
+            }
+            val ctx = javax.net.ssl.SSLContext.getInstance("TLS").apply { init(null, arrayOf(tm), java.security.SecureRandom()) }
+            val h = (if (proxy != null) u.openConnection(proxy) else u.openConnection()) as javax.net.ssl.HttpsURLConnection
+            h.sslSocketFactory = ctx.socketFactory
+            h.hostnameVerifier = javax.net.ssl.HostnameVerifier { _, _ -> true } // an IP or .local: the pin is the check
             h.requestMethod = "POST"; h.doOutput = true; h.connectTimeout = connectMs; h.readTimeout = readMs
             h.setRequestProperty("Authorization", auth); h.setRequestProperty("Content-Type", "application/json")
-            h.outputStream.use { it.write(body.toByteArray()) }
+            try {
+                h.outputStream.use { it.write(body.toByteArray()) }
+            } catch (e: javax.net.ssl.SSLException) {
+                val m = generateSequence(e as Throwable) { it.cause }.mapNotNull { it.message }.firstOrNull { it.startsWith("CHANGED:") }
+                if (m != null) throw NodeException("The certificate of ${u.host} has CHANGED (now ${m.removePrefix("CHANGED:").take(16)}…); nothing was sent. If you changed it, remove the connection and add it again.")
+                throw e
+            }
+            lastFingerprint = leaf?.let { Hashes.sha256(it.encoded).toHex() }
             val code = h.responseCode
             val text = (if (code < 400) h.inputStream else h.errorStream)?.bufferedReader()?.use { it.readText() } ?: ""
             h.disconnect(); return code to text
@@ -308,13 +348,14 @@ class NodeRpcBackend(private val node: RpcNode) {
         }
 
         /** Try [c] and say what is there: chain, height and node version, or why it failed. */
-        fun test(c: RpcConn): String {
-            val b = NodeRpcBackend(RpcNode(listOf(c), "", ScriptType.P2WPKH))
+        /** Try [c]: (what is there, the TLS certificate's fingerprint for https). Accepts any certificate, to show it. */
+        fun test(c: RpcConn): Pair<String, String?> {
+            val b = NodeRpcBackend(RpcNode(listOf(c), "", ScriptType.P2WPKH)).apply { testing = true }
             val info = b.call(c, "getblockchaininfo") as JSONObject
             val dep = b.call(c, "getdeploymentinfo") as JSONObject
             val blake = dep.toString().contains(Regex("\"(blake2b|hardfork)\":\\{[^}]*\"active\":true"))
             val v = (b.call(c, "getnetworkinfo") as JSONObject).optString("subversion").trim('/')
-            return "$v · block ${info.getInt("blocks")}" + if (blake) " · BLAKE2b ✓" else " · NOT on BLAKE2b"
+            return ("$v · block ${info.getInt("blocks")}" + if (blake) " · BLAKE2b ✓" else " · NOT on BLAKE2b") to b.lastFingerprint
         }
     }
 }

@@ -40,4 +40,19 @@ class NodeRpcTest {
         assertTrue(all.size >= 4)
         c.close()
     }
+
+    /** A node behind TLS with its own certificate (as StartOS serves it): TEST shows the fingerprint, a pin is enforced. */
+    @Test fun tlsWithPinnedCertificate() {
+        val url = System.getenv("KW_RPC_TLS_URL"); val fp = System.getenv("KW_RPC_TLS_FP")
+        assumeTrue(url != null && fp != null)
+        val c = RpcConn.parse(url!!)
+        val (text, seen) = com.kilombino.pyblockwatch.chain.NodeRpcBackend.test(c)
+        assertTrue(text, text.contains("BLAKE2b ✓"))
+        assertEquals(fp, seen)
+        // Pinned to the right one: works; to another: refused.
+        val key = System.getenv("KW_RPC_KEY")!!
+        ElectrumClient(NodeEndpoint("node", 0, true, RpcNode(listOf(c.copy(pin = fp!!)), key, ScriptType.P2WPKH)), null).apply { connect(); close() }
+        val bad = runCatching { ElectrumClient(NodeEndpoint("node", 0, true, RpcNode(listOf(c.copy(pin = "00".repeat(32))), key, ScriptType.P2WPKH)), null).connect() }
+        assertTrue(bad.exceptionOrNull()?.message ?: "", bad.exceptionOrNull()?.message?.contains("CHANGED") == true)
+    }
 }

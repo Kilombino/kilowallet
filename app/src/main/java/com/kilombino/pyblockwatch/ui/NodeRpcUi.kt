@@ -59,7 +59,9 @@ fun RpcNodePanel(vm: WalletViewModel, accent: androidx.compose.ui.graphics.Color
         Text("Or your own node by RPC", style = MaterialTheme.typography.bodyMedium, color = TextMain)
         Explain("Connect straight to your Bitcoin node (Knots with BLAKE2b), no Electrum server needed. It gets a " +
             "watch-only wallet for this account (public key only); your keys never leave the phone. Add more than one " +
-            "way to reach it (at home, a .onion from outside): they are tried in order. The node's wallet feature must be on.")
+            "way to reach it (at home, a .onion from outside): they are tried in order. The node's wallet feature must be on. " +
+            "On StartOS, copy the address from the node's RPC interface (https://… at home, http://….onion from outside) and " +
+            "make a user with its Generate RPC User Credentials action.")
         conns.forEachIndexed { i, c ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("${i + 1}. ${c.url}" + if (c.user.isNotEmpty()) " (${c.user})" else "", style = MaterialTheme.typography.bodySmall,
@@ -78,7 +80,7 @@ fun RpcNodePanel(vm: WalletViewModel, accent: androidx.compose.ui.graphics.Color
                 colors = SwitchDefaults.colors(checkedThumbColor = accent))
         }
         OutlinedTextField(value = url, onValueChange = { url = it.trim(); msg = null },
-            label = { Text("http://host:8332 or …onion:8332", style = MaterialTheme.typography.bodySmall) },
+            label = { Text("the RPC address, port included", style = MaterialTheme.typography.bodySmall) },
             textStyle = MaterialTheme.typography.bodySmall, singleLine = true, modifier = Modifier.fillMaxWidth())
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(value = user, onValueChange = { user = it.trim() },
@@ -100,11 +102,19 @@ fun RpcNodePanel(vm: WalletViewModel, accent: androidx.compose.ui.graphics.Color
             TextButton(onClick = {
                 val c = runCatching { RpcConn.parse(url).copy(user = user, pass = pass) }.getOrElse { msg = it.message; return@TextButton }
                 msg = "testing…"
-                scope.launch { msg = vm.testRpc(c) }
+                scope.launch { val (t, fp) = vm.testRpc(c); msg = t + (fp?.let { "\ncertificate ${it.take(16)}… (trusted when you ADD it)" } ?: "") }
             }) { Text("TEST", color = accent, style = MaterialTheme.typography.bodySmall) }
             TextButton(onClick = {
                 val c = runCatching { RpcConn.parse(url).copy(user = user, pass = pass) }.getOrElse { msg = it.message; return@TextButton }
-                conns.add(c); url = ""; user = ""; pass = ""; msg = "added"; save()
+                if (!c.isTls) { conns.add(c); url = ""; user = ""; pass = ""; msg = "added"; save(); return@TextButton }
+                // https (a StartOS node): trust the certificate it shows now, and only that one.
+                msg = "checking the certificate…"
+                scope.launch {
+                    val (t, fp) = vm.testRpc(c)
+                    if (fp == null || t.startsWith("✗")) { msg = t; return@launch }
+                    conns.add(c.copy(pin = fp)); url = ""; user = ""; pass = ""
+                    msg = "added · certificate ${fp.take(16)}… is trusted for it"; save()
+                }
             }) { Text("ADD", color = Good, style = MaterialTheme.typography.bodySmall) }
         }
         msg?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (it.startsWith("✗")) Bad else TextFaint) }
