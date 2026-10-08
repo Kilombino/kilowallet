@@ -88,6 +88,11 @@ object CoinjoinHub {
 
     fun session(poolId: String): PoolSession? = synchronized(this) { sessions[poolId] }
 
+    /** A round past the open stage (voting, closing, signing): not the moment for interruptions. */
+    fun inRound(): Boolean = synchronized(this) {
+        sessions.values.any { it.state.phase in setOf(PoolSession.Phase.VOTING, PoolSession.Phase.CLOSING, PoolSession.Phase.SIGNING) }
+    }
+
     /** True while some pool still needs this phone online. */
     fun hasActive(ctx: Context): Boolean { load(ctx); return synchronized(this) { sessions.values.any { !it.done || it.state.phase == PoolSession.Phase.BROADCAST } } }
 

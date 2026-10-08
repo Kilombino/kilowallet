@@ -198,7 +198,7 @@ fun CoinsCard(state: UiState, vm: WalletViewModel, chain: Chain, accent: Color) 
     open?.let { u ->
         val conf = if (u.height <= 0 || cs.height <= 0) 0 else cs.height - u.height + 1
         TxDetailDialog(u.txid, accent, vm.explorerFor(chain),
-            status = "output ${u.vout} · " + (if (conf == 0) "in mempool · 0 confirmations" else "$conf confirmations"),
+            status = "output ${u.vout} · " + (if (conf == 0) "in mempool · 0 confirmations" else "$conf confirmation" + if (conf == 1) "" else "s"),
             onSpeedUp = null, onClose = { open = null }, vm = vm, chain = chain)
     }
     Panel(accent = accent) {

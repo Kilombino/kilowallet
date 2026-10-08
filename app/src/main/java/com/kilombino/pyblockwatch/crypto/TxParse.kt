@@ -34,7 +34,18 @@ object TxParse {
      * The txid of [tx]: double SHA-256 of its serialisation without witnesses, shown reversed.
      * Lets the wallet check that a transaction a server hands back is the one it asked for.
      */
-    fun txid(tx: Tx): String {
+    fun txid(tx: Tx): String = with(Hashes) { doubleSha256(baseBytes(tx)).reversedArray().toHex() }
+
+    /** Virtual size of [rawHex]: its weight (non-witness bytes × 3 + all bytes) over 4, rounded up. */
+    fun vsize(rawHex: String): Int {
+        val tx = parse(rawHex)
+        val total = rawHex.length / 2
+        val base = baseBytes(tx).size
+        return (base * 3 + total + 3) / 4
+    }
+
+    /** The serialisation without witnesses (what the txid hashes). */
+    private fun baseBytes(tx: Tx): ByteArray {
         val out = java.io.ByteArrayOutputStream()
         fun le(v: Long, n: Int) { for (i in 0 until n) out.write(((v ushr (8 * i)) and 0xFF).toInt()) }
         fun varint(n: Long) = when {
@@ -52,7 +63,7 @@ object TxParse {
         varint(tx.outputs.size.toLong())
         for (o in tx.outputs) { le(o.value, 8); varint(o.scriptPubKey.size.toLong()); out.write(o.scriptPubKey) }
         le(tx.locktime, 4)
-        return with(Hashes) { doubleSha256(out.toByteArray()).reversedArray().toHex() }
+        return out.toByteArray()
     }
 
     /** A 2-of-2 P2WSH multisig witness script: OP_2 <33> <33> OP_2 OP_CHECKMULTISIG. */

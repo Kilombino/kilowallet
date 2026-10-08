@@ -407,6 +407,7 @@ fun RestoreScreen(vm: WalletViewModel, onBack: () -> Unit) {
 
 @Composable
 fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
+    FlowOpenWhileShown()
     val activity = LocalContext.current as FragmentActivity
     val state by vm.state.collectAsState()
     var to by remember { mutableStateOf("") }
@@ -506,6 +507,10 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                 RowLine("Fee", "${groupSats(d.fee)} sats", accent)
                 RowLine("Change", if (d.change > 0) "${groupSats(d.change)} sats" else "—", accent)
                 RowLine("Inputs", "${d.inputs.size}", accent)
+                val concern = remember(d) { vm.feeConcern(d) }
+                var feeOk by remember(d) { mutableStateOf(false) }
+                if (concern != null) { Spacer(Modifier.height(6.dp)); FeeGate(concern, feeOk) { feeOk = !feeOk } }
+                val canSign = concern == null || feeOk
                 Spacer(Modifier.height(10.dp))
                 if (!state.isHot) {
                     // Watch-only: the keys are elsewhere. Hand the signer a PSBT.
@@ -516,7 +521,7 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                     Text("Some signers need it to find their key; Bitcoin Knots does not.",
                         color = TextFaint, style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(6.dp))
-                    Button(onClick = { vm.exportPsbt(origin) },
+                    Button(onClick = { vm.exportPsbt(origin) }, enabled = canSign,
                         colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
                         shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
                     ) { Text("EXPORT PSBT", style = MaterialTheme.typography.titleMedium) }
@@ -527,14 +532,15 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                 }
                 Button(
                     onClick = {
-                        runCatching { vm.seedDecryptCipher() }.onSuccess { cipher ->
+                        vm.seedCipherOrToast()?.let { cipher ->
                             Biometric.authenticate(
                                 activity, "Confirm payment", "Unlock to sign and send", cipher,
                                 onSuccess = { authed -> vm.confirmSend(authed) },
-                                onError = { /* stays on review; user can retry */ },
+                                onError = { vm.toast(it) }, // stays on review; the user can retry
                             )
                         }
                     },
+                    enabled = canSign,
                     colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
                     shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
                 ) { Text("CONFIRM & SIGN", style = MaterialTheme.typography.titleMedium) }
@@ -741,6 +747,23 @@ private fun RowLine(label: String, value: String, accent: Color) {
              modifier = Modifier.weight(1f))
         Text(value, color = accent, style = MaterialTheme.typography.bodyMedium,
              fontWeight = FontWeight.Bold)
+    }
+}
+
+// ------------------------------------------------------------------- high fee
+
+/**
+ * A fee that looks like a slip (see WalletViewModel.feeConcern) needs a second, explicit yes:
+ * the confirm button stays off until this box is ticked.
+ */
+@Composable
+fun FeeGate(concern: String, checked: Boolean, onToggle: () -> Unit) {
+    Text("⚠ $concern Check it before signing: a fee can't be taken back.", color = Bad,
+         style = MaterialTheme.typography.bodySmall)
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { onToggle() }.padding(vertical = 4.dp)) {
+        Text(if (checked) "☑" else "☐", color = Bad, style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.width(8.dp))
+        Text("Yes, I want to pay this fee", color = TextMain, style = MaterialTheme.typography.bodySmall)
     }
 }
 

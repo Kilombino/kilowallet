@@ -154,6 +154,10 @@ class Notifier(private val context: Context, private val titlePrefix: String = "
         post(("update:$version").hashCode(), "Kilowallet $version is out",
              "Tap to update it from inside the app.", OpenTab.UPDATE)
 
+    fun updated(version: String) =
+        post(("updated:$version").hashCode(), "Kilowallet $version is installed ✓",
+             "Tap to open it.", OpenTab.BTC)
+
     fun arkExpiring(blocks: Int) =
         post(arkId("expiry", ""), if (blocks < 432) "Ark: a coin expires in ${blocks * 10 / 60} hours" else "Ark: a coin expires soon",
              "In about ${blocks * 10 / 1440} days ($blocks blocks). Open the Ark tab and tap RENEW: " +

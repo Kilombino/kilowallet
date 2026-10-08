@@ -365,6 +365,7 @@ private fun ArkReceiveSheet(
     accent: Color, busy: String?,
     run: (Pair<String, () -> String>, (String) -> Unit) -> Unit,
 ) {
+    val ctx = LocalContext.current
     val clip = LocalClipboardManager.current
     var shown by remember { mutableStateOf<Pair<String, String>?>(null) }  // label, text
     var amount by remember { mutableStateOf("") }
@@ -383,7 +384,7 @@ private fun ArkReceiveSheet(
                 run("Getting an Ark address…" to { Ark.arkAddress() }) { shown = "Ark address" to it }
             }
             ArkButton("DEPOSIT", false, accent, Modifier.weight(1f)) {
-                run("Getting a deposit address…" to { Ark.onchainAddress() }) { shown = "On-chain deposit address" to it }
+                run("Getting a deposit address…" to { Ark.onchainAddress().also { Ark.rememberOwnAddress(ctx, it) } }) { shown = "On-chain deposit address" to it }
             }
             ArkButton("⚡ OFFER", false, accent, Modifier.weight(1f)) {
                 val sats = amount.toLongOrNull()
@@ -497,6 +498,7 @@ private fun ArkReceiveSheet(
 
 @Composable
 private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, Long?, Boolean, List<String>) -> Unit) {
+    FlowOpenWhileShown()
     var dest by remember { mutableStateOf("") }
     // Coin control: spend exactly the coins ticked here (deposit coins, or Ark coins to withdraw).
     var choose by remember { mutableStateOf(false) }
@@ -632,13 +634,15 @@ private fun CoinPicker(coins: List<Ark.Coin>, picked: Set<String>, accent: Color
 /** Amount / cost / total, with the cost in warning colour when it is a big share. */
 @Composable
 private fun CostBreakdown(e: Ark.Estimate, amountLabel: String, totalLabel: String, accent: Color) {
-    val share = if (e.amount > 0) e.fee * 100 / e.amount else 0
+    // Share of the whole: "4 120 sats (41% of the total)" on a 10 000-sat invoice. As a share of
+    // what arrives (70%) it read as if 70% of the invoice went to fees.
+    val share = if (e.total > 0) e.fee * 100 / e.total else 0
     Column(Modifier.fillMaxWidth().border(1.dp, Line, RoundedCornerShape(10.dp)).padding(10.dp)) {
         Row { Text(amountLabel, style = MaterialTheme.typography.bodySmall, color = TextSoft, modifier = Modifier.weight(1f))
               Text(groupSats(e.amount) + " sats", style = MaterialTheme.typography.bodySmall, color = TextMain) }
         Row { Text((if (e.exact) "Cost" else "Cost (approx.)"), style = MaterialTheme.typography.bodySmall, color = TextSoft, modifier = Modifier.weight(1f))
-              Text(groupSats(e.fee) + " sats" + (if (share > 0) "  ($share%)" else ""), style = MaterialTheme.typography.bodySmall,
-                   color = if (share >= 20) Warn else TextMain) }
+              Text(groupSats(e.fee) + " sats" + (if (share > 0) "  ($share% of the total)" else ""), style = MaterialTheme.typography.bodySmall,
+                   color = if (share >= 15) Warn else TextMain) }
         Row { Text(totalLabel, style = MaterialTheme.typography.bodySmall, color = TextSoft, modifier = Modifier.weight(1f))
               Text(groupSats(e.total) + " sats", style = MaterialTheme.typography.titleSmall, color = accent) }
         fiatOf(e.total)?.let { f ->

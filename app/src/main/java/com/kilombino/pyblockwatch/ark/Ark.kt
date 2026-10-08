@@ -289,6 +289,15 @@ object Ark {
     /** On-chain XBT address to fund the wallet before moving the funds into Ark. */
     fun onchainAddress(): String = JSONObject(call("POST", "/onchain/addresses/next")).getString("address")
 
+    /** Deposit addresses this wallet handed out, so a payment to one is not taken for someone else's. */
+    fun rememberOwnAddress(ctx: Context, address: String) {
+        val p = prefs(ctx)
+        p.edit().putStringSet("own_onchain", (p.getStringSet("own_onchain", emptySet()) ?: emptySet()) + address).apply()
+    }
+
+    fun isOwnAddress(ctx: Context, address: String): Boolean =
+        prefs(ctx).getStringSet("own_onchain", emptySet())?.contains(address) == true
+
     /**
      * Moves [sats] of on-chain XBT into Ark (needs [BOARD_CONFIRMATIONS] confirmations to become
      * spendable). [feeRate] in sat/vB pays the funding transaction at that rate; null uses the

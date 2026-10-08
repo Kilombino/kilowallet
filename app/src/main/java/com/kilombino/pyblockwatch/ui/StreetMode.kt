@@ -22,7 +22,29 @@ object StreetMode {
     var hidden by mutableStateOf(true)
         private set
 
-    fun lock() { hidden = true }
+    /** Settings: start hidden (the default) or showing the amounts. Read once at start. */
+    var byDefault by mutableStateOf(true)
+        private set
+
+    private fun prefs(ctx: android.content.Context) = ctx.getSharedPreferences("pyblockwatch", android.content.Context.MODE_PRIVATE)
+
+    fun init(ctx: android.content.Context) {
+        byDefault = prefs(ctx).getBoolean("street_mode_default", true)
+        hidden = byDefault
+    }
+
+    /**
+     * Turning it on needs nothing; turning it off shows every amount from then on, so it asks
+     * for the fingerprint first, like the eye does.
+     */
+    fun setByDefault(activity: FragmentActivity, on: Boolean) {
+        fun apply() { byDefault = on; hidden = on; prefs(activity).edit().putBoolean("street_mode_default", on).apply() }
+        if (on) apply() else Biometric.confirm(activity, "Turn street mode off", "Amounts will show without asking",
+            onSuccess = { apply() }, onError = {})
+    }
+
+    /** Back to the chosen default: hidden, unless street mode is turned off in settings. */
+    fun lock() { hidden = byDefault }
 
     fun unlock(activity: FragmentActivity, onError: (String) -> Unit = {}) {
         Biometric.confirm(activity, "Unlock street mode", "Show your balances and movements",

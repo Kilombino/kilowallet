@@ -96,7 +96,7 @@ fun ModeChooser(vm: WalletViewModel) {
             title = "Advanced",
             lines = listOf(
                 if (com.kilombino.pyblockwatch.ark.Ark.available) "BTC and Ark (instant payments and Lightning), beta"
-                else "BTC, and Ark (instant payments and Lightning) — coming soon",
+                else "BTC (Ark needs an ARM phone: its engine is not built for this one's processor)",
                 "Coin control, fees, derivation paths, Silent Payments",
                 "Address list, server certificates, gap limit",
             ),
@@ -384,12 +384,13 @@ internal fun FiatChip(label: String, selected: Boolean, accent: Color, onClick: 
 @Composable
 internal fun ArkComingSoon(accent: Color) {
     Panel(accent = accent) {
-        SectionLabel("Ark — coming soon", accent)
+        SectionLabel("Ark — not on this phone", accent)
         Spacer(Modifier.height(8.dp))
         Explain(
             "Ark will let you send XBT instantly between wallets and pay Lightning invoices " +
                 "without opening channels, through the Paperclip Ark server " +
-                "(ark.paperclippool.xyz). It is not available in this version yet."
+                "(ark.paperclippool.xyz). Its engine is built for ARM phones (arm64), the ones almost every Android " +
+                "phone uses; this device has another processor (x86, like most emulators), so Ark can't run here."
         )
     }
     Panel(accent = Warn) {

@@ -52,6 +52,9 @@ data class SendDraft(
     val extra: List<Pair<String, Long>> = emptyList(),
     /** The BIP-353 handle (user@domain) the first recipient was resolved from, if any. */
     val handle: String? = null,
+    /** Set for a CPFP: the stuck transaction this child pulls along, and the pair's fee rate. */
+    val cpfpParent: String? = null,
+    val packageRate: Double = 0.0,
 ) {
     /** Everything that leaves the wallet: the first recipient plus the extra ones. */
     val totalSent: Long get() = amount + extra.sumOf { it.second }
@@ -186,6 +189,14 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun seedEncryptCipher() = seedVault.encryptCipher()
     /** A Keystore cipher to decrypt the seed; authorise it with BiometricPrompt first. */
     fun seedDecryptCipher() = seedVault.decryptCipher()
+
+    fun toast(msg: String) = android.widget.Toast.makeText(getApplication(), msg, android.widget.Toast.LENGTH_LONG).show()
+
+    /** [seedDecryptCipher] for a confirm button: when it fails, say why instead of doing nothing. */
+    fun seedCipherOrToast(): javax.crypto.Cipher? = runCatching { seedVault.decryptCipher() }.getOrElse { e ->
+        android.widget.Toast.makeText(getApplication(), e.message ?: "The wallet key could not be opened.", android.widget.Toast.LENGTH_LONG).show()
+        null
+    }
 
     /** The spending wallet's words, with a [seedDecryptCipher] the user has authorised. */
     fun revealSeed(decryptCipher: javax.crypto.Cipher): List<String> = seedVault.reveal(decryptCipher)
@@ -937,6 +948,108 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Check every coin about to be spent against the transaction that created it (fetched by its
+     * txid, which the client checks is really that transaction): the amount and the address must
+     * be what the server listed. A server that lied about a coin is caught here, before anything
+     * is signed, instead of as a mysteriously invalid transaction.
+     */
+    private suspend fun verifyCoins(chain: Chain, coins: List<Scanner.SpendableUtxo>) {
+        val xpub = _state.value.xpub ?: return
+        val parsed = com.kilombino.pyblockwatch.crypto.Bip32.parseExtendedPubKey(xpub)
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val c = client(chain)
+            try {
+                c.connect()
+                val txs = HashMap<String, com.kilombino.pyblockwatch.crypto.TxParse.Tx>()
+                for (u in coins) {
+                    val tx = txs.getOrPut(u.txid) { com.kilombino.pyblockwatch.crypto.TxParse.parse(c.transaction(u.txid)) }
+                    val out = tx.outputs.getOrNull(u.vout)
+                        ?: error("The server listed a coin that does not exist (${u.txid.take(8)}…:${u.vout}). Nothing was signed.")
+                    val script = com.kilombino.pyblockwatch.crypto.Address.scriptPubKey(
+                        com.kilombino.pyblockwatch.crypto.Bip32.derivePath(parsed, u.chainIndex, u.index).pubkey(), store.scriptType)
+                    require(out.value == u.value && out.scriptPubKey.contentEquals(script)) {
+                        "The server's data about a coin (${u.txid.take(8)}…:${u.vout}) does not match the transaction itself. " +
+                            "Nothing was signed; try another server."
+                    }
+                }
+            } finally { c.close() }
+        }
+    }
+
+    /**
+     * Whether the reviewed fee looks like a slip: above 100 sat/vB, above 100 000 sats, or more
+     * than 5% of what is sent. The review then asks for a second, explicit confirmation.
+     */
+    fun feeConcern(d: SendDraft): String? {
+        val vbytes = estimateFee(d.inputs.size, d.outputs.map { it.scriptPubKey }, 1.0).coerceAtLeast(1)
+        val rate = d.fee.toDouble() / vbytes
+        val sent = if (d.cpfpParent != null) d.amount + d.fee else d.totalSent
+        val reasons = buildList {
+            if (rate > 100) add("%.0f sat/vB".format(java.util.Locale.ROOT, rate))
+            if (d.fee > 100_000) add("${"%,d".format(d.fee).replace(',', ' ')} sats")
+            if (sent > 0 && d.fee * 100 > sent * 5) add("${d.fee * 100 / sent}% of the amount")
+        }
+        return if (reasons.isEmpty()) null else "This fee is high: " + reasons.joinToString(", ") + "."
+    }
+
+    // ------------------------------------------------------------------ hot wallet: speed up (CPFP)
+
+    /**
+     * Pull a stuck unconfirmed transaction that paid this wallet along (child pays for parent):
+     * spend our outputs of it back to ourselves with a fee big enough that parent and child
+     * together pay [ratePerVb]. Works for any transaction that pays us, including ones we did
+     * not send (where RBF is impossible). Miners take the pair as one package.
+     */
+    fun prepareCpfp(txid: String, ratePerVb: Double) {
+        val chain = _state.value.selected
+        val cs = _state.value.chains[chain] ?: return
+        val xpub = _state.value.xpub ?: return
+        _state.update { it.copy(sendPhase = SendPhase.Preparing) }
+        viewModelScope.launch {
+            runCatching {
+                val rate = ratePerVb.coerceIn(1.0, 1000.0)
+                val endpoint = store.endpoint(chain)
+                val client = com.kilombino.pyblockwatch.chain.ElectrumClient(endpoint, store.pinnedFingerprint(endpoint))
+                val draft = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        client.connect()
+                        val raw = client.transaction(txid)
+                        val tx = com.kilombino.pyblockwatch.crypto.TxParse.parse(raw)
+                        val parentVsize = com.kilombino.pyblockwatch.crypto.TxParse.vsize(raw)
+                        val parentFee = tx.inputs.sumOf { i ->
+                            com.kilombino.pyblockwatch.crypto.TxParse.parse(client.transaction(i.txid)).outputs[i.vout].value
+                        } - tx.outputs.sumOf { it.value }
+                        val byHash = cs.rows.associateBy { it.scriptHash }
+                        val unspent = cs.rows.filter { it.isUsed }.flatMap { r -> client.listUnspent(r.scriptHash) }
+                            .map { "${it.txid}:${it.vout}" }.toSet()
+                        val ours = tx.outputs.mapIndexedNotNull { n, o ->
+                            val row = byHash[com.kilombino.pyblockwatch.crypto.Address.electrumScriptHash(o.scriptPubKey)] ?: return@mapIndexedNotNull null
+                            if ("$txid:$n" !in unspent) return@mapIndexedNotNull null
+                            Scanner.SpendableUtxo(txid, n, o.value, row.chainIndex, row.index, 0)
+                        }
+                        require(ours.isNotEmpty()) { "This transaction has no unspent output of this wallet to speed it up with." }
+                        val to = changeScriptPubKey(xpub, nextChangeIndex(cs.rows))
+                        val childVsize = estimateFee(ours.size, listOf(to), 1.0)
+                        val need = kotlin.math.ceil(rate * (parentVsize + childVsize)).toLong() - parentFee
+                        require(need > childVsize) {
+                            "It already pays ${"%.1f".format(java.util.Locale.ROOT, parentFee.toDouble() / parentVsize)} sat/vB: " +
+                                "choose a higher rate than that."
+                        }
+                        val sum = ours.sumOf { it.value }
+                        require(sum - need > DUST_SATS) { "Your part of it ($sum sats) can't cover a $need-sat fee." }
+                        SendDraft(scriptToAddress(to), sum - need, need, 0, ours,
+                            listOf(com.kilombino.pyblockwatch.crypto.TxBuilder.Output(to, sum - need)), chain,
+                            cpfpParent = txid, packageRate = (parentFee + need).toDouble() / (parentVsize + childVsize))
+                    } finally { client.close() }
+                }
+                _state.update { it.copy(sendPhase = SendPhase.Review(draft)) }
+            }.onFailure { e ->
+                _state.update { it.copy(sendPhase = SendPhase.Failed(e.message ?: "Could not prepare the speed-up.")) }
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ hot wallet: speed up (RBF)
 
     /**
@@ -1114,6 +1227,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     chosen = acc; sum = s
                 }
 
+                verifyCoins(chain, chosen)
                 var fee = estimateFee(chosen.size, withChange, rate)
                 // Sending everything (MAX) has no change output: size the fee without it. Then there
                 // must be no change output either, or the transaction would pay a fee sized for one
@@ -1499,6 +1613,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     /** True when [address] is one of this wallet's own (used so far, plus the gap). */
     fun isOwnAddress(address: String): Boolean {
         val a = address.trim()
+        // The Ark wallet's own deposit address is ours too, not a contact.
+        if (runCatching { com.kilombino.pyblockwatch.ark.Ark.isOwnAddress(getApplication(), a) }.getOrDefault(false)) return true
         if (_state.value.chains.values.any { cs -> cs.rows.any { it.address == a } }) return true
         val xpub = _state.value.xpub ?: return false
         return runCatching {

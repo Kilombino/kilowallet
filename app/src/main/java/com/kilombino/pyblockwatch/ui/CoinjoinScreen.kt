@@ -566,13 +566,16 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, onDo
                 Text("from ${p.draft.inputs.size} coin(s) · fee ${groupSats(p.draft.fee)} sats" +
                     (if (p.draft.change > 0) " · change ${groupSats(p.draft.change)}" else ""),
                     color = TextSoft, style = MaterialTheme.typography.bodySmall)
+                val concern = remember(p.draft) { vm.feeConcern(p.draft) }
+                var feeOk by remember(p.draft) { mutableStateOf(false) }
+                if (concern != null) FeeGate(concern, feeOk) { feeOk = !feeOk }
                 Spacer(Modifier.height(6.dp))
                 Button(onClick = {
-                    runCatching { vm.seedDecryptCipher() }.onSuccess { cipher ->
+                    vm.seedCipherOrToast()?.let { cipher ->
                         Biometric.authenticate(activity, "Prepare the exact coin", "Unlock to sign the payment to yourself", cipher,
-                            onSuccess = { authed -> vm.confirmSend(authed) }, onError = {})
+                            onSuccess = { authed -> vm.confirmSend(authed) }, onError = { vm.toast(it) })
                     }
-                }, colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
+                }, enabled = concern == null || feeOk, colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
                     shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) { Text("CONFIRM & SIGN") }
             }
             is SendPhase.Sent -> {

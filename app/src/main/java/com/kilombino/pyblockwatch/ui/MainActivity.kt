@@ -103,6 +103,7 @@ class MainActivity : FragmentActivity() {
         if (com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.hasActive(this))
             com.kilombino.pyblockwatch.coinjoin.CoinjoinService.start(this)
         enableEdgeToEdge()
+        StreetMode.init(this)
         setContent {
             PyBlockWatchTheme {
                 val vm: WalletViewModel = viewModel()
@@ -138,13 +139,23 @@ class MainActivity : FragmentActivity() {
                                     com.kilombino.pyblockwatch.data.UpdateCheck.check(current)
                                 }
                                 if (r != null && (forceAsk > 0 || prefs.getString("update_dismissed", null) != r.version)) update = r
+                                if (com.kilombino.pyblockwatch.data.OpenTab.checkNow) {
+                                    com.kilombino.pyblockwatch.data.OpenTab.checkNow = false
+                                    if (r == null) android.widget.Toast.makeText(this@MainActivity,
+                                        "You have the latest Kilowallet ($current).", android.widget.Toast.LENGTH_SHORT).show()
+                                }
                             }
                             kotlinx.coroutines.delay(5 * 60 * 1000L)
                         }
                     }
                     val upd by com.kilombino.pyblockwatch.data.AppUpdater.state.collectAsState()
                     val uri = androidx.compose.ui.platform.LocalUriHandler.current
-                    update?.let { r ->
+                    // Never on top of something half done: a send being reviewed or signed, or a
+                    // coinjoin round past "waiting for people". It shows once that is over.
+                    val cjVersion by com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.version.collectAsState()
+                    val busy = openFlows.intValue > 0 ||
+                        remember(cjVersion) { com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.inRound() }
+                    update?.takeIf { !busy }?.let { r ->
                         if (upd is com.kilombino.pyblockwatch.data.AppUpdater.State.Idle) AlertDialog(
                             onDismissRequest = { update = null },
                             title = { Text("Kilowallet ${r.version} is out") },
@@ -178,8 +189,8 @@ class MainActivity : FragmentActivity() {
                                         is AppUpdater.State.Verifying -> Text("Checking the hash and the certificate…", style = MaterialTheme.typography.bodyMedium)
                                         is AppUpdater.State.NeedsPermission -> Text("Android needs you to allow installs from Kilowallet once. " +
                                             "Turn it on, come back and tap CONTINUE.", style = MaterialTheme.typography.bodySmall)
-                                        is AppUpdater.State.Installing -> Text("Installing… Android may ask you to confirm; the app restarts " +
-                                            "on its own when it is done.", style = MaterialTheme.typography.bodySmall)
+                                        is AppUpdater.State.Installing -> Text("Installing… Android may ask you to confirm. Android closes the app to replace it: " +
+                                            "a notification tells you when the new version is in, tap it to open it.", style = MaterialTheme.typography.bodySmall)
                                         is AppUpdater.State.Failed -> Text(st.message, style = MaterialTheme.typography.bodySmall, color = Bad)
                                         else -> {}
                                     }
@@ -331,9 +342,9 @@ private fun OnboardingScreen(state: UiState, vm: WalletViewModel) {
             SectionLabel("Watch-only wallet", Orange)
             Spacer(Modifier.height(8.dp))
             Explain(
-                "Paste an extended PUBLIC key (xpub/ypub/zpub) to watch balances without any way " +
-                    "to spend. Careful: an xpub reveals every address you will ever use — keep it " +
-                    "like a bank statement."
+                "Paste an extended PUBLIC key (xpub/ypub/zpub) to watch balances. It holds no keys: to " +
+                    "send, it hands a PSBT to a separate signer. Careful: an xpub reveals every address " +
+                    "you will ever use — keep it like a bank statement."
             )
             Spacer(Modifier.height(10.dp))
             OutlinedTextField(
@@ -1016,6 +1027,20 @@ internal fun SettingsPanel(
                     activity.getSharedPreferences("pyblockwatch", android.content.Context.MODE_PRIVATE).edit().putBoolean("check_updates", it).apply()
                 }, colors = SwitchDefaults.colors(checkedThumbColor = accent))
             }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Street mode", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                    Explain("On: balances and amounts are hidden every time the app opens, until you unlock them " +
+                        "with the eye. Off: they always show (turning it off asks for your fingerprint).")
+                }
+                Switch(checked = StreetMode.byDefault, onCheckedChange = { StreetMode.setByDefault(activity, it) },
+                    colors = SwitchDefaults.colors(checkedThumbColor = accent))
+            }
+            // Asks now, even about a version once answered NOT NOW.
+            TextButton(onClick = {
+                com.kilombino.pyblockwatch.data.OpenTab.checkNow = true
+                com.kilombino.pyblockwatch.data.OpenTab.flow.value = com.kilombino.pyblockwatch.data.OpenTab.UPDATE
+            }) { Text("CHECK NOW", color = accent, style = MaterialTheme.typography.bodySmall) }
         }
         Spacer(Modifier.height(6.dp))
         Button(
@@ -1058,13 +1083,15 @@ internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, v
     // Tapping a movement asks before leaving the app: opening it reveals the txid (and so
     // which addresses are yours) to whoever runs that explorer.
     var asking by remember { mutableStateOf<TxConf?>(null) }
-    var bumping by remember { mutableStateOf<String?>(null) }
-    bumping?.let { txid -> BumpDialog(vm, txid, accent, explorer) { bumping = null; vm.resetSend() } }
+    // A stuck send is replaced (RBF); a stuck payment TO this wallet is pulled along (CPFP).
+    var bumping by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    bumping?.let { (txid, cpfp) -> BumpDialog(vm, txid, accent, explorer, cpfp) { bumping = null; vm.resetSend() } }
     val site = explorer.removePrefix("https://").removePrefix("http://")
     asking?.let { t ->
         TxDetailDialog(t.txid, accent, explorer,
-            status = if (t.pending) "in mempool · 0 confirmations" else "${t.confirmations} confirmations",
-            onSpeedUp = if (t.pending && isHot) ({ asking = null; bumping = t.txid }) else null,
+            status = if (t.pending) "in mempool · 0 confirmations" else "${t.confirmations} confirmation" + if (t.confirmations == 1) "" else "s",
+            onSpeedUp = if (t.pending && isHot) ({ asking = null; bumping = t.txid to ((t.amount ?: 0) > 0) }) else null,
+            speedUpLabel = if ((t.amount ?: 0) > 0) "⚡ SPEED UP (CPFP)" else "⚡ SPEED UP (RBF)",
             onClose = { asking = null }, vm = vm, chain = chain)
     }
     Panel(accent = accent) {
@@ -1105,7 +1132,7 @@ internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, v
                 if (t.pending) {
                     Text("in mempool · 0 conf",
                          style = MaterialTheme.typography.bodySmall, color = Warn)
-                    if (isHot) TextButton(onClick = { bumping = t.txid }) {
+                    if (isHot) TextButton(onClick = { bumping = t.txid to ((t.amount ?: 0) > 0) }) {
                         Text("⚡ speed up", style = MaterialTheme.typography.bodySmall, color = accent)
                     }
                 } else {
@@ -1130,15 +1157,20 @@ internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, v
  * else explains why it can't be replaced.
  */
 @Composable
-private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, explorer: String, onClose: () -> Unit) {
+private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, explorer: String, cpfp: Boolean, onClose: () -> Unit) {
+    FlowOpenWhileShown()
     val sent = (vm.state.collectAsState().value.sendPhase as? SendPhase.Sent)?.txid
     if (sent != null) {
-        TxDetailDialog(sent, accent, explorer, status = "replacement sent ✓ · in mempool", onSpeedUp = null, onClose = onClose)
+        TxDetailDialog(sent, accent, explorer, status = (if (cpfp) "speed-up sent ✓" else "replacement sent ✓") + " · in mempool",
+            onSpeedUp = null, onClose = onClose)
         return
     }
     val state by vm.state.collectAsState()
     val activity = LocalContext.current as androidx.fragment.app.FragmentActivity
     var rate by remember { mutableStateOf("3") }
+    val reviewed = (state.sendPhase as? SendPhase.Review)?.draft
+    val feeConcern = remember(reviewed) { reviewed?.let { vm.feeConcern(it) } }
+    var feeOk by remember(reviewed) { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onClose,
         title = { Text("Speed up ${txid.take(8)}…") },
@@ -1147,17 +1179,28 @@ private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, explore
                 when (val p = state.sendPhase) {
                     is SendPhase.Review -> {
                         val d = p.draft
-                        Text("Replaces the stuck send with the same payment and a higher fee, taken from your change.",
-                             style = MaterialTheme.typography.bodySmall)
-                        Text("To: ${shortAddress(d.toAddress)} · ${groupSats(d.amount)} sats", style = MaterialTheme.typography.bodySmall)
-                        Text("Fee: ${groupSats(d.replacedFee)} → ${groupSats(d.fee)} sats", style = MaterialTheme.typography.bodySmall, color = accent)
-                        Text("Change: ${groupSats(d.change)} sats", style = MaterialTheme.typography.bodySmall)
+                        if (d.cpfpParent != null) {
+                            Text("Pulls the stuck payment along: a payment to yourself that spends what it brought you, " +
+                                "with a fee big enough for both. Miners take the two together.", style = MaterialTheme.typography.bodySmall)
+                            Text("Back to you: ${groupSats(d.amount)} sats", style = MaterialTheme.typography.bodySmall)
+                            Text("Fee: ${groupSats(d.fee)} sats · both together ${"%.1f".format(java.util.Locale.ROOT, d.packageRate)} sat/vB",
+                                 style = MaterialTheme.typography.bodySmall, color = accent)
+                        } else {
+                            Text("Replaces the stuck send with the same payment and a higher fee, taken from your change.",
+                                 style = MaterialTheme.typography.bodySmall)
+                            Text("To: ${shortAddress(d.toAddress)} · ${groupSats(d.amount)} sats", style = MaterialTheme.typography.bodySmall)
+                            Text("Fee: ${groupSats(d.replacedFee)} → ${groupSats(d.fee)} sats", style = MaterialTheme.typography.bodySmall, color = accent)
+                            Text("Change: ${groupSats(d.change)} sats", style = MaterialTheme.typography.bodySmall)
+                        }
+                        feeConcern?.let { FeeGate(it, feeOk) { feeOk = !feeOk } }
                     }
-                    is SendPhase.Sent -> Text("Replacement sent ✓\n${p.txid}", style = MaterialTheme.typography.bodySmall, color = Good)
+                    is SendPhase.Sent -> Text((if (cpfp) "Speed-up sent ✓\n" else "Replacement sent ✓\n") + p.txid,
+                        style = MaterialTheme.typography.bodySmall, color = Good)
                     SendPhase.Preparing, SendPhase.Broadcasting -> Text("working…", style = MaterialTheme.typography.bodySmall, color = accent)
                     else -> {
                         if (p is SendPhase.Failed) Text(p.message, style = MaterialTheme.typography.bodySmall, color = Bad)
-                        Text("New fee rate. It must beat the old fee by at least 1 sat/vB of the transaction's size; " +
+                        Text(if (cpfp) "Fee rate for the stuck payment and the speed-up together. Most pools only mine from 1 sat/vB." else
+                            "New fee rate. It must beat the old fee by at least 1 sat/vB of the transaction's size; " +
                             "most pools only mine from 1 sat/vB.", style = MaterialTheme.typography.bodySmall)
                         OutlinedTextField(value = rate, onValueChange = { rate = it.filter { c -> c.isDigit() || c == '.' } },
                             label = { Text("sat/vB", style = MaterialTheme.typography.bodySmall) }, singleLine = true)
@@ -1167,15 +1210,17 @@ private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, explore
         },
         confirmButton = {
             when (state.sendPhase) {
-                is SendPhase.Review -> TextButton(onClick = {
-                    runCatching { vm.seedDecryptCipher() }.onSuccess { cipher ->
-                        Biometric.authenticate(activity, "Speed up payment", "Unlock to sign the replacement", cipher,
-                            onSuccess = { authed -> vm.confirmSend(authed) }, onError = { })
+                is SendPhase.Review -> TextButton(enabled = feeConcern == null || feeOk, onClick = {
+                    vm.seedCipherOrToast()?.let { cipher ->
+                        Biometric.authenticate(activity, "Speed up payment", "Unlock to sign the speed-up", cipher,
+                            onSuccess = { authed -> vm.confirmSend(authed) }, onError = { vm.toast(it) })
                     }
                 }) { Text("CONFIRM & SIGN", color = accent) }
                 is SendPhase.Sent -> TextButton(onClick = onClose) { Text("DONE", color = accent) }
                 SendPhase.Preparing, SendPhase.Broadcasting -> {}
-                else -> TextButton(onClick = { vm.prepareBump(txid, rate.toDoubleOrNull() ?: 3.0) }) {
+                else -> TextButton(onClick = {
+                    if (cpfp) vm.prepareCpfp(txid, rate.toDoubleOrNull() ?: 3.0) else vm.prepareBump(txid, rate.toDoubleOrNull() ?: 3.0)
+                }) {
                     Text("REVIEW", color = accent)
                 }
             }
@@ -1194,7 +1239,7 @@ private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, explore
 internal fun TxDetailDialog(
     txid: String, accent: Color, explorer: String, status: String,
     onSpeedUp: (() -> Unit)?, onClose: () -> Unit,
-    vm: WalletViewModel? = null, chain: Chain = Chain.BLAKE2B,
+    vm: WalletViewModel? = null, chain: Chain = Chain.BLAKE2B, speedUpLabel: String = "⚡ SPEED UP (RBF)",
 ) {
     // The first time, ask which explorer to use (and warn it is an outside site); once the user
     // keeps one, it opens straight away.
@@ -1247,7 +1292,7 @@ internal fun TxDetailDialog(
                     }
                 }
                 onSpeedUp?.let {
-                    TextButton(onClick = it) { Text("⚡ SPEED UP (RBF)", color = accent) }
+                    TextButton(onClick = it) { Text(speedUpLabel, color = accent) }
                 }
             }
         },

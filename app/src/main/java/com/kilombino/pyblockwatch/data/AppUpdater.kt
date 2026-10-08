@@ -48,6 +48,8 @@ object AppUpdater {
     fun start(ctx: Context, r: UpdateCheck.Release) {
         val app = ctx.applicationContext
         if (state.value is State.Downloading || state.value is State.Installing) return
+        // So the app, once replaced, can say the update is in (see UpdatedReceiver).
+        app.getSharedPreferences("pyblockwatch", Context.MODE_PRIVATE).edit().putString("updating_to", r.version).apply()
         scope.launch {
             runCatching {
                 val url = r.apkUrl ?: error("This release has no APK attached.")
@@ -143,6 +145,26 @@ object AppUpdater {
     }
 
     /** Android's answer: ask the user to confirm, or report why it failed. Success restarts the app. */
+    /**
+     * Android closes the app to replace it and does not start it again. When the new version
+     * is in (after an update started here), a notification says so; tapping it opens the app.
+     */
+    class UpdatedReceiver : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
+            val prefs = context.getSharedPreferences("pyblockwatch", Context.MODE_PRIVATE)
+            prefs.getString("updating_to", null) ?: return
+            prefs.edit().remove("updating_to").apply()
+            // The version really installed now (it could be another one, from Zapstore).
+            val v = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: return
+            runCatching { Notifier(context).updated(v) }
+        }
+    }
+
+    /** An update that was cancelled or failed is not waited for any more. */
+    private fun clearPending(ctx: Context) =
+        ctx.getSharedPreferences("pyblockwatch", Context.MODE_PRIVATE).edit().remove("updating_to").apply()
+
     class InstallResultReceiver : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
@@ -153,8 +175,11 @@ object AppUpdater {
                     confirm?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)?.let { runCatching { context.startActivity(it) } }
                 }
                 PackageInstaller.STATUS_SUCCESS -> state.value = State.Idle
-                else -> state.value = State.Failed(
-                    "Android did not install it: " + (intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "cancelled or failed") + ".")
+                else -> {
+                    clearPending(context)
+                    state.value = State.Failed(
+                        "Android did not install it: " + (intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "cancelled or failed") + ".")
+                }
             }
         }
     }

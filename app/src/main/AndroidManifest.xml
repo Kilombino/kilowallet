@@ -43,6 +43,13 @@
         <receiver
             android:name=".data.AppUpdater$InstallResultReceiver"
             android:exported="false" />
+        <receiver
+            android:name=".data.AppUpdater$UpdatedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- XBT price widget (merged from the former XBT Widget app). -->
         <receiver

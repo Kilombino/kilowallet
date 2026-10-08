@@ -241,3 +241,15 @@ fun SecureWhileShown() {
         onDispose { if (--secureHolders == 0) activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE) }
     }
 }
+
+/** How many money flows (send, speed-up, Ark send…) are on screen; prompts wait while any is. */
+val openFlows = androidx.compose.runtime.mutableIntStateOf(0)
+
+/** Marks a send-like flow as open while it is on screen, so the update prompt does not cover it. */
+@Composable
+fun FlowOpenWhileShown() {
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        openFlows.intValue++
+        onDispose { openFlows.intValue-- }
+    }
+}
