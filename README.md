@@ -21,8 +21,8 @@ Kilombino's Bitcoin BLAKE2b (XBT) wallet, formerly "Kilombino Bitcoin-Blake2b wa
 </p>
 
 <p align="center">
-  <a href="https://github.com/Kilombino/kilowallet/releases/download/tutorial/kilowallet_tutorial_EN.mp4"><img src="screenshots/tutorial.jpg" width="480" alt="Kilowallet video tutorial"></a><br>
-  ▶ <b><a href="https://github.com/Kilombino/kilowallet/releases/download/tutorial/kilowallet_tutorial_EN.mp4">Video tutorial</a></b> (13 min, English) · <a href="https://github.com/Kilombino/kilowallet/releases/tag/tutorial">chapters and subtitles</a>
+  <a href="https://kilombino.com/kilowallet/"><img src="screenshots/tutorial.jpg" width="480" alt="Kilowallet video tutorial"></a><br>
+  ▶ <b><a href="https://kilombino.com/kilowallet/">Video tutorial</a></b> (13 min, English) · <a href="https://github.com/Kilombino/kilowallet/releases/tag/tutorial">chapters and subtitles</a>
 </p>
 
 
