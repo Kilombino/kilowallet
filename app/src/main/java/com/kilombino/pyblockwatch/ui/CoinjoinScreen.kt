@@ -15,6 +15,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -121,6 +122,8 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
             "Each person pays their own share of the fee from their change. No server ever holds your " +
             "coins: the relay only passes encrypted messages, and you sign only after checking your output.")
     }
+
+    TelegramAlertsPanel(accent, mine)
 
     message?.let { m ->
         Panel(accent = Warn) {
@@ -603,3 +606,75 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, onDo
 
 private fun fmtRate(r: Double): String =
     if (r >= 10) "%.0f".format(java.util.Locale.ROOT, r) else "%.1f".format(java.util.Locale.ROOT, r)
+
+/**
+ * Optional Telegram alerts for the user's own pools through @Coinjoinpoolbot (see CoinjoinAlerts).
+ * Off by default; turning it on first says what the bot's server learns.
+ */
+@Composable
+private fun TelegramAlertsPanel(accent: Color, mine: List<com.kilombino.pyblockwatch.coinjoin.PoolSession.State>) {
+    val ctx = LocalContext.current.applicationContext
+    val uri = androidx.compose.ui.platform.LocalUriHandler.current
+    var on by remember { mutableStateOf(com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.enabled(ctx)) }
+    var linked by remember { mutableStateOf<Boolean?>(null) }
+    var asking by remember { mutableStateOf(false) }
+    LaunchedEffect(on) {
+        // Until the user presses Start in the bot, check now and then (over Tor, so not too often).
+        while (on && linked != true) {
+            linked = withContext(Dispatchers.IO) { com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.linked(ctx) }
+            if (linked == true) {
+                // Pools already running get followed too.
+                mine.filter { it.phase !in setOf(com.kilombino.pyblockwatch.coinjoin.PoolSession.Phase.CONFIRMED,
+                    com.kilombino.pyblockwatch.coinjoin.PoolSession.Phase.ABORTED, com.kilombino.pyblockwatch.coinjoin.PoolSession.Phase.REJECTED) }
+                    .forEach { com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.follow(ctx, it) }
+                break
+            }
+            kotlinx.coroutines.delay(15_000)
+        }
+    }
+    if (asking) AlertDialog(
+        onDismissRequest = { asking = false },
+        title = { Text("Telegram alerts") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("@${com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.BOT} will tell you about every pool you create or join, " +
+                    "step by step: someone joined or left, someone asks to close, your turn to sign, sent, confirmed, cancelled.",
+                    style = MaterialTheme.typography.bodySmall)
+                Text("⚠ Privacy: to do it, the bot's server learns that your Telegram account is in those pools " +
+                    "(and Telegram sees the messages). It never learns which mixed output is yours, it talks to this " +
+                    "app over Tor, and it forgets each pool when it ends. If that is too much, leave this off: the " +
+                    "app's own notifications already tell you everything.",
+                    style = MaterialTheme.typography.bodySmall, color = Warn)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.enable(ctx); on = true; linked = false; asking = false
+                runCatching { uri.openUri(com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.linkUrl(ctx)) }
+            }) { Text("ENABLE AND OPEN TELEGRAM", color = accent) }
+        },
+        dismissButton = { TextButton(onClick = { asking = false }) { Text("NOT NOW", color = TextSoft) } },
+        containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
+    )
+    Panel(accent = accent) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("🔔 Telegram alerts", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                Explain(when {
+                    !on -> "Follow your pools step by step in @${com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.BOT}. Optional."
+                    linked == true -> "On: your pools are followed in @${com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.BOT}."
+                    else -> "Waiting for you to press Start in @${com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.BOT}…"
+                })
+            }
+            when {
+                !on -> TextButton(onClick = { asking = true }) { Text("ENABLE", color = accent) }
+                linked != true -> TextButton(onClick = {
+                    runCatching { uri.openUri(com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.linkUrl(ctx)) }
+                }) { Text("OPEN BOT", color = accent) }
+                else -> TextButton(onClick = {
+                    com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.disable(ctx); on = false; linked = null
+                }) { Text("TURN OFF", color = TextSoft) }
+            }
+        }
+    }
+}

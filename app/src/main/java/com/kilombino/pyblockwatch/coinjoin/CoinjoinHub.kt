@@ -141,6 +141,7 @@ object CoinjoinHub {
         val st = PoolSession.newState(terms, true, secret, coin, pick.coinKey.key, pick.coinPath, pick.mixScript, pick.changeScript,
             password?.ifEmpty { null })
         add(ctx, st)
+        CoinjoinAlerts.follow(ctx, st)
         return st
     }
 
@@ -236,6 +237,7 @@ object CoinjoinHub {
                 // Left on purpose ("not yet", LEAVE): nothing to keep, and the pool goes back
                 // to the open list so the user can join again straight away.
                 if (state.phase == PoolSession.Phase.ABORTED && state.reason == PoolSession.LEFT_BY_CHOICE) {
+                    if (sessions.containsKey(state.poolId)) CoinjoinAlerts.event(app, state.poolId, "left")
                     val gone = synchronized(this@CoinjoinHub) { sessions.remove(state.poolId) }
                     Thread { runCatching { gone?.stop() } }.start()
                 }
@@ -248,6 +250,7 @@ object CoinjoinHub {
     private fun sats(v: Long): String = "%,d".format(v).replace(',', ' ')
 
     private fun onEvent(ctx: Context, st: PoolSession.State, e: PoolSession.Event) {
+        alert(ctx, st, e)
         val id = ("cj" + st.poolId).hashCode()
         val pool = "${sats(st.terms.amount)} sats pool"
         when (e) {
@@ -266,6 +269,22 @@ object CoinjoinHub {
             is PoolSession.Event.Aborted -> notify(ctx, id, "Coinjoin cancelled", "$pool · ${e.reason}. Your coin did not move.")
         }
         CoinjoinService.refresh(ctx)
+    }
+
+    /** Telegram alerts (optional): the steps only this app can see, for the user's own pools. */
+    private fun alert(ctx: Context, st: PoolSession.State, e: PoolSession.Event) {
+        if (!CoinjoinAlerts.enabled(ctx)) return
+        val vote = st.voteId ?: ""
+        when (e) {
+            is PoolSession.Event.Welcomed -> CoinjoinAlerts.follow(ctx, st)
+            is PoolSession.Event.CloseRequested -> if (!e.byMe) CoinjoinAlerts.event(ctx, st.poolId, "close_requested", vote)
+            is PoolSession.Event.CloseRefused -> CoinjoinAlerts.event(ctx, st.poolId, "close_refused", vote)
+            is PoolSession.Event.SignNeeded -> CoinjoinAlerts.event(ctx, st.poolId, "sign_needed")
+            is PoolSession.Event.Confirmed -> CoinjoinAlerts.event(ctx, st.poolId, "confirmed")
+            is PoolSession.Event.Aborted -> CoinjoinAlerts.event(ctx, st.poolId,
+                if (e.reason == PoolSession.LEFT_BY_CHOICE) "left" else "aborted", e.reason)
+            else -> {}
+        }
     }
 
     fun ensureChannel(ctx: Context) {
