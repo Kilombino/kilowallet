@@ -510,6 +510,11 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
                 if (cjTab) com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.requestRefresh()
                 else if (arkTab) arkPull++ else if (!warnSpamRefresh) vm.refresh(chain)
                 kotlinx.coroutines.delay(1_500)
+                // On the BTC tabs the spinner stays until the refresh ends (a minute at most).
+                if (!cjTab && !arkTab) {
+                    var waited = 0
+                    while (vm.isRefreshing(chain) && waited < 60) { kotlinx.coroutines.delay(1_000); waited++ }
+                }
                 refreshing = false
             }
         },
@@ -763,6 +768,13 @@ private fun ScanStatus(cs: ChainState, accent: Color, onRetry: () -> Unit) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         PulseDot(Good); Spacer(Modifier.width(10.dp))
                         Text("scan complete", style = MaterialTheme.typography.bodyMedium, color = Good)
+                    }
+                    cs.refreshing?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            PulseDot(accent); Spacer(Modifier.width(10.dp))
+                            Text("refreshing · $it", style = MaterialTheme.typography.bodySmall, color = accent)
+                        }
                     }
                     cs.server?.let {
                         Spacer(Modifier.height(6.dp))

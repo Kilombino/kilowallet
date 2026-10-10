@@ -125,6 +125,8 @@ data class ChainState(
     val fingerprintChanged: Boolean = false,
     val endpoint: NodeEndpoint? = null,
     val transactions: List<TxConf> = emptyList(),
+    /** What a background refresh (pull-down or the 30-second one) is checking now; null when idle. */
+    val refreshing: String? = null,
 ) {
     val confirmed: Long get() = rows.sumOf { it.confirmed }
     val unconfirmed: Long get() = rows.sumOf { it.unconfirmed }
@@ -181,6 +183,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         Notifier(getApplication(), if (store.activeWallet == Store.WATCH) "Watch-only · " else "")
     private val seedVault = com.kilombino.pyblockwatch.data.SeedVault(app)
     private val jobs = mutableMapOf<Chain, Job>()
+    /** One refresh per chain at a time: on a slow server they would pile up every 30 s. */
+    private val refreshJobs = mutableMapOf<Chain, Job>()
     private var refreshJob: Job? = null
 
     /** True when this wallet holds an encrypted seed and can therefore sign/spend. */
@@ -291,10 +295,13 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
             if (jobs[chain]?.isActive == true) return
             scan(chain); return
         }
-        viewModelScope.launch {
-            runCatching {
+        if (refreshJobs[chain]?.isActive == true) return
+        refreshJobs[chain] = viewModelScope.launch {
+            updateIf(xpub, chain) { it.copy(refreshing = "connecting") }
+            try { runCatching {
                 val endpoint = ws.endpoint(chain)
                 val pin = ws.pinnedFingerprint(endpoint)
+                var checked = 0
                 // A SILENT gap-walk (no "scanning" flicker): unlike a plain balance refresh it
                 // re-derives the branches, so a payment to a freshly handed-out receive address,
                 // and the change address a spend just created, are DISCOVERED while the app is
@@ -307,6 +314,11 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                         is ScanEvent.Connected ->
                             if (pin == null && ev.fingerprint != null) ws.pinFingerprint(endpoint, ev.fingerprint)
                         is ScanEvent.Done -> { doneRows = ev.rows; doneTxs = ev.txs; tip = ev.height }
+                        // Progress, on one line under "scan complete": the balance stays as it is meanwhile.
+                        is ScanEvent.Deriving -> { checked++; updateIf(xpub, chain) {
+                            it.copy(refreshing = "${if (ev.chainIndex == 0) "receive" else "change"} ${ev.path} · $checked checked")
+                        } }
+                        is ScanEvent.Failed -> updateIf(xpub, chain) { it.copy(refreshing = null) }
                         // Shown even on a silent refresh: the user has to decide about it.
                         is ScanEvent.CertificateChanged -> updateIf(xpub, chain) {
                             it.copy(fingerprint = ev.fingerprint, fingerprintChanged = true, phase = ScanPhase.Error(ev.message))
@@ -325,9 +337,12 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 updateIf(xpub, chain) {
                     it.copy(rows = rows, transactions = doneTxs, height = tip, phase = ScanPhase.Complete)
                 }
-            }
+            } } finally { updateIf(xpub, chain) { it.copy(refreshing = null) } }
         }
     }
+
+    /** Whether a background refresh of [chain] is running (the pull-down spinner waits for it). */
+    fun isRefreshing(chain: Chain): Boolean = refreshJobs[chain]?.isActive == true
 
     /** Validate and store a pasted extended public key, then scan both chains. */
     fun setXpub(raw: String, label: String) {

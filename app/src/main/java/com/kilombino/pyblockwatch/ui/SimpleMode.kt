@@ -171,6 +171,8 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel, onToggleNotifications: (Bo
                 if (!warnSpam) vm.refresh(chain)
                 vm.refreshMarket(force = true)
                 kotlinx.coroutines.delay(1_500)
+                var waited = 0
+                while (vm.isRefreshing(chain) && waited < 60) { kotlinx.coroutines.delay(1_000); waited++ }
                 refreshing = false
             }
         },
@@ -197,6 +199,9 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel, onToggleNotifications: (Bo
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TabChip("BTC", chain == Chain.BLAKE2B, Purple, Modifier.weight(1f)) { pick(Chain.BLAKE2B) }
             TabChip("SPAMCOIN", chain == Chain.SHA256, Orange, Modifier.weight(1f)) { pick(Chain.SHA256) }
+        }
+        state.chains[chain]?.refreshing?.let {
+            Text("↻ refreshing · $it", style = MaterialTheme.typography.bodySmall, color = TextSoft)
         }
 
         SimpleBalance(chain, cs, state.market, state.fiat, accent, state.nextRefreshAt, onFiat = vm::setFiat)

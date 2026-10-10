@@ -81,7 +81,8 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
         loadingPools = true
         scope.launch {
             val r = withContext(Dispatchers.IO) { runCatching { CoinjoinHub.fetchPools() } }
-            pools = r.getOrNull(); loadingPools = false
+            // A failed look keeps the list it had: an empty screen would read as "no pools".
+            r.getOrNull()?.let { pools = it }; loadingPools = false
             r.exceptionOrNull()?.let { message = "Could not reach the relay: ${it.message}" }
         }
     }
@@ -92,6 +93,8 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
         CoinjoinHub.load(ctx)
         if (CoinjoinHub.hasActive(ctx)) com.kilombino.pyblockwatch.coinjoin.CoinjoinService.start(ctx)
         reloadPools()
+        // While the tab is open, the open pools are looked up again every minute.
+        while (true) { kotlinx.coroutines.delay(60_000); reloadPools() }
     }
 
     // Opt-in: until the user accepts the explainer, the tab shows only that.
@@ -330,7 +333,7 @@ private fun CreatePool(
     onCreate: (amount: Long, rate: Double, minPeers: Int, maxPeers: Int, hours: Int, password: String, coin: Scanner.SpendableUtxo) -> Unit,
 ) {
     var amountText by remember { mutableStateOf(if (allowTest) "1000" else "100000") }
-    var rateText by remember { mutableStateOf("2") }
+    var rateText by remember { mutableStateOf("1") }
     var peersText by remember { mutableStateOf("5") }
     var minText by remember { mutableStateOf("2") }
     var password by remember { mutableStateOf("") }
@@ -668,9 +671,14 @@ private fun TelegramAlertsPanel(accent: Color, mine: List<com.kilombino.pyblockw
             }
             when {
                 !on -> TextButton(onClick = { asking = true }) { Text("ENABLE", color = accent) }
-                linked != true -> TextButton(onClick = {
-                    runCatching { uri.openUri(com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.linkUrl(ctx)) }
-                }) { Text("OPEN BOT", color = accent) }
+                linked != true -> Column(horizontalAlignment = Alignment.End) {
+                    TextButton(onClick = {
+                        runCatching { uri.openUri(com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.linkUrl(ctx)) }
+                    }) { Text("OPEN BOT", color = accent) }
+                    TextButton(onClick = {
+                        com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.disable(ctx); on = false; linked = null
+                    }) { Text("CANCEL", color = TextSoft) }
+                }
                 else -> TextButton(onClick = {
                     com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.disable(ctx); on = false; linked = null
                 }) { Text("TURN OFF", color = TextSoft) }

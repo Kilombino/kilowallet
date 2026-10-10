@@ -160,7 +160,7 @@ class Notifier(private val context: Context, private val titlePrefix: String = "
 
     fun arkExpiring(blocks: Int) =
         post(arkId("expiry", ""), if (blocks < 432) "Ark: a coin expires in ${blocks * 10 / 60} hours" else "Ark: a coin expires soon",
-             "In about ${blocks * 10 / 1440} days ($blocks blocks). Open the Ark tab and tap RENEW: " +
+             (if (blocks < 144) "In about ${blocks * 10 / 60} hours" else "In about ${blocks * 10 / 1440} days") + " ($blocks blocks). Open the Ark tab and tap RENEW: " +
                  "once it expires, the Ark server can take it.", OpenTab.ARK)
 
     private fun idFor(chain: Chain, phase: String, txid: String): Int =

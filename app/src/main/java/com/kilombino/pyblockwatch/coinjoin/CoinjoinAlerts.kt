@@ -92,7 +92,21 @@ object CoinjoinAlerts {
                     "Content-Length: ${b.size}\r\nConnection: close\r\n\r\n").toByteArray()); write(b); flush()
             }
             val resp = s.getInputStream().bufferedReader().readText()
-            return resp.substringAfter("\r\n\r\n", "")
+            val head = resp.substringBefore("\r\n\r\n")
+            val body = resp.substringAfter("\r\n\r\n", "")
+            // A chunked reply ("10\r\n{...}\r\n0\r\n\r\n") would not parse as JSON: join its chunks.
+            return if (head.contains("transfer-encoding: chunked", ignoreCase = true)) unchunk(body) else body
         }
+    }
+
+    private fun unchunk(body: String): String {
+        val out = StringBuilder(); var rest = body
+        while (true) {
+            val size = rest.substringBefore("\r\n").trim().substringBefore(';').toIntOrNull(16) ?: break
+            if (size == 0) break
+            rest = rest.substringAfter("\r\n")
+            out.append(rest.take(size)); rest = rest.drop(size).removePrefix("\r\n")
+        }
+        return out.toString()
     }
 }

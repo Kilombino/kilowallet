@@ -46,6 +46,8 @@ class PoolSession(private val env: Env, private val s: State) {
         class Broadcast(pool: String, val txid: String) : Event(pool)
         class Confirmed(pool: String, val txid: String) : Event(pool)
         class Aborted(pool: String, val reason: String) : Event(pool)
+        /** Under an hour left, and enough people to close it now. */
+        class ExpiringSoon(pool: String, val peers: Int, val minutes: Int) : Event(pool)
         class Changed(pool: String) : Event(pool)
     }
 
@@ -85,6 +87,7 @@ class PoolSession(private val env: Env, private val s: State) {
         val accepts: MutableSet<String> = mutableSetOf(),          // token hashes that said yes
         val joinPubs: MutableMap<String, String> = mutableMapOf(), // join pub → token hash
         val tokens: MutableMap<String, String> = mutableMapOf(),   // token hash → token
+        var warnedExpiry: Boolean = false, // the under-an-hour warning was given
     ) {
         val poolId: String get() = terms.id
         fun toJson(): JSONObject = JSONObject()
@@ -103,6 +106,7 @@ class PoolSession(private val env: Env, private val s: State) {
             .put("txid", txid ?: "").put("created", created)
             .put("accepts", org.json.JSONArray(accepts.toList()))
             .put("join_pubs", JSONObject(joinPubs as Map<*, *>)).put("tokens", JSONObject(tokens as Map<*, *>))
+            .put("warned_expiry", warnedExpiry)
 
         companion object {
             private fun JSONObject.str(k: String): String? = optString(k).ifEmpty { null }
@@ -130,7 +134,7 @@ class PoolSession(private val env: Env, private val s: State) {
                     o.map("sigs"), o.optBoolean("posted_output"), o.optBoolean("posted_sig"), o.str("voted_on"),
                     o.str("txid"), o.optLong("created"),
                     (0 until (acc?.length() ?: 0)).map { acc!!.getString(it) }.toMutableSet(),
-                    o.map("join_pubs"), o.map("tokens"),
+                    o.map("join_pubs"), o.map("tokens"), o.optBoolean("warned_expiry"),
                 )
             }
         }
@@ -237,7 +241,10 @@ class PoolSession(private val env: Env, private val s: State) {
             Phase.BROADCAST, Phase.CONFIRMED -> "done"
             else -> "aborted"
         }
-        val t = terms.copy(state = state, peers = s.seats.size)
+        // Once a round is called, only its seats take part: whoever stayed silent in the vote
+        // keeps a seat in the pool but is not in the transaction.
+        val peers = if (state == "open" || s.round.isEmpty()) s.seats.size else s.round.size
+        val t = terms.copy(state = state, peers = peers)
         publish(Protocol.KIND_POOL, listOf(listOf("d", terms.id), listOf("t", Protocol.TAG), listOf("network", Protocol.NETWORK)),
             t.toJson().toString(), k)
     }
@@ -601,7 +608,12 @@ class PoolSession(private val env: Env, private val s: State) {
             // nobody will ever answer.
             if (s.creator && s.phase in setOf(Phase.OPEN, Phase.VOTING) && now - lastAnnounce > Protocol.HEARTBEAT) announce()
             when (s.phase) {
-                Phase.OPEN, Phase.JOINING -> if (now > terms.expiresAt) {
+                Phase.OPEN, Phase.JOINING -> if (s.phase == Phase.OPEN && !s.warnedExpiry && now <= terms.expiresAt &&
+                    terms.expiresAt - now <= EXPIRY_WARN_SECONDS && s.seats.size >= terms.minPeers && s.seats.size < terms.maxPeers) {
+                    // A last call: enough people to mix, and the pool is about to expire for nothing.
+                    s.warnedExpiry = true; save()
+                    env.event(Event.ExpiringSoon(s.poolId, s.seats.size, ((terms.expiresAt - now) / 60).toInt().coerceAtLeast(1)))
+                } else if (now > terms.expiresAt) {
                     if (s.creator) abort("the pool expired") else { s.phase = Phase.ABORTED; s.reason = "the pool expired"; save(); env.event(Event.Aborted(s.poolId, s.reason)) }
                 } else if (s.phase == Phase.JOINING && !s.creator && now - s.created > JOIN_TIMEOUT) {
                     // Only the creator's wallet lets people in; if it is closed, or the pool ended
@@ -643,6 +655,8 @@ class PoolSession(private val env: Env, private val s: State) {
         const val LEFT_BY_CHOICE = "you left this round"
         /** Seconds a join request waits for the creator's answer. */
         const val JOIN_TIMEOUT = 5 * 60
+        /** Seconds before expiry when a pool that could close is called out. */
+        const val EXPIRY_WARN_SECONDS = 3600
 
         /**
          * Everything to create a seat, done once at join/create time with the coin's key at hand:

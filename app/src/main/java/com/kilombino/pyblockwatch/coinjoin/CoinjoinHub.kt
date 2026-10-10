@@ -267,6 +267,8 @@ object CoinjoinHub {
             is PoolSession.Event.Broadcast -> notify(ctx, id, "Coinjoin sent", "$pool · ${e.txid.take(16)}…")
             is PoolSession.Event.Confirmed -> notify(ctx, id, "Coinjoin confirmed ✅", "$pool · ${e.txid.take(16)}…")
             is PoolSession.Event.Aborted -> notify(ctx, id, "Coinjoin cancelled", "$pool · ${e.reason}. Your coin did not move.")
+            is PoolSession.Event.ExpiringSoon -> notify(ctx, id, "Coinjoin: under an hour left",
+                "$pool · ${e.peers}/${st.terms.maxPeers} people, enough to mix. It expires in ${e.minutes} min: open the app and tap ASK TO CLOSE NOW.")
         }
         CoinjoinService.refresh(ctx)
     }
