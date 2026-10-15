@@ -7,3 +7,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "PyBlockWatch"
 include(":app")
+include(":desktop")
