@@ -112,6 +112,7 @@ object AppUpdater {
                 restart(listOf("/opt/kilowallet/bin/Kilowallet"))
             }
             "msi" -> {
+                com.kilombino.kilowallet.desktop.SingleInstance.release()
                 ProcessBuilder("msiexec", "/i", f.absolutePath).start()
                 kotlin.system.exitProcess(0)
             }
@@ -125,6 +126,7 @@ object AppUpdater {
 
     /** Starts the new version and leaves; the old one's tray and window go with it. */
     private fun restart(cmd: List<String>) {
+        com.kilombino.kilowallet.desktop.SingleInstance.release()
         ProcessBuilder(cmd).start()
         kotlin.system.exitProcess(0)
     }

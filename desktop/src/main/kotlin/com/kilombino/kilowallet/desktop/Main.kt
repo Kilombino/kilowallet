@@ -36,6 +36,8 @@ import com.kilombino.kilowallet.desktop.i18n.I18n
 import com.kilombino.pyblockwatch.ui.MainActivity
 import kotlinx.coroutines.delay
 
+private val useTray = Platform.os != Platform.Os.LINUX && androidx.compose.ui.window.isTraySupported
+
 /** The desktop app's Application: the shared code's `getApplication()`. */
 object DesktopApp : Application()
 
@@ -47,6 +49,10 @@ fun main() {
     android.content.pm.DesktopVersion.name = BuildInfo.VERSION
     android.content.pm.DesktopVersion.code = BuildInfo.CODE
 
+    // A second launch only brings the open copy's window up (and that copy's window may be hidden).
+    val showRequests = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    if (!SingleInstance.acquire(onShow = { showRequests.tryEmit(Unit) })) return
+
     application {
         var unlocked by remember { mutableStateOf(DesktopKeyStore.unlocked()) }
         var visible by remember { mutableStateOf(true) }
@@ -54,25 +60,33 @@ fun main() {
         val icon = painterResource(com.kilombino.pyblockwatch.R.mipmap.ic_launcher)
         val toast = remember { mutableStateOf<String?>(null) }
         LaunchedEffect(Unit) {
-            DesktopNotifications.popup = { title, text -> tray.sendNotification(androidx.compose.ui.window.Notification(I18n.tr(title), I18n.tr(text))) }
+            DesktopNotifications.popup = { title, text ->
+                if (useTray) tray.sendNotification(androidx.compose.ui.window.Notification(I18n.tr(title), I18n.tr(text)))
+                else Platform.notify(I18n.tr(title), I18n.tr(text))
+            }
             DesktopToast.show = { javax.swing.SwingUtilities.invokeLater { toast.value = I18n.tr(it) } }
             DesktopIntents.onMessage = DesktopToast.show
         }
 
-        // The wallet keeps watching in the background (like the phone's watcher) while the window is
-        // closed: closing hides it to the tray; Quit there ends the app.
-        Tray(icon = icon, state = tray, tooltip = "Kilowallet", onAction = { visible = true }, menu = {
+        // On Windows and macOS the wallet keeps watching in the background (like the phone's watcher)
+        // while the window is closed: closing hides it to the tray; Quit there ends the app.
+        // Not on Linux: Java's tray icon there is often dead (no menu, a click opens nothing), so a
+        // hidden window could not be brought back nor the app quit. Closing the window quits.
+        if (useTray) Tray(icon = icon, state = tray, tooltip = "Kilowallet", onAction = { visible = true }, menu = {
             Item(Tr.t("Open Kilowallet", "Abrir Kilowallet"), onClick = { visible = true })
             Item(Tr.t("Quit", "Salir"), onClick = { exitApplication() })
         })
 
         Window(
-            onCloseRequest = { if (unlocked && androidx.compose.ui.window.isTraySupported) visible = false else exitApplication() },
+            onCloseRequest = { if (unlocked && useTray) visible = false else exitApplication() },
             visible = visible,
             title = "Kilowallet " + BuildInfo.VERSION,
             icon = icon,
             state = rememberWindowState(size = DpSize(480.dp, 900.dp)),
         ) {
+            LaunchedEffect(Unit) {
+                showRequests.collect { visible = true; window.isMinimized = false; window.toFront(); window.requestFocus() }
+            }
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Box(Modifier.fillMaxSize().background(Color(0xFF0B0B10))) {
                     if (!unlocked) UnlockScreen(onUnlocked = { unlocked = true })

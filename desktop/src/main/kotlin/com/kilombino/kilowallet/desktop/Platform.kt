@@ -52,4 +52,9 @@ object Platform {
         }
         ProcessBuilder(cmd).start()
     }
+
+    /** A desktop notification without a tray icon (Linux): notify-send, if the system has it. */
+    fun notify(title: String, text: String) {
+        runCatching { ProcessBuilder("notify-send", "-a", "Kilowallet", title, text).start() }
+    }
 }
