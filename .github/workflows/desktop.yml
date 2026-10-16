@@ -55,8 +55,8 @@ jobs:
           [ "$RUNNER_OS" = Windows ] && gcc --version | head -1
           LND="$GITHUB_WORKSPACE/lnd" LND_OVERLAY=1 bash kilowallet/desktop/engines/build-lnd.sh
           # The Java glue gobind wrote must be the one in this branch.
-          diff -r lnd/mobile/build/desktop/java/go kilowallet/desktop/src/main/java/go
-          diff -r lnd/mobile/build/desktop/java/lndmobile kilowallet/desktop/src/main/java/lndmobile
+          diff -r --strip-trailing-cr lnd/mobile/build/desktop/java/go kilowallet/desktop/src/main/java/go
+          diff -r --strip-trailing-cr lnd/mobile/build/desktop/java/lndmobile kilowallet/desktop/src/main/java/lndmobile
 
       - name: Ark engine
         run: ARK="$GITHUB_WORKSPACE/ark" TARGET=${{ matrix.rust }} bash kilowallet/desktop/engines/build-ark.sh
