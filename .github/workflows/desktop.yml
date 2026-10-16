@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
   push:
     branches: [desktop]
-    paths: ['desktop/**', 'app/src/main/**', '.github/workflows/desktop.yml']
+    paths: ['desktop/**', 'app/src/main/**', 'gradle/**', '*.gradle.kts', '.github/workflows/desktop.yml']
 
 permissions:
   contents: read
