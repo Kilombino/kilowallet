@@ -28,9 +28,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { runner: windows-latest, host: windows-x64, rust: x86_64-pc-windows-msvc, tor: windows-x86_64, tor_sha: c1988c701de2f24f7d098d1d6d7f507b58f27740d097f29c246e0524d639b252, task: packageMsi, ext: msi }
-          - { runner: macos-15, host: macos-arm64, rust: aarch64-apple-darwin, tor: macos-aarch64, tor_sha: a3febb6179152b0b4f56a0f5cc57bf5cc8ecef7db35e7c3e9d5a044c8158c26c, task: packageDmg, ext: dmg }
-          - { runner: macos-15-intel, host: macos-x64, rust: x86_64-apple-darwin, tor: macos-x86_64, tor_sha: e1ae4d4a734d28bb590839188511deb3cebc26fcbce9df66d01b2c452060fe95, task: packageDmg, ext: dmg }
+          - { runner: windows-latest, host: windows-x64, rust: x86_64-pc-windows-msvc, protoc: win64, protoc_sha: 71852a30cf62975358edfcbbff93086e8857a079c8e4d6904881aa968d65c7f9, tor: windows-x86_64, tor_sha: c1988c701de2f24f7d098d1d6d7f507b58f27740d097f29c246e0524d639b252, task: packageMsi, ext: msi }
+          - { runner: macos-15, host: macos-arm64, rust: aarch64-apple-darwin, protoc: osx-aarch_64, protoc_sha: 96839af0caed64352442fc8236f4bdf7c1cd6efcfaa98fa5db37307a73fc7c70, tor: macos-aarch64, tor_sha: a3febb6179152b0b4f56a0f5cc57bf5cc8ecef7db35e7c3e9d5a044c8158c26c, task: packageDmg, ext: dmg }
+          - { runner: macos-15-intel, host: macos-x64, rust: x86_64-apple-darwin, protoc: osx-x86_64, protoc_sha: 9448ff40278504a7ae5139bb70c962acc78c32d8fc54b4890a55c14c68b9d10a, tor: macos-x86_64, tor_sha: e1ae4d4a734d28bb590839188511deb3cebc26fcbce9df66d01b2c452060fe95, task: packageDmg, ext: dmg }
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
@@ -57,6 +57,14 @@ jobs:
           # The Java glue gobind wrote must be the one in this branch.
           diff -r --strip-trailing-cr lnd/mobile/build/desktop/java/go kilowallet/desktop/src/main/java/go
           diff -r --strip-trailing-cr lnd/mobile/build/desktop/java/lndmobile kilowallet/desktop/src/main/java/lndmobile
+
+      - name: protoc (for the Ark engine's server protos; the same 21.12 as the Linux build)
+        run: |
+          f=protoc-21.12-${{ matrix.protoc }}.zip
+          curl -fsSLO "https://github.com/protocolbuffers/protobuf/releases/download/v21.12/$f"
+          echo "${{ matrix.protoc_sha }}  $f" | shasum -a 256 -c -
+          mkdir protoc && unzip -q "$f" -d protoc
+          echo "PROTOC=$GITHUB_WORKSPACE/protoc/bin/protoc$([ "$RUNNER_OS" = Windows ] && echo .exe)" >> "$GITHUB_ENV"
 
       - name: Ark engine
         run: ARK="$GITHUB_WORKSPACE/ark" TARGET=${{ matrix.rust }} bash kilowallet/desktop/engines/build-ark.sh
