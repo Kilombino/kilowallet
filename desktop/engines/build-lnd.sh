@@ -35,6 +35,8 @@ rm -rf $G && mkdir -p $G/inc/android && cp "$OUT"/src/gobind/* $G/
   perl -pi -e 's/_android\.h/_desktop.h/g' *.c *.h *.go
   perl -pi -e 's|//#cgo LDFLAGS: -llog|//#cgo CFLAGS: -I\${SRCDIR}/inc|' seq_desktop.go
   perl -pi -e 's/AttachCurrentThread\(jvm, &env, NULL\)/AttachCurrentThread(jvm, (void **)&env, NULL)/' seq_desktop.c
+  # On macOS gobind's seq.go would also pick its Objective-C glue: here it is the JNI one everywhere.
+  if [ "$JNI_OS" = darwin ]; then perl -ni -e 'print unless m|^// #cgo darwin CFLAGS: -D__GOBIND_DARWIN__|' seq.go; fi
   cp "$HERE/android-log.h" inc/android/log.h
   # In a JVM the process's arguments are Java's (-Djava.library.path=…), and lndmobile's Start
   # appends its own to os.Args before parsing them all: keep only the program name, as an
