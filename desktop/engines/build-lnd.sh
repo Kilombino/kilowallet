@@ -3,7 +3,7 @@
 # (lnd-engine/ENGINE), bound with gobind's Java glue and built as a Linux shared library
 # (libgojni.so) the desktop JVM loads like Android does. Output: $LND/mobile/build/desktop/.
 set -e
-LND=${LND:-/mnt/datos2/lnd-mobile}
+LND=${LND:?set LND to a checkout of the Lightning Fork (lnd) at the pinned commit}
 HERE=$(cd "$(dirname "$0")" && pwd)
 cd "$LND"
 export GOMAXPROCS=3 GOTOOLCHAIN=local PATH=$HOME/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.8.linux-amd64/bin:$HOME/go/bin:$PATH

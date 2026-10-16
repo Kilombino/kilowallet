@@ -22,20 +22,22 @@ module changes the Android build. The APK built from this branch hashes the same
 | In-app update (APK) | AppImage replaces itself; .deb installs with pkexec. Only a SHA256SUMS signed (BIP-340) by the pinned release key is trusted |
 | Home-screen widget | none |
 
-English and Spanish: `src/main/resources/i18n/es.json` maps the code's own strings
-(extracted by `i18n/extract.py`) to Spanish. "Phone" becomes "computer" and "fingerprint"
-becomes "password" in both languages.
+Languages: the app's own eight (English, Spanish, Chinese, French, Italian, German, Catalan,
+Portuguese), from `app/src/main/assets/i18n`, following the system's language unless one is
+chosen. The desktop's own strings (unlock screen, QR reader, tray) are in
+`src/main/resources/i18n-desktop/<lang>.json`. "Phone" becomes "computer" and "fingerprint"
+becomes "password" in every language.
 
 ## Build
 
 ```
-engines/build-lnd.sh      # → libgojni.so      (pins in engines/ENGINES)
-engines/build-ark.sh      # → libkilombino_ark.so
+LND=… engines/build-lnd.sh   # → libgojni.so      (pins in engines/ENGINES)
+ARK=… engines/build-ark.sh   # → libkilombino_ark.so
 cp both into desktop/resources/linux-x64/
 ./gradlew :desktop:test                       # the Android app's unit tests too, on the desktop JVM
 ./gradlew :desktop:packageDeb :desktop:createDistributable
-packaging/build-appimage.sh 0.1.0-beta1       # → build/appimage/Kilowallet-…-x86_64.AppImage
-packaging/finish-deb.sh 0.1.0-beta1           # → build/release/kilowallet_…_amd64.deb
+packaging/build-appimage.sh 0.1.0-beta2       # → build/appimage/Kilowallet-…-x86_64.AppImage
+packaging/finish-deb.sh 0.1.0-beta2           # → build/release/kilowallet_…_amd64.deb
 packaging/sign-release.py OUTDIR FILES…       # SHA256SUMS + SHA256SUMS.sig
 ```
 
