@@ -94,7 +94,10 @@ APK=app/build/outputs/apk/release/app-release.apk
 $ANDROID_HOME/build-tools/35.0.0/apksigner verify -v --print-certs $APK
 ```
 
-Expect `v1 scheme: false`, `v2 scheme: true`, `v3 scheme: true`. Record the
+Expect `v1 scheme: true`, `v2 scheme: true`, `v3 scheme: true` — v1 included,
+as in every release published so far (its digests add a check on installers that only
+read JAR signatures; on Android 11+ the `X-Android-APK-Signed: 2, 3` line in the .SF
+stops a v1-only substitution). Record the
 `Signer #1 certificate SHA-256 digest` — that is what users check in AppVerifier, and
 it must stay identical for the life of the app. Put it in README-REPRODUCIBLE.md §7.
 

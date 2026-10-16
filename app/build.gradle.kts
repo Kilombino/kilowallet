@@ -39,10 +39,15 @@ android {
                 storePassword = keystoreProps.getProperty("storePassword")
                 keyAlias = keystoreProps.getProperty("keyAlias")
                 keyPassword = keystoreProps.getProperty("keyPassword")
-                // v1 off, v2 + v3 on. v3 carries a rotation lineage, so this key can be
+                // v1 + v2 + v3 on. v3 carries a rotation lineage, so this key can be
                 // replaced later without users having to uninstall and lose their data —
-                // the gap the upstream PyBLØCK ᛒ app had before it added v3.
-                enableV1Signing = false
+                // the gap the upstream PyBLØCK ᛒ app had before it added v3. v1 stays on
+                // because that is what every published release since 1.0.0 actually ships:
+                // their .SF files carry "Created-By: 1.0 (Android)" and "X-Android-APK-Signed:
+                // 2, 3", which only a v1-enabled signing produces. With the flag off, a signed
+                // build from this file is missing the .SF/.RSA that shipped — and a verifier
+                // following PUBLISHING.md cannot reproduce the published APK.
+                enableV1Signing = true
                 enableV2Signing = true
                 enableV3Signing = true
             }
