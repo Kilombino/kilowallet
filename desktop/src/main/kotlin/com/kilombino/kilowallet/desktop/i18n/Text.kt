@@ -36,10 +36,13 @@ fun Text(
     minLines: Int = 1,
     onTextLayout: ((TextLayoutResult) -> Unit)? = null,
     style: TextStyle = LocalTextStyle.current,
-) = androidx.compose.material3.Text(text = I18n.tr(text), modifier = modifier, color = color, fontSize = fontSize,
+) {
+    com.kilombino.pyblockwatch.ui.i18n.I18n.lang.value // a change of language redraws this text
+    androidx.compose.material3.Text(text = I18n.tr(text), modifier = modifier, color = color, fontSize = fontSize,
     fontStyle = fontStyle, fontWeight = fontWeight, fontFamily = fontFamily, letterSpacing = letterSpacing,
     textDecoration = textDecoration, textAlign = textAlign, lineHeight = lineHeight, overflow = overflow,
     softWrap = softWrap, maxLines = maxLines, minLines = minLines, onTextLayout = onTextLayout, style = style)
+}
 
 /** The styled overload: translated when it is one plain run, left as is when it mixes styles. */
 @Composable
@@ -62,9 +65,12 @@ fun Text(
     inlineContent: Map<String, InlineTextContent> = mapOf(),
     onTextLayout: (TextLayoutResult) -> Unit = {},
     style: TextStyle = LocalTextStyle.current,
-) = androidx.compose.material3.Text(
+) {
+    com.kilombino.pyblockwatch.ui.i18n.I18n.lang.value
+    androidx.compose.material3.Text(
     text = if (text.spanStyles.isEmpty() && text.paragraphStyles.isEmpty()) AnnotatedString(I18n.tr(text.text)) else text,
     modifier = modifier, color = color, fontSize = fontSize, fontStyle = fontStyle, fontWeight = fontWeight,
     fontFamily = fontFamily, letterSpacing = letterSpacing, textDecoration = textDecoration, textAlign = textAlign,
     lineHeight = lineHeight, overflow = overflow, softWrap = softWrap, maxLines = maxLines, minLines = minLines,
     inlineContent = inlineContent, onTextLayout = onTextLayout, style = style)
+}

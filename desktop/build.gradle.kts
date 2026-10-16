@@ -14,8 +14,8 @@ plugins {
 kotlin { jvmToolchain(17) }
 
 /** The desktop app's own version (its betas are numbered apart from Android's). */
-val desktopVersion = "0.1.0-beta1"
-val desktopCode = 1
+val desktopVersion = "0.1.0-beta2"
+val desktopCode = 2
 
 val writeBuildInfo by tasks.registering {
     val out = layout.buildDirectory.dir("generated/buildinfo")
@@ -26,7 +26,7 @@ val writeBuildInfo by tasks.registering {
 
 /**
  * The Android app's sources as the desktop compiles them: copied unchanged except for one line
- * per screen, `import androidx.compose.material3.Text` → the desktop's translating Text (EN/ES).
+ * per screen, the app's translating Text → the desktop's (the same tables, desktop wording).
  * The pieces the desktop replaces (its own versions are under src/main/kotlin) and the
  * home-screen widget are left out.
  */
@@ -38,8 +38,10 @@ val sharedSources by tasks.registering(Sync::class) {
             "com/kilombino/pyblockwatch/data/UpdateCheck.kt",
             "com/kilombino/pyblockwatch/data/AppUpdater.kt",
         )
+        // The screens' Text is the app's translating one; on the desktop it also says "computer"
+        // for "phone" and "password" for "fingerprint" (desktop i18n.Text, over the same tables).
         filter { line ->
-            if (line == "import androidx.compose.material3.Text") "import com.kilombino.kilowallet.desktop.i18n.Text" else line
+            if (line == "import com.kilombino.pyblockwatch.ui.i18n.Text") "import com.kilombino.kilowallet.desktop.i18n.Text" else line
         }
     }
     into(layout.buildDirectory.dir("generated/shared"))
@@ -59,6 +61,8 @@ sourceSets {
 // The images the shared screens draw, from the Android app's res/ folder.
 tasks.named<ProcessResources>("processResources") {
     from(writeBuildInfo)
+    // The language tables and anything else in the app's assets.
+    from("../app/src/main/assets") { into("assets") }
     from("../app/src/main/res") {
         include("drawable-nodpi/*.png", "drawable-nodpi/*.jpg", "mipmap-xxxhdpi/*.png")
         into("res")

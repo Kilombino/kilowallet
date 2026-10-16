@@ -20,6 +20,7 @@ abstract class Context {
     open val cacheDir: File get() = DesktopContext.cache()
     open val packageManager: PackageManager get() = PackageManager.instance
     open val contentResolver: ContentResolver get() = ContentResolver
+    open val assets: android.content.res.AssetManager get() = android.content.res.AssetManager
     // Where the shared code looks for native helpers: Tor.install() checks for libtor.so there.
     open val applicationInfo: ApplicationInfo get() = ApplicationInfo(DesktopContext.nativeDir().path)
 

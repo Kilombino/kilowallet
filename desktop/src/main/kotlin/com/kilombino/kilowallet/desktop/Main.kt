@@ -160,9 +160,16 @@ private fun UnlockScreen(onUnlocked: () -> Unit) {
         Spacer(Modifier.height(12.dp))
         Button(enabled = !busy && pw.isNotEmpty(), onClick = { submit() }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "…" else if (first) Tr.t("Create", "Crear") else Tr.t("Unlock", "Desbloquear")) }
         Spacer(Modifier.height(18.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { Tr.set(false) }) { Text("English", color = if (!Tr.spanish.value) Color.White else Color.Gray) }
-            TextButton(onClick = { Tr.set(true) }) { Text("Español", color = if (Tr.spanish.value) Color.White else Color.Gray) }
+        // The app's language setting, the same one its settings change: the system's by default.
+        @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)) {
+            val app = com.kilombino.pyblockwatch.ui.i18n.I18n
+            val auto = listOf(app.AUTO to Tr.t("Automatic", "Automático"))
+            (auto + app.LANGUAGES).forEach { (code, name) ->
+                TextButton(onClick = { app.set(android.content.DesktopContext, code) }) {
+                    Text(name, color = if (app.choice.value == code) Color.White else Color.Gray)
+                }
+            }
         }
     }
 }

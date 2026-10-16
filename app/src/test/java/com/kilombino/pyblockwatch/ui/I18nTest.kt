@@ -10,7 +10,8 @@ import java.io.File
 
 /** The language tables and the translator, as the app ships them (assets/i18n). */
 class I18nTest {
-    private val dir = listOf(File("src/main/assets/i18n"), File("app/src/main/assets/i18n")).first { it.isDirectory }
+    private val dir = listOf(File("src/main/assets/i18n"), File("app/src/main/assets/i18n"), File("../app/src/main/assets/i18n"))
+        .first { it.isDirectory }
 
     @Before fun tables() {
         I18n.loader = { l -> File(dir, "$l.json").takeIf { it.exists() }?.readText() }
