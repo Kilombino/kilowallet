@@ -133,7 +133,7 @@ private fun UnlockScreen(onUnlocked: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Text("Kilowallet", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Color.White)
         Spacer(Modifier.height(6.dp))
-        Text(Tr.t("Desktop beta for Linux", "Beta de escritorio para Linux"), color = Color(0xFFE0A100))
+        Text(Tr.t("Desktop beta for ${Platform.displayName}", ""), color = Color(0xFFE0A100))
         Spacer(Modifier.height(18.dp))
         if (first) {
             Text(Tr.t(

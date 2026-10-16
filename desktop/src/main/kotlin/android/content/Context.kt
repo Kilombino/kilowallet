@@ -66,11 +66,12 @@ abstract class Context {
 object DesktopContext : Context() {
     override val applicationContext: Context get() = this
 
-    /** ~/.local/share/kilowallet (or $XDG_DATA_HOME/kilowallet), private to the user. */
+    /**
+     * The wallet's folder, private to the user: ~/.local/share/kilowallet (or $XDG_DATA_HOME) on
+     * Linux, %APPDATA%\kilowallet on Windows, ~/Library/Application Support/kilowallet on a Mac.
+     */
     val base: File by lazy {
-        val xdg = System.getenv("XDG_DATA_HOME")?.takeIf { it.isNotBlank() }
-            ?: (System.getProperty("user.home") + "/.local/share")
-        File(xdg, System.getProperty("kilowallet.profile", "kilowallet")).also { it.mkdirs(); private(it) }
+        File(com.kilombino.kilowallet.desktop.Platform.dataRoot(), System.getProperty("kilowallet.profile", "kilowallet")).also { it.mkdirs(); private(it) }
     }
 
     /** What the shared code checks for natives: here, a marker for a tor program that can run. */
@@ -84,12 +85,12 @@ object DesktopContext : Context() {
     fun root(sub: String): File = File(base, sub).also { it.mkdirs(); private(it) }
 
     fun cache(): File {
-        val xdg = System.getenv("XDG_CACHE_HOME")?.takeIf { it.isNotBlank() } ?: (System.getProperty("user.home") + "/.cache")
-        return File(xdg, System.getProperty("kilowallet.profile", "kilowallet")).also { it.mkdirs(); private(it) }
+        return File(com.kilombino.kilowallet.desktop.Platform.cacheRoot(), System.getProperty("kilowallet.profile", "kilowallet")).also { it.mkdirs(); private(it) }
     }
 
-    /** Owner-only, like an Android app's private storage. */
+    /** Owner-only, like an Android app's private storage. (On Windows the user's AppData already is.) */
     fun private(f: File) {
+        if (com.kilombino.kilowallet.desktop.Platform.os == com.kilombino.kilowallet.desktop.Platform.Os.WINDOWS) return
         f.setReadable(false, false); f.setWritable(false, false); f.setExecutable(false, false)
         f.setReadable(true, true); f.setWritable(true, true); if (f.isDirectory) f.setExecutable(true, true)
     }

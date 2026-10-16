@@ -18,7 +18,9 @@ import java.security.MessageDigest
  *
  * An AppImage replaces its own file (renamed over it, so a half-written one never runs) and
  * starts again. A .deb is installed with the system's package tool, which asks for the
- * administrator password (pkexec).
+ * administrator password (pkexec). On Windows the checked .msi is handed to the installer
+ * (which replaces this copy once it has closed); on a Mac the checked .dmg is opened for the
+ * new Kilowallet.app to be dragged over the old one.
  */
 object AppUpdater {
     sealed class State {
@@ -104,7 +106,15 @@ object AppUpdater {
                 f.delete()
                 restart(listOf("/opt/kilowallet/bin/Kilowallet"))
             }
-            else -> error("This copy was not installed from an AppImage or a .deb: download the new one from its page.")
+            "msi" -> {
+                ProcessBuilder("msiexec", "/i", f.absolutePath).start()
+                kotlin.system.exitProcess(0)
+            }
+            "dmg" -> {
+                com.kilombino.kilowallet.desktop.Platform.open(f.absolutePath)
+                state.value = State.Idle
+            }
+            else -> error("This copy was not installed from a release package: download the new one from its page.")
         }
     }
 

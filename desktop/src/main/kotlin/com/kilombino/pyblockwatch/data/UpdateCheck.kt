@@ -20,7 +20,7 @@ object UpdateCheck {
     /** Kilombino's release key for the desktop app (x-only public key, BIP-340). */
     const val RELEASE_PUBKEY = "3e2fcd910f0e78ab222bacadb1c438f5deb7677319e8f95b01417a603c01f257"
 
-    /** [apkUrl]: the file to install (AppImage or .deb, whichever this copy is); [sha256]: from the signed sums. */
+    /** [apkUrl]: the file to install (AppImage, .deb, .msi or .dmg, whichever this copy is); [sha256]: from the signed sums. */
     class Release(val version: String, val url: String, val apkUrl: String?, val sha256: String? = null)
 
     private fun parse(v: String): Triple<List<Int>, Boolean, Int> {
@@ -61,8 +61,7 @@ object UpdateCheck {
         val assets = newest.optJSONArray("assets") ?: JSONArray()
         fun asset(pred: (String) -> Boolean) = (0 until assets.length()).map { assets.getJSONObject(it) }
             .firstOrNull { pred(it.optString("name")) }
-        val kind = BuildInfo.packaging()
-        val file = asset { if (kind == "deb") it.endsWith("_amd64.deb") else it.endsWith("x86_64.AppImage") }
+        val file = asset { BuildInfo.releaseFile(it) }
         val sums = asset { it == "SHA256SUMS" }?.optString("browser_download_url")
         val sig = asset { it == "SHA256SUMS.sig" }?.optString("browser_download_url")
         val version = tag.removePrefix("desktop-").removePrefix("v")

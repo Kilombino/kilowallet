@@ -114,7 +114,7 @@ internal object QrDesktop {
 
     fun cameraDevice(): String? = (0..3).map { "/dev/video$it" }.firstOrNull { File(it).exists() && File(it).canRead() }
 
-    fun hasFfmpeg(): Boolean = System.getenv("PATH").orEmpty().split(':').any { File(it, "ffmpeg").canExecute() }
+    fun hasFfmpeg(): Boolean = com.kilombino.kilowallet.desktop.Platform.onPath("ffmpeg") != null
 
     /** Frames from the webcam as JPEGs, five a second, until [isActive] says stop. */
     fun camera(device: String, isActive: () -> Boolean, onFrame: (BufferedImage) -> Unit, onError: () -> Unit) {

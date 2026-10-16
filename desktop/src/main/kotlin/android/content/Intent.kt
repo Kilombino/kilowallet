@@ -82,7 +82,7 @@ object DesktopIntents {
         runCatching {
             if (java.awt.Desktop.isDesktopSupported() && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.BROWSE))
                 java.awt.Desktop.getDesktop().browse(java.net.URI(url))
-            else ProcessBuilder("xdg-open", url).start()
+            else com.kilombino.kilowallet.desktop.Platform.open(url)
         }
     }
 

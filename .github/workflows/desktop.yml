@@ -1,0 +1,112 @@
+# Kilowallet desktop for Windows and macOS (unsigned betas), built from this branch's sources.
+# The engines come from the same pinned commits as Android's and Linux's (desktop/engines/ENGINES),
+# tor from the Tor Project's expert bundle (pinned by hash, checked against its signed sums).
+# The packages are uploaded as this run's artifacts; the release (SHA256SUMS signed with the
+# release key, which never comes near CI) is made from them by hand.
+name: desktop
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [desktop]
+    paths: ['desktop/**', 'app/src/main/**', '.github/workflows/desktop.yml']
+
+permissions:
+  contents: read
+
+env:
+  LND_REPO: Kilombino/lnd
+  LND_COMMIT: 7a8ca829e0ce64d43243ad696bf8c89b4272618b
+  ARK_REPO: Kilombino/paperclip-wallet-app
+  ARK_COMMIT: 8dfba1b9ff083ca0737482edd517e828c964dfed
+  GOBIND: golang.org/x/mobile/cmd/gobind@v0.0.0-20261011034528-197770444867
+  TOR_VERSION: 15.0.25
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-latest, host: windows-x64, rust: x86_64-pc-windows-msvc, tor: windows-x86_64, tor_sha: c1988c701de2f24f7d098d1d6d7f507b58f27740d097f29c246e0524d639b252, task: packageMsi, ext: msi }
+          - { runner: macos-15, host: macos-arm64, rust: aarch64-apple-darwin, tor: macos-aarch64, tor_sha: a3febb6179152b0b4f56a0f5cc57bf5cc8ecef7db35e7c3e9d5a044c8158c26c, task: packageDmg, ext: dmg }
+          - { runner: macos-15-intel, host: macos-x64, rust: x86_64-apple-darwin, tor: macos-x86_64, tor_sha: e1ae4d4a734d28bb590839188511deb3cebc26fcbce9df66d01b2c452060fe95, task: packageDmg, ext: dmg }
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: kilowallet }
+      - uses: actions/checkout@v4
+        with: { repository: '${{ env.LND_REPO }}', ref: '${{ env.LND_COMMIT }}', path: lnd }
+      - uses: actions/checkout@v4
+        with: { repository: '${{ env.ARK_REPO }}', ref: '${{ env.ARK_COMMIT }}', path: ark }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.26.8', cache: false }
+      - uses: dtolnay/rust-toolchain@master
+        with: { toolchain: '1.98.0', targets: '${{ matrix.rust }}' }
+
+      - name: Lightning engine (LND, gobind)
+        run: |
+          go install "$GOBIND"
+          [ "$RUNNER_OS" = Windows ] && gcc --version | head -1
+          LND="$GITHUB_WORKSPACE/lnd" LND_OVERLAY=1 bash kilowallet/desktop/engines/build-lnd.sh
+          # The Java glue gobind wrote must be the one in this branch.
+          diff -r lnd/mobile/build/desktop/java/go kilowallet/desktop/src/main/java/go
+          diff -r lnd/mobile/build/desktop/java/lndmobile kilowallet/desktop/src/main/java/lndmobile
+
+      - name: Ark engine
+        run: ARK="$GITHUB_WORKSPACE/ark" TARGET=${{ matrix.rust }} bash kilowallet/desktop/engines/build-ark.sh
+
+      - name: tor (Tor Project expert bundle)
+        run: |
+          f=tor-expert-bundle-${{ matrix.tor }}-$TOR_VERSION.tar.gz
+          curl -fsSLO "https://dist.torproject.org/torbrowser/$TOR_VERSION/$f"
+          echo "${{ matrix.tor_sha }}  $f" | shasum -a 256 -c -
+          mkdir tor-x && tar xzf "$f" -C tor-x
+
+      - name: Natives into resources/${{ matrix.host }}
+        run: |
+          R=kilowallet/desktop/resources/${{ matrix.host }}
+          mkdir -p "$R/tor/licenses"
+          cp lnd/mobile/build/desktop/*gojni.* "$R/"
+          cp ark/target/${{ matrix.rust }}/android/*kilombino_ark.* "$R/"
+          rm -f "$R"/*.lib "$R"/*.exp "$R"/*.pdb "$R"/*.d "$R"/*.h "$R"/*.rlib
+          cp tor-x/tor/tor* "$R/tor/"; rm -f "$R"/tor/tor-gencert*
+          cp tor-x/tor/*.dylib "$R/tor/" 2>/dev/null || true
+          cp tor-x/docs/*.txt "$R/tor/licenses/"
+          ( cd "$R" && shasum -a 256 *gojni.* *kilombino_ark.* tor/tor* tor/*.dylib 2>/dev/null ) | tee "$R/ENGINES.sha256"
+          ls -la "$R" "$R/tor"
+
+      - name: Tests (the Android app's unit tests too, with the engines loaded)
+        working-directory: kilowallet
+        run: ./gradlew --no-daemon :desktop:test
+
+      - name: Package
+        working-directory: kilowallet
+        run: ./gradlew --no-daemon :desktop:${{ matrix.task }}
+
+      - name: Name the package
+        run: |
+          V=$(grep -oE 'desktopVersion = "[^"]+"' kilowallet/desktop/build.gradle.kts | cut -d'"' -f2)
+          mkdir out
+          f=$(ls kilowallet/desktop/build/compose/binaries/main/${{ matrix.ext }}/*.${{ matrix.ext }} | head -1)
+          cp "$f" "out/Kilowallet-$V-${{ matrix.host }}.${{ matrix.ext }}"
+          cp kilowallet/desktop/resources/${{ matrix.host }}/ENGINES.sha256 "out/ENGINES-${{ matrix.host }}.sha256"
+          cd out && shasum -a 256 *
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kilowallet-${{ matrix.host }}
+          path: out/*
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-reports-${{ matrix.host }}
+          path: kilowallet/desktop/build/reports/tests
+          if-no-files-found: ignore

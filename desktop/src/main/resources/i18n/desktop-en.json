@@ -1,0 +1,7 @@
+{
+ "Update now: it downloads here, is checked against the published hash and this app's certificate, and installs over this one keeping everything.\n\nThis release can't be installed from here (no APK, or no published hash to check it against): open its page instead.": "⚠️ This release is not signed by Kilombino's release key (or its signature does not check out): it can't be installed from here. Open its page instead.",
+ "This release can't be installed from here (no APK, or no published hash to check it against): open its page instead.": "⚠️ This release is not signed by Kilombino's release key (or its signature does not check out): it can't be installed from here. Open its page instead.",
+ "Update now: it downloads here, is checked against the published hash and this app's certificate, and installs over this one keeping everything.": "✅ Signature checked: this release's list of hashes (SHA256SUMS) is signed by Kilombino's release key.\n\nUpdate now: it downloads here, its hash is checked against that signed list, and it replaces this copy keeping everything.",
+ "Checking the hash and the certificate…": "Checking the signed hash…",
+ "Installing… Android may ask you to confirm. Android closes the app to replace it: a notification tells you when the new version is in, tap it to open it.": "Installing… Kilowallet starts again with the new version (a .deb asks for the administrator password)."
+}

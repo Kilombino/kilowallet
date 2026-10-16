@@ -1,0 +1,4 @@
+{
+ "Update now: it downloads here, is checked against the published hash and this app's certificate, and installs over this one keeping everything.": "✅ Signature checked: this release's list of hashes (SHA256SUMS) is signed by Kilombino's release key.\n\nUpdate now: it downloads here, its hash is checked against that signed list, and the Windows installer replaces this copy keeping everything (Kilowallet closes; open it again when the installer finishes).",
+ "Installing… Android may ask you to confirm. Android closes the app to replace it: a notification tells you when the new version is in, tap it to open it.": "Installing… the Windows installer opens and Kilowallet closes. Open it again when the installer finishes."
+}

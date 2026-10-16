@@ -13,6 +13,20 @@ plugins {
 
 kotlin { jvmToolchain(17) }
 
+/**
+ * The system this build is for (a package is built on its own system): its natives are in
+ * resources/<hostDir>, the layout Compose's appResourcesRootDir uses.
+ */
+val hostOs = System.getProperty("os.name").lowercase().let { if (it.startsWith("windows")) "windows" else if (it.startsWith("mac")) "macos" else "linux" }
+val hostArch = System.getProperty("os.arch").let { if (it == "aarch64" || it == "arm64") "arm64" else "x64" }
+val hostDir = "$hostOs-$hostArch"
+/** The engines' file names there, as System.loadLibrary("gojni") and ("kilombino_ark") look for them. */
+val engineFiles = when (hostOs) {
+    "windows" -> listOf("gojni.dll", "kilombino_ark.dll")
+    "macos" -> listOf("libgojni.dylib", "libkilombino_ark.dylib")
+    else -> listOf("libgojni.so", "libkilombino_ark.so")
+}
+
 /** The desktop app's own version (its betas are numbered apart from Android's). */
 val desktopVersion = "0.1.0-beta2"
 val desktopCode = 2
@@ -89,7 +103,11 @@ compose.desktop {
         jvmArgs("-Djava.library.path=\$APPDIR/resources", "-Dkilowallet.natives=\$APPDIR/resources")
         nativeDistributions {
             appResourcesRootDir.set(project.layout.projectDirectory.dir("resources"))
-            targetFormats(TargetFormat.Deb, TargetFormat.AppImage)
+            targetFormats(*when (hostOs) {
+                "windows" -> arrayOf(TargetFormat.Msi)
+                "macos" -> arrayOf(TargetFormat.Dmg)
+                else -> arrayOf(TargetFormat.Deb, TargetFormat.AppImage)
+            })
             packageName = "Kilowallet"
             packageVersion = desktopVersion.substringBefore('-')
             description = "Kilowallet: Bitcoin BLAKE2b (XBT) wallet with Lightning, Ark and coinjoin (desktop beta)"
@@ -107,22 +125,47 @@ compose.desktop {
                 iconFile.set(project.file("../app/src/main/res/mipmap-xxxhdpi/ic_launcher_full.png"))
                 installationPath = "/opt"
             }
+            windows {
+                // The same code for every version, so a new .msi replaces the installed one.
+                upgradeUuid = "6d6f1f4e-2b1c-4e7a-9a43-0f5c3b8e7d21"
+                menuGroup = "Kilowallet"
+                shortcut = true
+                dirChooser = true
+                perUserInstall = true
+                iconFile.set(project.file("packaging/icons/kilowallet.ico"))
+            }
+            macOS {
+                bundleID = "com.kilombino.kilowallet.desktop"
+                // A Mac app's version must start above 0: 0.1.0-betaN is 1.0.N here (the app
+                // itself, its updates and its screens use desktopVersion).
+                packageVersion = "1.0.$desktopCode"
+                dmgPackageVersion = "1.0.$desktopCode"
+                appCategory = "public.app-category.finance"
+                iconFile.set(project.file("packaging/icons/kilowallet.icns"))
+            }
         }
     }
 }
 
-// Running from the build: the natives straight from resources/linux-x64, and their pins checked.
+// Running from the build: the natives straight from resources/<hostDir>, and their pins checked.
 tasks.withType<Test>().configureEach {
-    val natives = file("resources/linux-x64").absolutePath
+    val natives = file("resources/$hostDir").absolutePath
     jvmArgumentProviders.add(CommandLineArgumentProvider { listOf("-Djava.library.path=$natives", "-Dkilowallet.profile=kilowallet-test") })
 }
 tasks.withType<JavaExec>().configureEach {
-    val natives = file("resources/linux-x64").absolutePath
+    val natives = file("resources/$hostDir").absolutePath
     jvmArgumentProviders.add(CommandLineArgumentProvider { listOf("-Djava.library.path=$natives", "-Dkilowallet.natives=$natives") })
 }
 
+// engines/ENGINES pins Linux's engines (built here); a release for Windows or a Mac is built by
+// its workflow (.github/workflows/desktop.yml), which writes the hashes of what it built to
+// resources/<hostDir>/ENGINES.sha256 for the release notes.
 val verifyEngines by tasks.registering {
     doLast {
+        if (hostDir != "linux-x64") {
+            engineFiles.forEach { check(file("resources/$hostDir/$it").isFile) { "resources/$hostDir/$it is missing" } }
+            return@doLast
+        }
         val pins = file("engines/ENGINES").readLines().filter { "-sha256-" in it }.associate { it.substringBefore('=') to it.substringAfter('=').trim() }
         mapOf("lnd-sha256-x86_64" to "libgojni.so", "ark-sha256-x86_64" to "libkilombino_ark.so").forEach { (k, f) ->
             val bytes = file("resources/linux-x64/$f").readBytes()

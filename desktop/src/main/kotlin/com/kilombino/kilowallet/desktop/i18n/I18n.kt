@@ -9,8 +9,11 @@ import com.kilombino.pyblockwatch.ui.i18n.I18n as AppI18n
  * phone, see com.kilombino.pyblockwatch.ui.i18n.I18n) with what the desktop says differently
  * on top of it:
  *  - the desktop's own strings (unlock screen, QR reader, tray), in i18n-desktop/<lang>.json;
- *  - whole sentences said for a desktop (updates are an AppImage or .deb checked by a signed
- *    hash, not an APK), in i18n/desktop-en.json, swapped before translating;
+ *  - whole sentences said for a desktop (updates are an AppImage, .deb, .msi or .dmg checked by
+ *    a signed hash, not an APK), in i18n/desktop-en.json (and desktop-en-windows.json or
+ *    desktop-en-macos.json where Windows or a Mac says it differently), swapped before
+ *    translating, the longest first; a text made of several paragraphs is translated one
+ *    paragraph at a time when the desktop's table has any of them;
  *  - the phone's words for a computer: "this phone" is this computer, the fingerprint or
  *    screen lock is the wallet's password, in every language, after translating. (The
  *    wallet's own fingerprint, 73c5da0a, keeps its name.)
@@ -18,10 +21,19 @@ import com.kilombino.pyblockwatch.ui.i18n.I18n as AppI18n
 object I18n {
     private val cache = ConcurrentHashMap<String, String>()
 
-    private val desktopSentences: List<Pair<String, String>> = runCatching {
-        val o = JSONObject(I18n::class.java.getResourceAsStream("/i18n/desktop-en.json")!!.bufferedReader().use { it.readText() })
-        o.keys().asSequence().map { it to o.getString(it) }.toList()
-    }.getOrDefault(emptyList())
+    private fun sentences(name: String): Map<String, String> = runCatching {
+        val o = JSONObject(I18n::class.java.getResourceAsStream("/i18n/$name.json")!!.bufferedReader().use { it.readText() })
+        o.keys().asSequence().associateWith { o.getString(it) }
+    }.getOrDefault(emptyMap())
+
+    private val desktopSentences: List<Pair<String, String>> = run {
+        val os = when (com.kilombino.kilowallet.desktop.Platform.os) {
+            com.kilombino.kilowallet.desktop.Platform.Os.WINDOWS -> sentences("desktop-en-windows")
+            com.kilombino.kilowallet.desktop.Platform.Os.MAC -> sentences("desktop-en-macos")
+            else -> emptyMap()
+        }
+        (sentences("desktop-en") + os).toList().sortedByDescending { it.first.length }
+    }
 
     private val desktopTables = ConcurrentHashMap<String, Map<String, String>>()
 
@@ -98,7 +110,14 @@ object I18n {
         cache[key]?.let { return it }
         var en = s
         for ((a, b) in desktopSentences) if (a in en) en = en.replace(a, b)
-        val translated = if (lang == AppI18n.EN) en else desktopTable(lang)[en] ?: AppI18n.tr(en)
+        val table = desktopTable(lang)
+        val parts = en.split("\n\n")
+        val translated = when {
+            lang == AppI18n.EN -> en
+            en in table -> table.getValue(en)
+            parts.size > 1 && parts.any { it in table } -> parts.joinToString("\n\n") { table[it] ?: AppI18n.tr(it) }
+            else -> AppI18n.tr(en)
+        }
         val out = desktopWording(translated, lang)
         if (cache.size > 20_000) cache.clear()
         cache[key] = out
