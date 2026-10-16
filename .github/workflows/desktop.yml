@@ -36,6 +36,12 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: sha256sum on every runner (macOS has shasum)
+        run: |
+          if ! command -v sha256sum >/dev/null; then
+            mkdir -p "$RUNNER_TEMP/bin"; printf '#!/bin/sh\nexec shasum -a 256 "$@"\n' > "$RUNNER_TEMP/bin/sha256sum"
+            chmod +x "$RUNNER_TEMP/bin/sha256sum"; echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          fi
       - uses: actions/checkout@v4
         with: { path: kilowallet }
       - uses: actions/checkout@v4
@@ -62,7 +68,7 @@ jobs:
         run: |
           f=protoc-21.12-${{ matrix.protoc }}.zip
           curl -fsSLO "https://github.com/protocolbuffers/protobuf/releases/download/v21.12/$f"
-          echo "${{ matrix.protoc_sha }}  $f" | shasum -a 256 -c -
+          echo "${{ matrix.protoc_sha }}  $f" | sha256sum -c -
           mkdir protoc && unzip -q "$f" -d protoc
           echo "PROTOC=$GITHUB_WORKSPACE/protoc/bin/protoc$([ "$RUNNER_OS" = Windows ] && echo .exe)" >> "$GITHUB_ENV"
 
@@ -73,7 +79,7 @@ jobs:
         run: |
           f=tor-expert-bundle-${{ matrix.tor }}-$TOR_VERSION.tar.gz
           curl -fsSLO "https://dist.torproject.org/torbrowser/$TOR_VERSION/$f"
-          echo "${{ matrix.tor_sha }}  $f" | shasum -a 256 -c -
+          echo "${{ matrix.tor_sha }}  $f" | sha256sum -c -
           mkdir tor-x && tar xzf "$f" -C tor-x
 
       - name: Natives into resources/${{ matrix.host }}
@@ -86,7 +92,7 @@ jobs:
           cp tor-x/tor/tor* "$R/tor/"; rm -f "$R"/tor/tor-gencert*
           cp tor-x/tor/*.dylib "$R/tor/" 2>/dev/null || true
           cp tor-x/docs/*.txt "$R/tor/licenses/"
-          ( cd "$R" && shasum -a 256 *gojni.* *kilombino_ark.* tor/tor* tor/*.dylib 2>/dev/null ) | tee "$R/ENGINES.sha256"
+          ( cd "$R" && sha256sum *gojni.* *kilombino_ark.* tor/tor* tor/*.dylib 2>/dev/null ) | tee "$R/ENGINES.sha256"
           ls -la "$R" "$R/tor"
 
       - name: Tests (the Android app's unit tests too, with the engines loaded)
@@ -104,7 +110,7 @@ jobs:
           f=$(ls kilowallet/desktop/build/compose/binaries/main/${{ matrix.ext }}/*.${{ matrix.ext }} | head -1)
           cp "$f" "out/Kilowallet-$V-${{ matrix.host }}.${{ matrix.ext }}"
           cp kilowallet/desktop/resources/${{ matrix.host }}/ENGINES.sha256 "out/ENGINES-${{ matrix.host }}.sha256"
-          cd out && shasum -a 256 *
+          cd out && sha256sum *
 
       - uses: actions/upload-artifact@v4
         with:
