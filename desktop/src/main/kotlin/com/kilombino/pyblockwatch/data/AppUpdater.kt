@@ -58,13 +58,18 @@ object AppUpdater {
         val dir = File(ctx.cacheDir, "updates").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
         val out = File(dir, url.substringAfterLast('/'))
         var u = URL(url)
-        var c = u.openConnection() as HttpURLConnection
-        // GitHub sends assets through a redirect to another host.
-        repeat(5) {
-            c.instanceFollowRedirects = true
+        var c: HttpURLConnection
+        // GitHub sends assets through a redirect to another host. Each hop is a fresh connection,
+        // set up before it connects: touching one that already answered throws "Already connected".
+        var hops = 0
+        while (true) {
+            c = u.openConnection() as HttpURLConnection
+            c.instanceFollowRedirects = false
             c.connectTimeout = 15_000; c.readTimeout = 60_000
             c.setRequestProperty("User-Agent", "Kilowallet-desktop")
-            if (c.responseCode in 301..308) { u = URL(c.getHeaderField("Location")); c.disconnect(); c = u.openConnection() as HttpURLConnection }
+            if (c.responseCode !in 301..308) break
+            check(++hops <= 5) { c.disconnect(); "Download failed: too many redirects" }
+            u = URL(u, c.getHeaderField("Location")); c.disconnect()
         }
         try {
             check(c.responseCode == 200) { "Download failed: HTTP ${c.responseCode}" }
