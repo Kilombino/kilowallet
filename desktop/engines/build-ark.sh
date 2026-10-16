@@ -19,6 +19,6 @@ case "$TARGET" in
   *) LIB=libkilombino_ark.so ;;
 esac
 export RUSTFLAGS="--remap-path-prefix=$PWD=/src --remap-path-prefix=$HOME/.cargo=/cargo --remap-path-prefix=$HOME/.rustup=/rustup"
-cargo build --locked --profile android --target "$TARGET" -p kilombino-ark
+cargo build --locked --profile android --target "$TARGET" -p kilombino-ark --lib
 F=target/$TARGET/android/$LIB
 shasum -a 256 "$F" 2>/dev/null || sha256sum "$F"
