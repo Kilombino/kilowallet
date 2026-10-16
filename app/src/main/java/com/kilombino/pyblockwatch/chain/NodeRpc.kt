@@ -21,6 +21,24 @@ data class RpcConn(val url: String, val user: String, val pass: String, val pin:
     val isOnion: Boolean get() = runCatching { URL(url).host.endsWith(".onion") }.getOrDefault(false)
     val isTls: Boolean get() = url.startsWith("https://", ignoreCase = true)
 
+    /**
+     * True when the RPC login would cross the network unencrypted: plain http to a host that is
+     * neither a .onion (Tor encrypts the path) nor on a private network the user controls. The
+     * caller warns before using such a connection; the same ranges count as local as
+     * [ElectrumClient.isLocal] trusts.
+     */
+    val isCleartextToPublicHost: Boolean get() = !isTls && !isOnion && !hostIsPrivate()
+
+    /** A private-network address (192.168.x.x, 10.x, 172.16–31.x, localhost, *.local, fd00::/8). */
+    fun hostIsPrivate(): Boolean {
+        val h = runCatching { URL(url).host }.getOrNull()?.lowercase()?.trim('[', ']') ?: return false
+        if (h == "localhost" || h.endsWith(".local") || h.startsWith("127.")) return true
+        if (h.startsWith("10.") || h.startsWith("192.168.")) return true
+        if (h.startsWith("172.")) h.split('.').getOrNull(1)?.toIntOrNull()?.let { if (it in 16..31) return true }
+        if (h.startsWith("fd") || h.startsWith("fe80:")) return true
+        return false
+    }
+
     fun toJson(): JSONObject = JSONObject().put("url", url).put("user", user).put("pass", pass).put("pin", pin)
 
     companion object {

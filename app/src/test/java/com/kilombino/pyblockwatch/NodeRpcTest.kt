@@ -23,6 +23,21 @@ class NodeRpcTest {
         assertTrue(RpcConn.parse("http://a:b@xyz.onion:18443").isOnion)
     }
 
+    /** Plain http to the user's own network (or a .onion) is fine; to a public host it gets a warning. */
+    @Test fun cleartextToPublicHostIsSpotted() {
+        assertTrue(RpcConn.parse("http://mynode.example.com:8332").isCleartextToPublicHost)
+        assertTrue(RpcConn.parse("http://93.184.216.34:8332").isCleartextToPublicHost)
+        assertTrue(RpcConn.parse("http://172.32.0.1:8332").isCleartextToPublicHost)
+        assertTrue(!RpcConn.parse("http://abc.onion:8332").isCleartextToPublicHost)
+        assertTrue(!RpcConn.parse("https://startos.example.com:8443").isCleartextToPublicHost)
+        assertTrue(!RpcConn.parse("http://mynode.local:8332").isCleartextToPublicHost)
+        assertTrue(!RpcConn.parse("http://localhost:8332").isCleartextToPublicHost)
+        assertTrue(!RpcConn.parse("http://192.168.1.10:8332").isCleartextToPublicHost)
+        assertTrue(!RpcConn.parse("http://10.0.0.5:8332").isCleartextToPublicHost)
+        assertTrue(!RpcConn.parse("http://172.16.5.4:8332").isCleartextToPublicHost)
+        assertTrue(!RpcConn.parse("http://[fd00::5]:8332").isCleartextToPublicHost)
+    }
+
     @Test fun answersLikeAnElectrumServer() {
         val url = System.getenv("KW_RPC_URL"); val key = System.getenv("KW_RPC_KEY")
         assumeTrue(url != null && key != null)
