@@ -92,7 +92,7 @@ jobs:
           cp tor-x/tor/tor* "$R/tor/"; rm -f "$R"/tor/tor-gencert*
           cp tor-x/tor/*.dylib "$R/tor/" 2>/dev/null || true
           cp tor-x/docs/*.txt "$R/tor/licenses/"
-          ( cd "$R" && sha256sum *gojni.* *kilombino_ark.* tor/tor* tor/*.dylib 2>/dev/null ) | tee "$R/ENGINES.sha256"
+          ( cd "$R" && sha256sum $(ls *gojni.* *kilombino_ark.* tor/tor* tor/*.dylib 2>/dev/null) ) | tee "$R/ENGINES.sha256"
           ls -la "$R" "$R/tor"
 
       - name: Tests (the Android app's unit tests too, with the engines loaded)
