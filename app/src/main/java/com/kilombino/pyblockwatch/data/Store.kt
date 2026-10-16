@@ -187,6 +187,11 @@ class Store(context: Context, private val profile: String = HOT) {
         get() = prefs.getString("fiat", "USD") ?: "USD"
         set(v) = prefs.edit().putString("fiat", v).apply()
 
+    /** Ask mempool.kilombino.com for prices and mining figures (off: no fiat values, no request). */
+    var showPrices: Boolean
+        get() = prefs.getBoolean("show_prices", true)
+        set(v) = prefs.edit().putBoolean("show_prices", v).apply()
+
     /** How many consecutive empty addresses end a branch scan. Configurable; sane bounds. */
     var gapLimit: Int
         get() = prefs.getInt(KEY_GAP, 20).coerceIn(5, 100)
