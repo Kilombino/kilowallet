@@ -67,7 +67,8 @@ sourceSets {
     }
     // The Android app's own unit tests, run on the desktop JVM too (with the native engines loaded).
     test {
-        kotlin { srcDir("../app/src/test/java") }
+        // Less the widget's, which the desktop does not have.
+        kotlin { srcDir("../app/src/test/java"); exclude("com/kilombino/pyblockwatch/widget/**") }
         resources { srcDir("../app/src/test/resources") }
     }
 }

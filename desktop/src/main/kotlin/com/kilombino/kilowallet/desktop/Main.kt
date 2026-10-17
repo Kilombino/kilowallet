@@ -165,7 +165,7 @@ private fun UnlockScreen(onUnlocked: () -> Unit) {
         busy = false
         if (ok) { pw = ""; pw2 = ""; onUnlocked() } else {
             val w = DesktopKeyStore.waitSeconds()
-            error = Tr.t("Wrong password.", "Contraseña incorrecta.") + if (w > 0) " " + Tr.t("Wait $w s before trying again.", "Espera $w s antes de volver a probar.") else ""
+            error = Tr.t("Wrong password.", "Contraseña incorrecta.") + if (w > 0) " " + Tr.t("Wait before trying again:", "Espera antes de volver a probar:") + " $w s" else ""
         }
     }
     Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {

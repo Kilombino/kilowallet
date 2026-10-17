@@ -19,7 +19,7 @@
  "The camera could not be opened.": "Die Kamera konnte nicht geöffnet werden.",
  "The clipboard holds no image with a QR.": "In der Zwischenablage ist kein Bild mit QR-Code.",
  "The two do not match.": "Die beiden stimmen nicht überein.",
- "This is a BETA. Try it with small amounts first.\n\nChoose a password for this computer. It encrypts the recovery words and every key on disk, and it is asked before spending or showing the words. If you forget it, restore from your written recovery words.": "Das ist eine BETA. Probiere sie zuerst mit kleinen Beträgen aus.\n\nWähle ein Passwort für diesen Computer. Es verschlüsselt die Wiederherstellungswörter und alle Schlüssel auf der Festplatte und wird vor dem Ausgeben oder Anzeigen der Wörter abgefragt. Wenn du es vergisst, stelle mit deinen notierten Wörtern wieder her.",
+ "This is a BETA. Try it with small amounts first.\n\nChoose a password for this computer. On disk it encrypts the recovery words, the wallet's keys and your node's RPC passwords, and it is asked before spending or showing the words. While the app is open and unlocked, the keys are in memory. If you forget it, restore from your written recovery words.": "Das ist eine BETA. Probiere sie zuerst mit kleinen Beträgen aus.\n\nWähle ein Passwort für diesen Computer. Auf der Festplatte verschlüsselt es die Wiederherstellungswörter, die Schlüssel der Wallet und die RPC-Passwörter deines Nodes und wird vor dem Ausgeben oder Anzeigen der Wörter abgefragt. Solange die App offen und entsperrt ist, liegen die Schlüssel im Speicher. Wenn du es vergisst, stelle mit deinen notierten Wörtern wieder her.",
  "Unlock": "Entsperren",
  "Wrong password.": "Falsches Passwort.",
  "✅ Signature checked: this release's list of hashes (SHA256SUMS) is signed by Kilombino's release key.": "✅ Signatur geprüft: Die Hash-Liste dieser Version (SHA256SUMS) ist mit Kilombinos Release-Schlüssel signiert.",
@@ -32,5 +32,8 @@
  "Installing… the Windows installer opens and Kilowallet closes. Open it again when the installer finishes.": "Installation… der Windows-Installer öffnet sich und Kilowallet schließt sich. Öffne es wieder, wenn der Installer fertig ist.",
  "Opening the disk image… Kilowallet closes: drag it onto Applications and open it again.": "Disk-Image wird geöffnet… Kilowallet schließt sich: Ziehe es in Programme und öffne es wieder.",
  "Desktop beta for Windows": "Desktop-Beta für Windows",
- "Desktop beta for macOS": "Desktop-Beta für macOS"
+ "Desktop beta for macOS": "Desktop-Beta für macOS",
+ "Lock": "Sperren",
+ "Lock after 15 minutes without use (Lightning, coinjoin on its own and Ark renewals wait until you unlock)": "Nach 15 Minuten ohne Nutzung sperren (Lightning, Coinjoin im Alleingang und Ark-Erneuerungen warten, bis du entsperrst)",
+ "Wait before trying again:": "Warte, bevor du es erneut versuchst:"
 }

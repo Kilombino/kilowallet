@@ -19,7 +19,7 @@
  "The camera could not be opened.": "无法打开摄像头。",
  "The clipboard holds no image with a QR.": "剪贴板里没有含二维码的图片。",
  "The two do not match.": "两次输入不一致。",
- "This is a BETA. Try it with small amounts first.\n\nChoose a password for this computer. It encrypts the recovery words and every key on disk, and it is asked before spending or showing the words. If you forget it, restore from your written recovery words.": "这是测试版。请先用小额试用。\n\n为这台电脑设置一个密码。它会加密磁盘上的助记词和所有密钥，在花费或显示助记词之前都会要求输入。如果忘记了，请用你记下的助记词恢复。",
+ "This is a BETA. Try it with small amounts first.\n\nChoose a password for this computer. On disk it encrypts the recovery words, the wallet's keys and your node's RPC passwords, and it is asked before spending or showing the words. While the app is open and unlocked, the keys are in memory. If you forget it, restore from your written recovery words.": "这是测试版。请先用小额试用。\n\n为这台电脑设置一个密码。它会加密磁盘上的助记词、钱包的密钥和你节点的 RPC 密码，在花费或显示助记词之前都会要求输入。应用打开且已解锁时，密钥在内存中。如果忘记了，请用你记下的助记词恢复。",
  "Unlock": "解锁",
  "Wrong password.": "密码错误。",
  "✅ Signature checked: this release's list of hashes (SHA256SUMS) is signed by Kilombino's release key.": "✅ 签名已验证：此版本的哈希列表（SHA256SUMS）由 Kilombino 的发布密钥签名。",
@@ -32,5 +32,8 @@
  "Installing… the Windows installer opens and Kilowallet closes. Open it again when the installer finishes.": "正在安装… Windows 安装程序将打开，Kilowallet 会关闭。安装完成后请重新打开。",
  "Opening the disk image… Kilowallet closes: drag it onto Applications and open it again.": "正在打开磁盘映像… Kilowallet 会关闭：把它拖到“应用程序”后重新打开。",
  "Desktop beta for Windows": "Windows 桌面测试版",
- "Desktop beta for macOS": "macOS 桌面测试版"
+ "Desktop beta for macOS": "macOS 桌面测试版",
+ "Lock": "锁定",
+ "Lock after 15 minutes without use (Lightning, coinjoin on its own and Ark renewals wait until you unlock)": "闲置 15 分钟后锁定（Lightning、自动 coinjoin 和 Ark 续期会等你解锁）",
+ "Wait before trying again:": "请稍候再试："
 }

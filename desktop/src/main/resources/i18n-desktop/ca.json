@@ -19,7 +19,7 @@
  "The camera could not be opened.": "No s'ha pogut obrir la càmera.",
  "The clipboard holds no image with a QR.": "Al porta-retalls no hi ha cap imatge amb un QR.",
  "The two do not match.": "No coincideixen.",
- "This is a BETA. Try it with small amounts first.\n\nChoose a password for this computer. It encrypts the recovery words and every key on disk, and it is asked before spending or showing the words. If you forget it, restore from your written recovery words.": "Això és una BETA. Prova-la primer amb quantitats petites.\n\nTria una contrasenya per a aquest ordinador. Xifra al disc les paraules de recuperació i totes les claus, i es demana abans de gastar o de mostrar les paraules. Si l'oblides, recupera amb les paraules que tens apuntades.",
+ "This is a BETA. Try it with small amounts first.\n\nChoose a password for this computer. On disk it encrypts the recovery words, the wallet's keys and your node's RPC passwords, and it is asked before spending or showing the words. While the app is open and unlocked, the keys are in memory. If you forget it, restore from your written recovery words.": "Això és una BETA. Prova-la primer amb quantitats petites.\n\nTria una contrasenya per a aquest ordinador. Al disc xifra les paraules de recuperació, les claus del moneder i les contrasenyes RPC del teu node, i es demana abans de gastar o de mostrar les paraules. Amb l'app oberta i desbloquejada, les claus són a la memòria. Si l'oblides, recupera amb les paraules que tens apuntades.",
  "Unlock": "Desbloqueja",
  "Wrong password.": "Contrasenya incorrecta.",
  "✅ Signature checked: this release's list of hashes (SHA256SUMS) is signed by Kilombino's release key.": "✅ Signatura comprovada: la llista de hashes d'aquesta versió (SHA256SUMS) està signada amb la clau de release de Kilombino.",
@@ -32,5 +32,8 @@
  "Installing… the Windows installer opens and Kilowallet closes. Open it again when the installer finishes.": "Instal·lant… s'obre l'instal·lador de Windows i Kilowallet es tanca. Torna'l a obrir quan acabi l'instal·lador.",
  "Opening the disk image… Kilowallet closes: drag it onto Applications and open it again.": "Obrint la imatge de disc… Kilowallet es tanca: arrossega'l a Aplicacions i torna'l a obrir.",
  "Desktop beta for Windows": "Beta d'escriptori per a Windows",
- "Desktop beta for macOS": "Beta d'escriptori per a macOS"
+ "Desktop beta for macOS": "Beta d'escriptori per a macOS",
+ "Lock": "Bloquejar",
+ "Lock after 15 minutes without use (Lightning, coinjoin on its own and Ark renewals wait until you unlock)": "Bloquejar després de 15 minuts sense ús (Lightning, el coinjoin sol i les renovacions d'Ark esperen que desbloquegis)",
+ "Wait before trying again:": "Espera abans de tornar a provar:"
 }

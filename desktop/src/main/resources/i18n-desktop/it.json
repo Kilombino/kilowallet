@@ -19,7 +19,7 @@
  "The camera could not be opened.": "Impossibile aprire la fotocamera.",
  "The clipboard holds no image with a QR.": "Negli appunti non c'è nessuna immagine con un QR.",
  "The two do not match.": "Le due non coincidono.",
- "This is a BETA. Try it with small amounts first.\n\nChoose a password for this computer. It encrypts the recovery words and every key on disk, and it is asked before spending or showing the words. If you forget it, restore from your written recovery words.": "Questa è una BETA. Provala prima con piccole somme.\n\nScegli una password per questo computer. Cifra sul disco le parole di recupero e tutte le chiavi, e viene chiesta prima di spendere o di mostrare le parole. Se la dimentichi, ripristina con le parole che hai annotato.",
+ "This is a BETA. Try it with small amounts first.\n\nChoose a password for this computer. On disk it encrypts the recovery words, the wallet's keys and your node's RPC passwords, and it is asked before spending or showing the words. While the app is open and unlocked, the keys are in memory. If you forget it, restore from your written recovery words.": "Questa è una BETA. Provala prima con piccole somme.\n\nScegli una password per questo computer. Sul disco cifra le parole di recupero, le chiavi del portafoglio e le password RPC del tuo nodo, e viene chiesta prima di spendere o di mostrare le parole. Con l'app aperta e sbloccata, le chiavi sono in memoria. Se la dimentichi, ripristina con le parole che hai annotato.",
  "Unlock": "Sblocca",
  "Wrong password.": "Password errata.",
  "✅ Signature checked: this release's list of hashes (SHA256SUMS) is signed by Kilombino's release key.": "✅ Firma verificata: l'elenco degli hash di questa versione (SHA256SUMS) è firmato con la chiave di rilascio di Kilombino.",
@@ -32,5 +32,8 @@
  "Installing… the Windows installer opens and Kilowallet closes. Open it again when the installer finishes.": "Installazione… si apre il programma di installazione di Windows e Kilowallet si chiude. Riaprilo quando l'installazione è finita.",
  "Opening the disk image… Kilowallet closes: drag it onto Applications and open it again.": "Apertura dell'immagine disco… Kilowallet si chiude: trascinalo in Applicazioni e riaprilo.",
  "Desktop beta for Windows": "Beta desktop per Windows",
- "Desktop beta for macOS": "Beta desktop per macOS"
+ "Desktop beta for macOS": "Beta desktop per macOS",
+ "Lock": "Blocca",
+ "Lock after 15 minutes without use (Lightning, coinjoin on its own and Ark renewals wait until you unlock)": "Blocca dopo 15 minuti di inutilizzo (Lightning, il coinjoin da solo e i rinnovi Ark aspettano che sblocchi)",
+ "Wait before trying again:": "Aspetta prima di riprovare:"
 }
