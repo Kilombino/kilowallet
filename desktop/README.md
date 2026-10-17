@@ -36,8 +36,8 @@ ARK=… engines/build-ark.sh   # → libkilombino_ark.so
 cp both into desktop/resources/linux-x64/
 ./gradlew :desktop:test                       # the Android app's unit tests too, on the desktop JVM
 ./gradlew :desktop:packageDeb :desktop:createDistributable
-packaging/build-appimage.sh 0.1.0-beta6       # → build/appimage/Kilowallet-…-x86_64.AppImage
-packaging/finish-deb.sh 0.1.0-beta6           # → build/release/kilowallet_…_amd64.deb
+packaging/build-appimage.sh 0.1.0-beta7       # → build/appimage/Kilowallet-…-x86_64.AppImage
+packaging/finish-deb.sh 0.1.0-beta7           # → build/release/kilowallet_…_amd64.deb
 packaging/sign-release.py OUTDIR FILES…       # SHA256SUMS + SHA256SUMS.sig
 ```
 
