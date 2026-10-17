@@ -138,7 +138,17 @@ object Bridge {
 
     /** JSON from the bridge's web API, over Tor to its onion when Tor is there, else https. */
     private fun call(ctx: Context, path: String, body: JSONObject?): JSONObject {
-        val raw = try { request(ctx, path, body?.toString()) } catch (e: Exception) { throw Refused("network", text("network")) }
+        // The first request after Tor starts often fails while the circuit to the onion is built:
+        // tried three times before telling the user. Not a quote: one that got through but whose
+        // answer was lost would only come back as "in progress".
+        var raw: String? = null
+        val tries = if (path == "/api/quote") 1 else 3
+        for (attempt in 1..tries) {
+            raw = runCatching { request(ctx, path, body?.toString()) }.getOrNull()
+            if (raw != null) break
+            if (attempt < tries) Thread.sleep(2_000L * attempt)
+        }
+        if (raw == null) throw Refused("network", text("network"))
         val o = runCatching { JSONObject(raw) }.getOrElse { throw Refused("unavailable", text("unavailable")) }
         o.optString("error").takeIf { it.isNotBlank() }?.let { throw Refused(it, text(it, o)) }
         return o

@@ -731,7 +731,7 @@ private fun BridgePay(accent: Color, invoice: String, sha: Lnd.PayReq, est: com.
                 scope.launch {
                     val result = runCatching {
                         withContext(Dispatchers.IO) {
-                            step = "Getting the final price…"
+                            step = "Getting the final price (with a small anti-spam check, a few seconds)…"
                             val q = B.quote(ctx, invoice, sha.hash)
                             // The payer API's checks, on this phone's own node, before a sat leaves.
                             val hold = Lnd.decode(q.holdInvoice)

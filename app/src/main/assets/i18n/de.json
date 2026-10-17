@@ -448,6 +448,7 @@
 "Gap limit: {0}": "Gap-Limit: {0}",
 "Getting a deposit address…": "Einzahlungsadresse wird geholt…",
 "Getting an Ark address…": "Ark-Adresse wird geholt…",
+"Getting the final price (with a small anti-spam check, a few seconds)…": "Endpreis wird geholt (mit einer kleinen Anti-Spam-Prüfung, ein paar Sekunden)…",
 "Getting the final price…": "Endpreis wird abgerufen…",
 "Getting your reusable offer…": "Dein wiederverwendbares Angebot wird geholt…",
 "Give the contact a name.": "Gib dem Kontakt einen Namen.",
