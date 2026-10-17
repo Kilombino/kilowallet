@@ -43,12 +43,23 @@ class Store(context: Context, private val profile: String = HOT) {
         set(v) = prefs.edit().putString(KEY_CHAIN, v.id).apply()
 
     /** The user's own node by RPC (BTC only), in the order to try them; shared by both wallets. */
+    // Kept sealed with [SecretBox] (they carry the node's RPC password). A plain list, from an
+    // older version or a restored backup, is sealed the first time it is read.
     var rpcConns: List<com.kilombino.pyblockwatch.chain.RpcConn>
         get() = runCatching {
-            val a = org.json.JSONArray(prefs.getString("rpc_conns", "[]"))
+            val raw = prefs.getString("rpc_conns", null)
+            val json = when {
+                raw == null -> "[]"
+                SecretBox.isSealed(raw) -> SecretBox.open(raw) ?: "[]"
+                else -> raw.also { plain -> SecretBox.seal(plain)?.let { prefs.edit().putString("rpc_conns", it).apply() } }
+            }
+            val a = org.json.JSONArray(json)
             (0 until a.length()).map { com.kilombino.pyblockwatch.chain.RpcConn.fromJson(a.getJSONObject(it)) }
         }.getOrDefault(emptyList())
-        set(v) = prefs.edit().putString("rpc_conns", org.json.JSONArray(v.map { it.toJson() }).toString()).apply()
+        set(v) {
+            val plain = org.json.JSONArray(v.map { it.toJson() }).toString()
+            prefs.edit().putString("rpc_conns", SecretBox.seal(plain) ?: plain).apply()
+        }
 
     /** Read BTC from the node by RPC (true) or from an Electrum server (false). */
     var useRpc: Boolean

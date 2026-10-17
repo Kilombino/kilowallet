@@ -32,6 +32,20 @@ data class MarketData(
     val yshUnit: String?,
     val chainSizeGB: Double?,
     val fetchedMs: Long,
+    /** Network difficulty now, on the explorer's scale (the node's difficulty_blake2b / 2^32). */
+    val difficulty: Double? = null,
+    /** Difficulty of the previous period (just before the last retarget). */
+    val difficultyPrev: Double? = null,
+    /** Change at the last retarget (previous period to now), in percent. */
+    val difficultyPrevChangePct: Double? = null,
+    /** Estimated difficulty after the next retarget. */
+    val difficultyNext: Double? = null,
+    /** Estimated change at the next retarget, in percent. */
+    val difficultyChangePct: Double? = null,
+    /** Blocks left until the next retarget. */
+    val difficultyRemainingBlocks: Long? = null,
+    /** Estimated time of the next retarget (Unix ms). */
+    val difficultyRetargetMs: Long? = null,
 ) {
     /** Fiat value of [sats] XBT, or null when there is no price yet. */
     fun fiatValue(sats: Long, fiat: String): Double? {
@@ -129,7 +143,8 @@ object MarketFeed {
 
     private fun JSONObject.str(k: String): String? = if (has(k) && !isNull(k)) optString(k) else null
 
-    private fun parse(json: String, fetchedMs: Long): MarketData {
+    /** Parses the endpoint's JSON. Fields an older server doesn't send come out null. */
+    internal fun parse(json: String, fetchedMs: Long): MarketData {
         val o = JSONObject(json)
         return MarketData(
             xbtUsd = o.num("xbtUsd"),
@@ -150,6 +165,13 @@ object MarketFeed {
             yshUnit = o.str("yshUnit"),
             chainSizeGB = o.num("chainSizeGB"),
             fetchedMs = fetchedMs,
+            difficulty = o.num("difficulty")?.takeIf { it > 0 },
+            difficultyPrev = o.num("difficultyPrev")?.takeIf { it > 0 },
+            difficultyPrevChangePct = o.num("difficultyPrevChangePct"),
+            difficultyNext = o.num("difficultyNext")?.takeIf { it > 0 },
+            difficultyChangePct = o.num("difficultyChangePct"),
+            difficultyRemainingBlocks = o.num("difficultyRemainingBlocks")?.toLong(),
+            difficultyRetargetMs = o.num("difficultyRetargetDate")?.toLong(),
         )
     }
 }

@@ -1817,6 +1817,11 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                         exactKey = com.kilombino.pyblockwatch.crypto.Bip32Priv
                             .derivePath(master, "m/${Scanner.purposeFor(typeFor(tag))}'/0'/0'/0/$i").key
                     }
+                    // A pool may have reached its closing or signing step while the review was open:
+                    // its coins are taken now, so spending one here would break that round.
+                    check(notInCoinjoin(chain, draft.inputs).size == draft.inputs.size) {
+                        "A coin in this payment is now being signed in a coinjoin round. Nothing was signed."
+                    }
                     val inputs = draft.inputs.map { u ->
                         // Each coin with its own account's key: BIP-84, or BIP-86 for a Taproot one.
                         val type = typeFor(u.type)
@@ -2130,7 +2135,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
      * payment to ourselves is signed, the coin's key goes to [com.kilombino.pyblockwatch.coinjoin.PerfectCoin],
      * which joins (or opens) the pool by itself at the first confirmation.
      */
-    class ExactFor(val poolId: String?, val poolPassword: String?, val create: org.json.JSONObject?)
+    class ExactFor(val poolId: String?, val poolPassword: String?, val create: org.json.JSONObject?, val terms: org.json.JSONObject? = null)
     @Volatile var exactFor: ExactFor? = null
     /** The perfect coin in the review: its address index, account and amount. */
     private var exactPending: Triple<Int, ScriptType?, Long>? = null
@@ -2195,7 +2200,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         com.kilombino.pyblockwatch.coinjoin.PerfectCoin.expect(getApplication(),
             com.kilombino.pyblockwatch.coinjoin.PerfectCoin.Waiting(txid, vout, value, type,
                 "m/${Scanner.purposeFor(type)}'/0'/0'/0/$index", script, mix, changeScriptPubKey(changeIndex, tag),
-                f.poolId, f.poolPassword, f.create), key)
+                f.poolId, f.poolPassword, f.create, terms = f.terms), key)
     }
 
     /** True when [address] is one of this wallet's own (used so far, plus the gap). */

@@ -42,10 +42,43 @@ object Bridge {
             o.optInt("wait_s", 0))
     }
 
-    fun quote(ctx: Context, invoice: String): Quote {
-        val o = call(ctx, "/api/quote", JSONObject().put("invoice", invoice))
+    /**
+     * The final price: a hold invoice the bridge reserves for a minute. Each one carries a small
+     * proof of work for [hash] (the SHA-256 invoice's payment hash), so asking for quotes costs
+     * a little: it is what keeps one person from taking every quote the bridge can hold.
+     */
+    fun quote(ctx: Context, invoice: String, hash: String): Quote {
+        val body = JSONObject().put("invoice", invoice)
+        runCatching { work(ctx, hash.lowercase()) }.getOrNull()?.let { body.put("pow", it) }
+        val o = call(ctx, "/api/quote", body)
         return Quote(o.getString("hold_invoice"), o.getString("hash").lowercase(), o.getLong("sat"),
             o.getLong("pay_sat"), o.getLong("expires_at"))
+    }
+
+    /**
+     * The bridge's challenge, and a nonce for it: SHA-256("<challenge>:<hash>:<nonce>") starting
+     * with as many zero bits as it asks (18: a fraction of a second here). Null when the bridge
+     * hands out none (one from before the proof of work); the quote is then asked without it.
+     */
+    private fun work(ctx: Context, hash: String): JSONObject? {
+        val c = call(ctx, "/api/pow", null)
+        val challenge = c.getString("challenge")
+        val bits = c.getInt("bits").coerceIn(1, 32)
+        val md = MessageDigest.getInstance("SHA-256")
+        val prefix = "$challenge:$hash:".toByteArray()
+        val deadline = System.currentTimeMillis() + 60_000
+        var n = 0L
+        while (System.currentTimeMillis() < deadline) {
+            repeat(10_000) {
+                val nonce = java.lang.Long.toString(n++, 36)
+                md.reset(); md.update(prefix)
+                val d = md.digest(nonce.toByteArray())
+                val head = ((d[0].toLong() and 0xff) shl 24) or ((d[1].toLong() and 0xff) shl 16) or
+                    ((d[2].toLong() and 0xff) shl 8) or (d[3].toLong() and 0xff)
+                if (head ushr (32 - bits) == 0L) return JSONObject().put("challenge", challenge).put("nonce", nonce)
+            }
+        }
+        return null
     }
 
     /** The bridge's state for a swap ("settled", "failed", …), or null if it cannot say. */
@@ -94,6 +127,7 @@ object Bridge {
         "already_paid" -> "That invoice has already been paid through the bridge."
         "needs_operator" -> "That invoice needs Kilombino to look at it."
         "limit" -> "The bridge is busy: wait a minute and try again."
+        "pow_expired", "pow_used", "pow_invalid", "pow_missing" -> "The bridge asked for a fresh check: try again."
         "wait" -> "Wait ${o?.optInt("wait_s") ?: 60} s before asking the bridge for a new price for this invoice."
         "bad_hold" -> "The bridge gave an invoice that did not check out: nothing was paid. Try again."
         "network" -> "Could not reach the bridge. Check the connection and try again."

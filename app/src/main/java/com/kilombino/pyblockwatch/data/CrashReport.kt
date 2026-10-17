@@ -13,14 +13,30 @@ import android.os.Build
  * on its own.
  */
 object CrashReport {
-    private const val PREFS = "pyblockwatch"
+    /**
+     * Its own file, outside what a backup exports: the report carries log lines (channel points,
+     * peer keys, host names) that have no business in a backup file.
+     */
+    private const val PREFS = "crash_report"
+    private const val OLD = "pyblockwatch"
+
+    private fun prefs(ctx: Context): android.content.SharedPreferences {
+        val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        // Moved here from the main settings file (before 1.1.3).
+        val old = ctx.getSharedPreferences(OLD, Context.MODE_PRIVATE)
+        if (old.contains("crash_last") || old.contains("crash_seen")) {
+            p.edit().putLong("crash_seen", old.getLong("crash_seen", 0L)).putString("crash_last", old.getString("crash_last", null)).apply()
+            old.edit().remove("crash_last").remove("crash_seen").apply()
+        }
+        return p
+    }
 
     class Report(val time: Long, val text: String)
 
     /** A crash newer than the last one reported, once; null when there is none. */
     fun fresh(ctx: Context): Report? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
-        val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val p = prefs(ctx)
         val seen = p.getLong("crash_seen", 0L)
         val am = ctx.getSystemService(ActivityManager::class.java) ?: return null
         val info = runCatching { am.getHistoricalProcessExitReasons(ctx.packageName, 0, 5) }.getOrNull() ?: return null
@@ -33,7 +49,7 @@ object CrashReport {
     }
 
     /** The last report kept, for settings. */
-    fun last(ctx: Context): String? = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("crash_last", null)
+    fun last(ctx: Context): String? = prefs(ctx).getString("crash_last", null)
 
     /** The newest crash Android still has on record, described afresh (reported before or not). Blocking. */
     fun latest(ctx: Context): String? {

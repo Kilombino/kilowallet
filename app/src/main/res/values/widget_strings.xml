@@ -3,6 +3,7 @@
     <string name="xbtw_description">Live BTC price and mining data</string>
     <string name="xbtw_refresh">Refresh</string>
     <string name="xbtw_label_hashrate">Network hashrate</string>
+    <string name="xbtw_label_difficulty">Difficulty</string>
     <string name="xbtw_label_range">24h range</string>
     <string name="xbtw_label_block">Block</string>
     <string name="xbtw_label_earns">1 TH/s earns</string>

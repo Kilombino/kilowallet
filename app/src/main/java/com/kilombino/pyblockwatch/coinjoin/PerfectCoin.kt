@@ -32,17 +32,45 @@ object PerfectCoin {
         /** …or open one with these terms. */
         val create: JSONObject?,
         val since: Long = System.currentTimeMillis() / 1000,
+        /** The joined pool's terms as the user saw and accepted them ([agreed]). */
+        val terms: JSONObject? = null,
     ) {
         val key get() = "exact:$txid"
         fun toJson(): JSONObject = JSONObject().put("txid", txid).put("vout", vout).put("value", value).put("type", type.name)
             .put("path", path).put("script", script.toHex()).put("mix", mixScript.toHex()).put("change", changeScript.toHex())
             .put("pool", poolId ?: "").put("poolPassword", poolPassword ?: "").put("create", create ?: JSONObject.NULL).put("since", since)
+            .put("terms", terms ?: JSONObject.NULL)
 
         companion object {
             private fun hex(s: String) = ByteArray(s.length / 2) { s.substring(2 * it, 2 * it + 2).toInt(16).toByte() }
             fun parse(o: JSONObject) = Waiting(o.getString("txid"), o.getInt("vout"), o.getLong("value"), ScriptType.valueOf(o.getString("type")),
                 o.getString("path"), hex(o.getString("script")), hex(o.getString("mix")), hex(o.getString("change")),
-                o.optString("pool").ifEmpty { null }, o.optString("poolPassword").ifEmpty { null }, o.optJSONObject("create"), o.optLong("since"))
+                o.optString("pool").ifEmpty { null }, o.optString("poolPassword").ifEmpty { null }, o.optJSONObject("create"), o.optLong("since"),
+                o.optJSONObject("terms"))
+        }
+    }
+
+    /** What the user agreed to when choosing [t]: the parts of the pool's terms that decide what is signed. */
+    fun agreed(t: Protocol.Terms): JSONObject = JSONObject().put("pub", t.poolPub).put("amount", t.amount).put("feeRate", t.feeRate)
+        .put("script", t.script.name).put("version", t.version).put("maxInputs", t.maxInputs).put("maxPeers", t.maxPeers)
+
+    /**
+     * Why the pool as it reads now is not the one the user agreed to, or null. Joining on its own
+     * must not sign anything the user did not see: another key, amount, fee, type or size is a
+     * different pool, however it is named. A coin waiting from before this check (no terms kept)
+     * is not joined on its own either.
+     */
+    fun changed(agreed: JSONObject?, now: Protocol.Terms): String? {
+        if (agreed == null) return "its terms were not kept"
+        val a = agreed
+        return when {
+            a.optString("pub") != now.poolPub -> "the pool's key changed"
+            a.optLong("amount") != now.amount -> "its amount changed"
+            a.optDouble("feeRate") != now.feeRate -> "its fee changed"
+            a.optString("script") != now.script.name || a.optInt("version") != now.version -> "its kind changed"
+            a.optInt("maxInputs") != now.maxInputs || a.optInt("maxPeers") != now.maxPeers -> "its size changed"
+            now.state != "open" -> "it is no longer open"
+            else -> null
         }
     }
 
@@ -108,6 +136,7 @@ object PerfectCoin {
                     c.getInt("minPeers"), c.optString("password").ifEmpty { null }, c.optInt("maxInputs", 1), auto = true)
                 else {
                     val t = CoinjoinHub.fetchPools().firstOrNull { it.id == w.poolId } ?: error("that pool is no longer open")
+                    changed(w.terms, t)?.let { error("the pool is not the one you chose ($it)") }
                     CoinjoinHub.join(app, t, pick, w.poolPassword, auto = true)
                 }
             }.onSuccess { CoinjoinHub.notifyPublic(app, "Perfect coin in", "Confirmed: " + (if (w.create != null) "your pool is open" else "asked to join the pool") + ", on its own.") }

@@ -43,9 +43,11 @@ object NativeSecp {
     }
 
     /**
-     * Whether the library's ECDH and tweak agree with the Kotlin code, checked once with public
-     * numbers (7·(5·G), 5+7): a library that disagreed would derive wrong keys, so it is then
-     * left unused for these two.
+     * Whether the library's ECDH and tweak agree with the Kotlin code, checked once: with small
+     * public numbers (7·(5·G), 5+7) for byte order and calling convention, then with random
+     * full-size scalars, including sums that wrap around the group order. A library that
+     * disagreed would derive wrong keys, so it is then left unused for these two (the Kotlin
+     * code gives the right answer, though not in constant time; settings shows which runs).
      */
     private val newOpsOk: Boolean by lazy {
         runCatching {
@@ -54,8 +56,25 @@ object NativeSecp {
             val e = ArkNative.secpEcdh(k, byteArrayOf(4) + b32(p.x!!) + b32(p.y!!)) ?: return@runCatching false
             val want = Secp256k1.multiply(BigInteger.valueOf(35), Secp256k1.G)
             val t = ArkNative.secpTweakAdd(b32(BigInteger.valueOf(5)), k) ?: return@runCatching false
-            BigInteger(1, e.copyOfRange(1, 33)) == want.x && BigInteger(1, e.copyOfRange(33, 65)) == want.y &&
-                BigInteger(1, t) == BigInteger.valueOf(12)
+            if (!(BigInteger(1, e.copyOfRange(1, 33)) == want.x && BigInteger(1, e.copyOfRange(33, 65)) == want.y &&
+                    BigInteger(1, t) == BigInteger.valueOf(12))) return@runCatching false
+            val rnd = java.security.SecureRandom()
+            fun scalar() = BigInteger(256, rnd).mod(Secp256k1.N.subtract(BigInteger.ONE)).add(BigInteger.ONE)
+            repeat(4) {
+                val a = scalar(); val b = scalar()
+                val q = Secp256k1.multiply(b, Secp256k1.G)
+                val r = ArkNative.secpEcdh(b32(a), byteArrayOf(4) + b32(q.x!!) + b32(q.y!!)) ?: return@runCatching false
+                val w = Secp256k1.multiply(a.multiply(b).mod(Secp256k1.N), Secp256k1.G)
+                if (BigInteger(1, r.copyOfRange(1, 33)) != w.x || BigInteger(1, r.copyOfRange(33, 65)) != w.y) return@runCatching false
+                // A tweak near the order, so the sum wraps.
+                val big = Secp256k1.N.subtract(BigInteger.valueOf(1L + it))
+                for (tw in listOf(b, big)) {
+                    val s = ArkNative.secpTweakAdd(b32(a), b32(tw))
+                    val exp = a.add(tw).mod(Secp256k1.N)
+                    if (exp.signum() != 0 && (s == null || BigInteger(1, s) != exp)) return@runCatching false
+                }
+            }
+            true
         }.getOrElse { false }
     }
 
@@ -68,7 +87,8 @@ object NativeSecp {
         val k = b32(secret)
         try {
             val p = native { ArkNative.secpEcdh(k, byteArrayOf(4) + b32(point.x!!) + b32(point.y!!)) ?: error("invalid key or point") } ?: return null
-            return Secp256k1.Point(BigInteger(1, p.copyOfRange(1, 33)), BigInteger(1, p.copyOfRange(33, 65)))
+            // The shared point is secret too: copy it out and wipe the library's buffer.
+            try { return Secp256k1.Point(BigInteger(1, p.copyOfRange(1, 33)), BigInteger(1, p.copyOfRange(33, 65))) } finally { p.fill(0) }
         } finally { k.fill(0) }
     }
 
@@ -79,7 +99,7 @@ object NativeSecp {
         try {
             val r = native { ArkNative.secpTweakAdd(k, t) ?: error("invalid key or tweak") } ?: return null
             return BigInteger(1, r).also { r.fill(0) }
-        } finally { k.fill(0) }
+        } finally { k.fill(0); t.fill(0) } // the tweak is secret as well (in BIP-32 it is IL)
     }
 
     fun schnorr(secret: BigInteger, msg: ByteArray, aux: ByteArray): ByteArray? {

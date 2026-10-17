@@ -191,7 +191,7 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
                 singleLine = true, textStyle = MaterialTheme.typography.bodyMedium, modifier = Modifier.fillMaxWidth())
         }
         CoinPicker(vm, accent, "Join · ${groupSats(t.amount)} sats${poolKind(t)}", t.amount, t.feeRate, t.script, t.maxInputs,
-            exactFor = WalletViewModel.ExactFor(t.id, joinPassword.ifEmpty { null }, null),
+            exactFor = WalletViewModel.ExactFor(t.id, joinPassword.ifEmpty { null }, null, com.kilombino.pyblockwatch.coinjoin.PerfectCoin.agreed(t)),
             onCancel = { joining = null; joinPassword = "" },
             onPicked = { u ->
                 if (t.private && joinPassword.isEmpty()) { message = "Type the pool's password first."; return@CoinPicker }

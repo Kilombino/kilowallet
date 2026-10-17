@@ -8,6 +8,9 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.util.SizeF
 import android.view.View
 import android.widget.RemoteViews
@@ -180,6 +183,7 @@ class XbtWidget : AppWidgetProvider() {
             v.setTextViewText(R.id.poolsats_change, if (pch == null) "" else changeText(pch) + " 24h")
             v.setTextColor(R.id.poolsats_change, ctx.getColor(changeColor(pch)))
             v.setTextViewText(R.id.hashrate, m?.networkHashps?.let { hashrate(it) } ?: "–")
+            difficultyRows(ctx, v, m, compact = size == Size.FULL)
             v.setTextViewText(R.id.range,
                 if (m?.low24Usd == null || m.high24Usd == null) "–"
                 else "${money(sym, m.low24Usd * rate)} – ${money(sym, m.high24Usd * rate)}")
@@ -201,6 +205,61 @@ class XbtWidget : AppWidgetProvider() {
                 v.setTextViewText(R.id.chain, m?.chainSizeGB?.let { String.format(Locale.US, "%,.2f GB", it) } ?: "–")
             }
             return v
+        }
+
+        /**
+         * Large widget: "Difficulty   5.09 G ▲10.0%  prev 4.63 G" and "Next in 66 blocks   ~5.93 G ▲16.6%".
+         * Medium widget ([compact], no room for two rows): "Difficulty   5.09 G ▲10.0% → ~5.93 G ▲16.6%",
+         * the last retarget's change standing for the previous period.
+         * Changes are colored like the price's; nothing shows with an older server.
+         */
+        private fun difficultyRows(ctx: Context, v: RemoteViews, m: MarketData?, compact: Boolean) {
+            val d = m?.difficulty
+            v.setViewVisibility(R.id.diff_row, if (d == null) View.GONE else View.VISIBLE)
+            if (d == null) {
+                if (!compact) v.setViewVisibility(R.id.diff_next_row, View.GONE)
+                return
+            }
+            val muted = ctx.getColor(R.color.widget_muted)
+            val t = SpannableStringBuilder(WidgetFormat.difficultyNow(d))
+            m.difficultyPrevChangePct?.let { c ->
+                t.append(" ")
+                colored(t, WidgetFormat.pct(c), ctx.getColor(changeColor(c)))
+            }
+            val next = m.difficultyNext
+            if (compact) {
+                if (next != null) {
+                    colored(t, " → ", muted)
+                    t.append(WidgetFormat.difficultyNext(next))
+                    m.difficultyChangePct?.let { c ->
+                        t.append(" ")
+                        colored(t, WidgetFormat.pct(c), ctx.getColor(changeColor(c)))
+                    }
+                }
+                v.setTextViewText(R.id.difficulty, t)
+                return
+            }
+            m.difficultyPrev?.let { p ->
+                t.append("  ")
+                colored(t, WidgetFormat.difficultyPrev(p), muted)
+            }
+            v.setTextViewText(R.id.difficulty, t)
+            v.setViewVisibility(R.id.diff_next_row, if (next == null) View.GONE else View.VISIBLE)
+            if (next != null) {
+                v.setTextViewText(R.id.diff_next_label, WidgetFormat.nextLabel(m.difficultyRemainingBlocks))
+                val n = SpannableStringBuilder(WidgetFormat.difficultyNext(next))
+                m.difficultyChangePct?.let { c ->
+                    n.append(" ")
+                    colored(n, WidgetFormat.pct(c), ctx.getColor(changeColor(c)))
+                }
+                v.setTextViewText(R.id.diff_next, n)
+            }
+        }
+
+        private fun colored(b: SpannableStringBuilder, text: String, color: Int) {
+            val start = b.length
+            b.append(text)
+            b.setSpan(ForegroundColorSpan(color), start, b.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
 
         private fun changeText(pct: Double): String =

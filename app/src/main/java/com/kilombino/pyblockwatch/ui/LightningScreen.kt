@@ -732,7 +732,7 @@ private fun BridgePay(accent: Color, invoice: String, sha: Lnd.PayReq, est: com.
                     val result = runCatching {
                         withContext(Dispatchers.IO) {
                             step = "Getting the final price…"
-                            val q = B.quote(ctx, invoice)
+                            val q = B.quote(ctx, invoice, sha.hash)
                             // The payer API's checks, on this phone's own node, before a sat leaves.
                             val hold = Lnd.decode(q.holdInvoice)
                             B.mismatch(hold, hold.msat, sha, q, est.maxPaySat, System.currentTimeMillis() / 1000)

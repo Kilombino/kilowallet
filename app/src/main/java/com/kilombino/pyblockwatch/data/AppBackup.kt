@@ -55,7 +55,11 @@ object AppBackup {
     fun export(ctx: Context): String {
         val app = ctx.applicationContext
         return JSONObject()
-            .put("store", dump(app.getSharedPreferences(STORE, Context.MODE_PRIVATE).all))
+            // Never a crash report (kept apart since 1.1.3; an older one may still sit here).
+            // The node connections go in as text: sealed, they only open on this device. The
+            // backup file itself is encrypted with its password.
+            .put("store", dump(app.getSharedPreferences(STORE, Context.MODE_PRIVATE).all.filterKeys { !it.startsWith("crash_") }
+                .mapValues { (k, v) -> if (k == "rpc_conns" && v is String && SecretBox.isSealed(v)) SecretBox.open(v) ?: "[]" else v }))
             .put("coinjoin", dump(app.getSharedPreferences(COINJOIN, Context.MODE_PRIVATE).all))
             .put("scan", scanMemory(app))
             .apply { com.kilombino.pyblockwatch.ln.Lightning.exportBackup(app)?.let { put("lightning", it) } }

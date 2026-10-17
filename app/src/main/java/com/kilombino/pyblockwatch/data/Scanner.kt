@@ -385,17 +385,28 @@ class Scanner(
         if (client.isOwnNode) return { _, h, _ -> if (h > 0) true else null } // your node validated its blocks
         val blake = runCatching { client.tipHeaderHex().length == 328 }.getOrDefault(false)
         if (!blake) return { id, h, a -> if (h > 0 && a != null && a > 0 && tip - h < SPV_WINDOW) spvCheck(client, id, h) else null }
-        val verified = runCatching { com.kilombino.pyblockwatch.chain.HeaderChain.sync(client) }.getOrNull()
+        val hc = com.kilombino.pyblockwatch.chain.HeaderChain
+        // A network failure is not a lie: it leaves what is not yet proven unknown, and what
+        // was proven before stays proven. Only headers that do not verify mark everything.
+        val sync = runCatching { hc.sync(client) }
+        val lying = sync.isSuccess && sync.getOrNull() == null
+        val unreachable = sync.isFailure
         // Proofs already made cost nothing; new ones take a round trip each, so a look makes at
         // most [SPV_PER_LOOK] of them and leaves the rest unknown (not failed) for the next looks.
         var budget = SPV_PER_LOOK
         return { id, h, _ ->
             when {
                 h <= 0 -> null
-                verified == null -> false
-                com.kilombino.pyblockwatch.chain.HeaderChain.isProven(id, h) -> true
+                hc.isProven(id, h) -> true
+                lying -> false
+                unreachable -> null
+                // Below the checkpoint a proof is one header. A wallet that already looked before
+                // has seen every old payment then: one that first turns up in a block that old is
+                // what a lying server would show. It stays "not proven" here (paying from it still
+                // proves it on its own).
+                h < hc.CHECKPOINT_HEIGHT && !hc.knownBelow(id) -> false
                 budget <= 0 -> null
-                else -> { budget--; runCatching { com.kilombino.pyblockwatch.chain.HeaderChain.proves(client, id, h, SPV_FLOOR_BITS) }.getOrNull() }
+                else -> { budget--; runCatching { hc.proves(client, id, h, SPV_FLOOR_BITS) }.getOrNull() }
             }
         }
     }
