@@ -30,4 +30,12 @@ class UpdateCheckTest {
         assertFalse(UpdateCheck.isNewer("v0.1.0-beta1", "0.1.0"))
         assertTrue(UpdateCheck.isNewer("v0.1.0-beta10", "0.1.0-beta9"))
     }
+
+    @Test fun theVersionComesFromTheSignedFileName() {
+        assertEquals("0.1.0-beta6", UpdateCheck.signedVersion("Kilowallet-0.1.0-beta6-x86_64.AppImage"))
+        assertEquals("0.1.0-beta6", UpdateCheck.signedVersion("kilowallet_0.1.0-beta6_amd64.deb"))
+        assertEquals("0.2.0", UpdateCheck.signedVersion("Kilowallet-0.2.0-windows-x64.msi"))
+        assertEquals("0.2.0", UpdateCheck.signedVersion("Kilowallet-0.2.0-macos-arm64.dmg"))
+        assertNull(UpdateCheck.signedVersion("SHA256SUMS"))
+    }
 }

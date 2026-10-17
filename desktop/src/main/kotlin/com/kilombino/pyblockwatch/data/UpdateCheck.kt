@@ -14,6 +14,10 @@ import java.net.URL
  * A release is offered for download only when its SHA256SUMS file carries a valid BIP-340
  * signature (SHA256SUMS.sig) by the release key pinned below: the hash the download is then
  * checked against comes from that signed file, not from anything GitHub could change alone.
+ * So does the version: it is read from the file's name in the signed list (every release file
+ * is named with its version), and it must be newer than this copy. A release whose tag says one
+ * thing and whose signed files another, or an older signed release under a new tag, is not
+ * offered. Betas are offered only to a copy that is itself a beta.
  */
 object UpdateCheck {
     private const val API = "https://api.github.com/repos/Kilombino/kilowallet-desktop/releases?per_page=10"
@@ -54,6 +58,7 @@ object UpdateCheck {
         val list = JSONArray(get(API))
         val newest = (0 until list.length()).map { list.getJSONObject(it) }
             .filter { !it.optBoolean("draft") }
+            .filter { !it.optBoolean("prerelease") || parse(current).second }
             .maxWithOrNull { a, b -> if (isNewer(a.getString("tag_name"), b.getString("tag_name"))) 1 else if (isNewer(b.getString("tag_name"), a.getString("tag_name"))) -1 else 0 }
             ?: return Outcome.UpToDate
         val tag = newest.getString("tag_name")
@@ -65,10 +70,17 @@ object UpdateCheck {
         val sums = asset { it == "SHA256SUMS" }?.optString("browser_download_url")
         val sig = asset { it == "SHA256SUMS.sig" }?.optString("browser_download_url")
         val version = tag.removePrefix("desktop-").removePrefix("v")
-        val sha = if (file != null && sums != null && sig != null) signedHash(get(sums), get(sig), file.getString("name")) else null
+        val name = file?.getString("name")
+        val sha = if (name != null && sums != null && sig != null && signedVersion(name) == version && isNewer(version, current))
+            signedHash(get(sums), get(sig), name) else null
         // Without a valid signature the release is only offered as a page to open.
         Outcome.Newer(Release(version, newest.getString("html_url"), if (sha != null) file?.optString("browser_download_url") else null, sha))
     }.getOrDefault(Outcome.Unreachable)
+
+    /** The version in a release file's name (Kilowallet-<v>-x86_64.AppImage, kilowallet_<v>_amd64.deb, …), or null. */
+    internal fun signedVersion(name: String): String? =
+        Regex("^Kilowallet-(.+)-(x86_64\\.AppImage|windows-x64\\.msi|macos-(arm64|x64)\\.dmg)$").find(name)?.groupValues?.get(1)
+            ?: Regex("^kilowallet_(.+)_amd64\\.deb$").find(name)?.groupValues?.get(1)
 
     /** The hash of [name] in [sums], only when [sigHex] is the release key's signature of the whole file. */
     internal fun signedHash(sums: String, sigHex: String, name: String): String? {

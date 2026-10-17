@@ -5,6 +5,7 @@ import android.app.DesktopNotifications
 import android.content.DesktopIntents
 import android.widget.DesktopToast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -55,6 +56,16 @@ fun main() {
 
     application {
         var unlocked by remember { mutableStateOf(DesktopKeyStore.unlocked()) }
+        // Any key or click in the app counts as use; locking after a while without use is a choice
+        // made on the unlock screen (off by default).
+        LaunchedEffect(Unit) {
+            java.awt.Toolkit.getDefaultToolkit().addAWTEventListener({ DesktopKeyStore.touch() },
+                java.awt.AWTEvent.KEY_EVENT_MASK or java.awt.AWTEvent.MOUSE_EVENT_MASK or java.awt.AWTEvent.MOUSE_WHEEL_EVENT_MASK)
+            while (true) {
+                delay(20_000)
+                if (DesktopKeyStore.lockIfIdle()) unlocked = false
+            }
+        }
         var visible by remember { mutableStateOf(true) }
         val tray = rememberTrayState()
         val icon = painterResource(com.kilombino.pyblockwatch.R.mipmap.ic_launcher)
@@ -89,9 +100,19 @@ fun main() {
             }
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Box(Modifier.fillMaxSize().background(Color(0xFF0B0B10))) {
-                    if (!unlocked) UnlockScreen(onUnlocked = { unlocked = true })
-                    else WalletWindow()
+                    // Once opened, the wallet's screens stay as they are; locking covers them with the
+                    // unlock screen (building them again would start the phone's activity twice).
+                    var opened by remember { mutableStateOf(unlocked) }
+                    if (unlocked) opened = true
+                    if (opened) WalletWindow()
+                    if (!unlocked) Box(Modifier.fillMaxSize().background(Color(0xFF0B0B10))
+                        // Takes every click, so nothing of the wallet underneath can be used while locked.
+                        .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) {}) {
+                        UnlockScreen(onUnlocked = { unlocked = true })
+                    }
                     BetaBadge(Modifier.align(Alignment.TopEnd))
+                    if (unlocked) TextButton(onClick = { DesktopKeyStore.lock(); unlocked = false },
+                        modifier = Modifier.align(Alignment.TopStart)) { Text("🔒 " + Tr.t("Lock", "Bloquear"), fontSize = 11.sp, color = Color.Gray) }
                     toast.value?.let { msg ->
                         LaunchedEffect(msg) { delay(3500); toast.value = null }
                         Snackbar(Modifier.align(Alignment.BottomCenter).padding(16.dp)) { Text(msg) }
@@ -142,7 +163,10 @@ private fun UnlockScreen(onUnlocked: () -> Unit) {
             if (first) { DesktopKeyStore.create(pw.toCharArray()); true } else DesktopKeyStore.unlock(pw.toCharArray())
         }
         busy = false
-        if (ok) { pw = ""; pw2 = ""; onUnlocked() } else error = Tr.t("Wrong password.", "Contraseña incorrecta.")
+        if (ok) { pw = ""; pw2 = ""; onUnlocked() } else {
+            val w = DesktopKeyStore.waitSeconds()
+            error = Tr.t("Wrong password.", "Contraseña incorrecta.") + if (w > 0) " " + Tr.t("Wait $w s before trying again.", "Espera $w s antes de volver a probar.") else ""
+        }
     }
     Column(Modifier.fillMaxSize().padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Text("Kilowallet", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Color.White)
@@ -151,8 +175,8 @@ private fun UnlockScreen(onUnlocked: () -> Unit) {
         Spacer(Modifier.height(18.dp))
         if (first) {
             Text(Tr.t(
-                "This is a BETA. Try it with small amounts first.\n\nChoose a password for this computer. It encrypts the recovery words and every key on disk, and it is asked before spending or showing the words. If you forget it, restore from your written recovery words.",
-                "Esto es una BETA. Pruébala primero con cantidades pequeñas.\n\nElige una contraseña para este ordenador. Cifra en el disco las palabras de recuperación y todas las claves, y se pide antes de gastar o de enseñar las palabras. Si la olvidas, recupera con tus palabras apuntadas."),
+                "This is a BETA. Try it with small amounts first.\n\nChoose a password for this computer. On disk it encrypts the recovery words, the wallet's keys and your node's RPC passwords, and it is asked before spending or showing the words. While the app is open and unlocked, the keys are in memory. If you forget it, restore from your written recovery words.",
+                "Esto es una BETA. Pruébala primero con cantidades pequeñas.\n\nElige una contraseña para este ordenador. En el disco cifra las palabras de recuperación, las claves del monedero y las contraseñas RPC de tu nodo, y se pide antes de gastar o de enseñar las palabras. Con la app abierta y desbloqueada, las claves están en memoria. Si la olvidas, recupera con tus palabras apuntadas."),
                 color = Color(0xFFCCCCCC))
             Spacer(Modifier.height(14.dp))
         }
@@ -173,6 +197,15 @@ private fun UnlockScreen(onUnlocked: () -> Unit) {
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Spacer(Modifier.height(12.dp))
         Button(enabled = !busy && pw.isNotEmpty(), onClick = { submit() }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "…" else if (first) Tr.t("Create", "Crear") else Tr.t("Unlock", "Desbloquear")) }
+        Spacer(Modifier.height(10.dp))
+        // The password protects the disk; while the app is open and unlocked the keys are in memory.
+        var autoLock by remember { mutableStateOf(DesktopKeyStore.autoLockMinutes) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = autoLock > 0, onCheckedChange = { autoLock = if (it) 15 else 0; DesktopKeyStore.autoLockMinutes = autoLock })
+            Text(Tr.t("Lock after 15 minutes without use (Lightning, coinjoin on its own and Ark renewals wait until you unlock)",
+                "Bloquear tras 15 minutos sin usar (Lightning, el coinjoin solo y las renovaciones de Ark esperan a que desbloquees)"),
+                color = Color(0xFFAAAAAA), fontSize = 12.sp)
+        }
         Spacer(Modifier.height(18.dp))
         // The app's language setting, the same one its settings change: the system's by default.
         @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)

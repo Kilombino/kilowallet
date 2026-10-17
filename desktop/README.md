@@ -19,7 +19,7 @@ module changes the Android build. The APK built from this branch hashes the same
 | LND (gomobile AAR) | the same LND commit bound with gobind's Java glue, built as `libgojni.so` / `gojni.dll` / `libgojni.dylib` (`engines/build-lnd.sh`) |
 | Ark engine | the same crate and commit, built for each system (`engines/build-ark.sh`); it also carries libsecp256k1 |
 | Tor (tor-android) | a `tor` program run as a child process: the system's on Linux, the Tor Project's expert bundle shipped inside the Windows and macOS packages |
-| In-app update (APK) | AppImage replaces itself; .deb installs with pkexec; .msi goes to the Windows installer; .dmg is opened to drag over the old app. Only a SHA256SUMS signed (BIP-340) by the pinned release key is trusted |
+| In-app update (APK) | AppImage replaces itself; a .deb is checked, saved to Downloads and the `sudo apt install` line shown (the wallet never asks for root itself); .msi goes to the Windows installer; .dmg is opened to drag over the old app. Only a SHA256SUMS signed (BIP-340) by the pinned release key is trusted, and the version is read from the file names in it: never older than the copy running; betas only for a beta |
 | Home-screen widget | none |
 
 Languages: the app's own eight (English, Spanish, Chinese, French, Italian, German, Catalan,
@@ -64,5 +64,20 @@ sha256sum -c SHA256SUMS
 # signature: BIP-340 over SHA-256(SHA256SUMS), key 3e2fcd910f0e78ab222bacadb1c438f5deb7677319e8f95b01417a603c01f257
 ```
 
-The .deb targets Ubuntu 24.04+ / Debian 13 (its dependency names); the AppImage runs on
-other distributions.
+The .deb installs on Ubuntu 24.04+ and Debian 12/13 (each renamed library has its Debian name as
+an alternative); the AppImage runs on other distributions.
+
+## What the password protects, and what it does not
+
+- On disk, the password encrypts the recovery words, the wallet's keys (Ark, Lightning's wallet
+  password, coinjoin's own keys) and your node's RPC passwords. Settings, labels, addresses,
+  coinjoin sessions and Lightning's channel database are not encrypted (as on the phone).
+- While the app is open and unlocked, the keys are in memory: the background work (Lightning,
+  coinjoin on its own, Ark renewals, your node) needs them. 🔒 Lock (top left) locks at once; the
+  unlock screen can make it lock itself after 15 minutes without use. A wrong password costs a
+  growing wait.
+- A computer cannot hide a screen from screenshots the way a phone does (on X11 any program can
+  capture it): show the recovery words only where nobody and nothing is watching.
+- Copied text is taken off the clipboard after a minute; a clipboard manager may keep its own copy.
+- The update check asks api.github.com directly (not over Tor), on start and every few minutes;
+  it can be turned off in settings.

@@ -17,8 +17,10 @@ import java.security.MessageDigest
  * check its SHA-256 against the signed sums ([UpdateCheck]), and put it in place.
  *
  * An AppImage replaces its own file (renamed over it, so a half-written one never runs) and
- * starts again. A .deb is installed with the system's package tool, which asks for the
- * administrator password (pkexec). On Windows the checked .msi is handed to the installer
+ * starts again. A .deb is not installed from here: the wallet never asks for the administrator
+ * password itself (anything running as you could swap the file between the check and the
+ * install). It is checked, saved to Downloads, and the command to install it is shown, with its
+ * hash. On Windows the checked .msi is handed to the installer
  * (which replaces this copy once it has closed); on a Mac the checked .dmg is opened for the
  * new Kilowallet.app to be dragged over the old one.
  */
@@ -106,10 +108,15 @@ object AppUpdater {
                 restart(listOf(target.path))
             }
             "deb" -> {
-                val p = ProcessBuilder("pkexec", "apt-get", "install", "-y", "--allow-downgrades", f.absolutePath).inheritIO().start()
-                check(p.waitFor() == 0) { "The package was not installed (cancelled, or apt failed)." }
-                f.delete()
-                restart(listOf("/opt/kilowallet/bin/Kilowallet"))
+                val dir = File(System.getProperty("user.home"), "Downloads").takeIf { it.isDirectory || it.mkdirs() }
+                    ?: File(System.getProperty("user.home"))
+                val out = File(dir, f.name)
+                f.copyTo(out, overwrite = true); f.delete()
+                val sum = sha256(out)
+                // Shown as the outcome: the user installs it in a terminal, after checking the hash.
+                state.value = State.Failed("Checked and saved: ${out.path}\nSHA-256 $sum\n" +
+                    "Install it in a terminal (check the hash first with sha256sum):\nsudo apt install ${out.path}\n" +
+                    "then open Kilowallet again.")
             }
             "msi" -> {
                 com.kilombino.kilowallet.desktop.SingleInstance.release()

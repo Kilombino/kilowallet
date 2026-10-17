@@ -29,6 +29,12 @@ import javax.crypto.spec.SecretKeySpec
  * they are random AES keys kept in one file, each wrapped (AES-GCM) under a master key derived
  * from the wallet's password with scrypt. Without the password the file is useless; while the
  * app is unlocked the master key lives only in memory.
+ *
+ * The password protects the disk. A running, unlocked copy holds the master key: the background
+ * work (Lightning, coinjoin on its own, Ark renewals, your node's RPC) needs it. It can lock
+ * itself after a while without use ([autoLockMinutes]; off unless chosen), or be locked by hand,
+ * and then asks for the password again; the background work that needs a key waits meanwhile.
+ * A wrong password costs a growing wait (1, 2, 4… up to 60 seconds).
  */
 object DesktopKeyStore {
     private val file: File get() = File(DesktopContext.root("no_backup"), "keystore.json")
@@ -39,6 +45,40 @@ object DesktopKeyStore {
     fun exists(): Boolean = file.exists()
     fun unlocked(): Boolean = master != null
     fun lock() { master = null }
+
+    // --- wrong passwords: each one doubles the wait before the next is tried
+
+    @Volatile private var failures = 0
+    @Volatile private var blockedUntil = 0L
+
+    /** Seconds before another password is tried, or 0. */
+    fun waitSeconds(): Int = ((blockedUntil - System.currentTimeMillis() + 999) / 1000).toInt().coerceAtLeast(0)
+
+    private fun failed() {
+        failures++
+        blockedUntil = System.currentTimeMillis() + 1000L * minOf(60, 1 shl minOf(failures - 1, 6))
+    }
+
+    // --- locking after a while without use
+
+    @Volatile private var lastUse = System.currentTimeMillis()
+    private val autoLockFile: File get() = File(DesktopContext.root("no_backup"), "autolock")
+
+    /** Minutes without use before the app locks itself; 0 = never (the default). */
+    var autoLockMinutes: Int
+        get() = runCatching { autoLockFile.readText().trim().toInt() }.getOrDefault(0).coerceIn(0, 24 * 60)
+        set(v) { runCatching { autoLockFile.writeText(v.coerceIn(0, 24 * 60).toString()); DesktopContext.private(autoLockFile) } }
+
+    /** Something was typed or clicked in the window. */
+    fun touch() { lastUse = System.currentTimeMillis() }
+
+    /** Locks when the app has gone unused for longer than chosen; true if it did. */
+    fun lockIfIdle(): Boolean {
+        val m = autoLockMinutes
+        if (m == 0 || master == null || System.currentTimeMillis() - lastUse < m * 60_000L) return false
+        lock()
+        return true
+    }
 
     /** First run: sets the password; the file starts empty. */
     @Synchronized fun create(password: CharArray) {
@@ -54,6 +94,7 @@ object DesktopKeyStore {
     @Synchronized fun unlock(password: CharArray): Boolean {
         val k = tryPassword(password) ?: return false
         master = k
+        touch()
         return true
     }
 
@@ -77,9 +118,12 @@ object DesktopKeyStore {
     @Synchronized fun wipe() { master = null; file.delete() }
 
     private fun tryPassword(password: CharArray): SecretKey? {
+        if (waitSeconds() > 0) return null // still waiting after a wrong one: not even tried
         val o = runCatching { read() }.getOrNull() ?: return null
         val k = derive(password, unhex(o.getString("salt")), o.getInt("n"))
-        return runCatching { if (String(unwrap(k, o.getString("check"))) == CHECK) k else null }.getOrNull()
+        val ok = runCatching { if (String(unwrap(k, o.getString("check"))) == CHECK) k else null }.getOrNull()
+        if (ok == null) failed() else failures = 0
+        return ok
     }
 
     // --- the keys the wallet's code asks for, by alias
@@ -115,7 +159,10 @@ object DesktopKeyStore {
     private const val N = 1 shl 17
 
     private fun derive(password: CharArray, salt: ByteArray, n: Int): SecretKey {
-        val pw = String(password).toByteArray(Charsets.UTF_8)
+        // Straight from the characters to UTF-8 bytes, without an immutable String in between.
+        val buf = Charsets.UTF_8.newEncoder().encode(java.nio.CharBuffer.wrap(password))
+        val pw = ByteArray(buf.remaining()).also { buf.get(it) }
+        if (buf.hasArray()) buf.array().fill(0)
         try { return SecretKeySpec(Scrypt.derive(pw, salt, n, 8, 1, 32), "AES") } finally { pw.fill(0) }
     }
 

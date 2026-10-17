@@ -78,7 +78,14 @@ object DesktopIntents {
         }
     }
 
+    /**
+     * Opens a web page. Only http(s) addresses: what reaches here can come from a server's answer
+     * (an update's page, an explorer link), and a file: or other scheme would hand the system
+     * whatever it pointed at.
+     */
     fun open(url: String) {
+        val scheme = runCatching { java.net.URI(url).scheme?.lowercase() }.getOrNull()
+        if (scheme != "https" && scheme != "http") return
         runCatching {
             if (java.awt.Desktop.isDesktopSupported() && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.BROWSE))
                 java.awt.Desktop.getDesktop().browse(java.net.URI(url))
@@ -86,9 +93,22 @@ object DesktopIntents {
         }
     }
 
+    /**
+     * Copies [text], and takes it off the clipboard again a minute later if it is still there
+     * (as Android clears a copied secret): words, keys and addresses do not stay in the
+     * session's clipboard history for good. A clipboard manager may still have kept a copy.
+     */
     fun copy(text: String) {
         runCatching {
-            java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection(text), null)
+            val cb = java.awt.Toolkit.getDefaultToolkit().systemClipboard
+            cb.setContents(java.awt.datatransfer.StringSelection(text), null)
+            val t = javax.swing.Timer(60_000) {
+                runCatching {
+                    if (cb.getData(java.awt.datatransfer.DataFlavor.stringFlavor) == text) cb.setContents(java.awt.datatransfer.StringSelection(""), null)
+                }
+            }
+            t.isRepeats = false
+            t.start()
         }
     }
 

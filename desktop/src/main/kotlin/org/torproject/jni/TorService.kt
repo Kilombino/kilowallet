@@ -50,13 +50,15 @@ class TorService : Service() {
     override fun onDestroy() { proc?.destroy(); proc = null; socksPort = -1 }
 
     companion object {
-        /** tor shipped with the app first (its tor/ folder on Windows and macOS), then the system's. */
+        /** tor shipped with the app first (its tor/ folder on Windows and macOS), then the system's: its usual place before whatever comes first on PATH. */
         fun binary(): File? {
             val exe = com.kilombino.kilowallet.desktop.Platform.exe("tor")
             val shipped = System.getProperty("kilowallet.natives")?.let { listOf(File(it, "tor/$exe"), File(it, exe)) }.orEmpty()
             // A package may not keep the program's execute bit: give it back.
             shipped.filter { it.isFile && !it.canExecute() }.forEach { runCatching { it.setExecutable(true, true) } }
             shipped.firstOrNull { it.isFile && it.canExecute() }?.let { return it }
+            listOf("/usr/bin/tor", "/usr/sbin/tor", "/opt/homebrew/bin/tor", "/usr/local/bin/tor").map(::File)
+                .firstOrNull { it.isFile && it.canExecute() }?.let { return it }
             return com.kilombino.kilowallet.desktop.Platform.onPath("tor")
         }
     }
