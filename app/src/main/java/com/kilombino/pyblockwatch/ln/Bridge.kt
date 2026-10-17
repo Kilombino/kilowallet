@@ -136,17 +136,19 @@ object Bridge {
 
     // ------------------------------------------------------------------------------- transport
 
-    /** JSON from the bridge's web API, over Tor to its onion when Tor is there, else https. */
+    private const val PATIENCE_MS = 8_000L
+
+    /** JSON from the bridge's web API (see [request] for the way). */
     private fun call(ctx: Context, path: String, body: JSONObject?): JSONObject {
-        // The first request after Tor starts often fails while the circuit to the onion is built:
-        // tried three times before telling the user. Not a quote: one that got through but whose
-        // answer was lost would only come back as "in progress".
+        // A request that fails is tried again for a few seconds before telling the user. Not a
+        // quote: one that got through but whose answer was lost would only come back as "in
+        // progress".
         var raw: String? = null
-        val tries = if (path == "/api/quote") 1 else 3
-        for (attempt in 1..tries) {
+        val until = System.currentTimeMillis() + if (path == "/api/quote") 0 else PATIENCE_MS
+        while (true) {
             raw = runCatching { request(ctx, path, body?.toString()) }.getOrNull()
-            if (raw != null) break
-            if (attempt < tries) Thread.sleep(2_000L * attempt)
+            if (raw != null || System.currentTimeMillis() >= until) break
+            Thread.sleep(2_000)
         }
         if (raw == null) throw Refused("network", text("network"))
         val o = runCatching { JSONObject(raw) }.getOrElse { throw Refused("unavailable", text("unavailable")) }
@@ -154,9 +156,22 @@ object Bridge {
         return o
     }
 
+    /**
+     * Over https, like the bridge's web page: at once. Over Tor to the onion only when Tor is
+     * already running (for a node reached by .onion), and if the onion can't be reached right
+     * then, over https after all: waiting for Tor to start made paying an invoice take a minute.
+     */
     private fun request(ctx: Context, path: String, body: String?): String {
-        val proxy = if (Tor.available) { Tor.start(ctx); Tor.proxy(60_000) } else null
-        if (proxy == null) {
+        val proxy = if (Tor.running) Tor.proxy(0) else null
+        if (proxy != null) {
+            val sock = java.net.Socket(proxy)
+            val connected = runCatching {
+                sock.connect(java.net.InetSocketAddress.createUnresolved(java.net.URL(ONION).host, 80), 20_000); true
+            }.getOrDefault(false)
+            if (connected) return sock.use { onion(it, path, body) }
+            runCatching { sock.close() }
+        }
+        run {
             val c = java.net.URL(CLEARNET + path).openConnection() as javax.net.ssl.HttpsURLConnection
             c.connectTimeout = 20_000; c.readTimeout = 30_000; c.instanceFollowRedirects = false
             if (body != null) {
@@ -166,10 +181,12 @@ object Bridge {
             }
             return (if (c.responseCode < 400) c.inputStream else c.errorStream).bufferedReader().use { it.readText() }
         }
-        // Plain HTTP over the SOCKS proxy: the onion address is what authenticates the server.
+    }
+
+    /** Plain HTTP over the SOCKS proxy, on a socket already connected: the onion address is what authenticates the server. */
+    private fun onion(s: java.net.Socket, path: String, body: String?): String {
         val u = java.net.URL(ONION + path)
-        java.net.Socket(proxy).use { s ->
-            s.connect(java.net.InetSocketAddress.createUnresolved(u.host, 80), 60_000)
+        run {
             s.soTimeout = 60_000
             val b = body?.toByteArray()
             s.getOutputStream().apply {

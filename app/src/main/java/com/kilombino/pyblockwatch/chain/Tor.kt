@@ -28,6 +28,9 @@ object Tor {
     @Volatile var available: Boolean = false
         private set
 
+    /** Tor is up: started for something else (a node reached by .onion) and its SOCKS port open. */
+    val running: Boolean get() = bound && runCatching { (service?.socksPort ?: -1) > 0 }.getOrDefault(false)
+
     fun start(ctx: Context) {
         if (bound || !available) return
         bound = ctx.applicationContext.bindService(Intent(ctx.applicationContext, TorService::class.java), conn, Context.BIND_AUTO_CREATE)
