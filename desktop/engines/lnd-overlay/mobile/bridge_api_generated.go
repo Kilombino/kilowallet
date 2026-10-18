@@ -273,3 +273,36 @@ func BridgeExportSha256Seed(msg []byte, callback Callback) {
 	}
 	s.start(msg, callback)
 }
+
+// ResolveSwap decides a swap the bridge stopped in paying for the operator,
+// by asking the paying node again what became of the payment. None or
+// failed: the swap fails, and the payer's held payment is cancelled, which
+// refunds them. Succeeded: the payer's payment is settled with the preimage
+// and the swap is paid. Still in flight: refused, since the payment may yet
+// go either way. Only for an admin macaroon, and only for a swap
+// needs_operator lists as stopped, not one raised while it is still being
+// driven.
+//
+// NOTE: This method produces a single result or error, and the callback will
+// be called only once.
+func BridgeResolveSwap(msg []byte, callback Callback) {
+	s := &syncHandler{
+		newProto: func() proto.Message {
+			return &bridgerpc.ResolveSwapRequest{}
+		},
+		getSync: func(ctx context.Context,
+			req proto.Message) (proto.Message, error) {
+
+			// Get the gRPC client.
+			client, closeClient, err := getBridgeClient()
+			if err != nil {
+				return nil, err
+			}
+			defer closeClient()
+
+			r := req.(*bridgerpc.ResolveSwapRequest)
+			return client.ResolveSwap(ctx, r)
+		},
+	}
+	s.start(msg, callback)
+}

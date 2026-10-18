@@ -50,6 +50,12 @@ class TorService : Service() {
     override fun onDestroy() { proc?.destroy(); proc = null; socksPort = -1 }
 
     companion object {
+        /**
+         * Where tor-android reads its torrc. The app writes its log line there; here tor's log is
+         * read from its output instead (for the SOCKS port), so the file is only kept, not used.
+         */
+        @JvmStatic fun getTorrc(@Suppress("UNUSED_PARAMETER") ctx: android.content.Context): File = File(DesktopContext.root("tor"), "torrc")
+
         /** tor shipped with the app first (its tor/ folder on Windows and macOS), then the system's: its usual place before whatever comes first on PATH. */
         fun binary(): File? {
             val exe = com.kilombino.kilowallet.desktop.Platform.exe("tor")

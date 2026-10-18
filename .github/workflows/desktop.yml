@@ -15,10 +15,10 @@ permissions:
   contents: read
 
 env:
-  LND_REPO: Kilombino/lnd
-  LND_COMMIT: 7a8ca829e0ce64d43243ad696bf8c89b4272618b
+  LND_REPO: paulscode/lightning-fork
+  LND_COMMIT: eb0848bad4abdfdbe90b4970be1e4511461fc553
   ARK_REPO: Kilombino/paperclip-wallet-app
-  ARK_COMMIT: 8dfba1b9ff083ca0737482edd517e828c964dfed
+  ARK_COMMIT: f896490277fcb73334d38674424cb9d50f015a7e
   GOBIND: golang.org/x/mobile/cmd/gobind@v0.0.0-20261011034528-197770444867
   TOR_VERSION: 15.0.25
 

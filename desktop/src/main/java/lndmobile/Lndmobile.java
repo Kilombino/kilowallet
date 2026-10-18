@@ -334,6 +334,15 @@ public abstract class Lndmobile {
 	 */
 	public static native void estimateFee(byte[] msg, Callback callback);
 	/**
+	 * EstimateSplice reports what adding funds to, or moving funds out of, an
+	open channel would cost and allow, for a splice this node would start. It
+	is purely local: the peer is not contacted and no coins are leased.
+	
+	NOTE: This method produces a single result or error, and the callback will
+	be called only once.
+	 */
+	public static native void estimateSplice(byte[] msg, Callback callback);
+	/**
 	 * ExportAllChannelBackups returns static channel backups for all existing
 	channels known to lnd. A set of regular singular static channel backups for
 	each channel are returned. Additionally, a multi-channel backup is returned
@@ -1214,6 +1223,17 @@ public abstract class Lndmobile {
 	be called only once.
 	 */
 	public static native void signerVerifyMessage(byte[] msg, Callback callback);
+	/**
+	 * SpliceChannel adds funds from the wallet to an open channel, or moves funds
+	out of it to an address, without closing it. The stream reports progress
+	until the splice locks or ends. Once the transaction is agreed with the
+	peer, the splice carries on whether or not the stream is still open.
+	
+	NOTE: This method produces a stream of responses, and the receive stream can
+	be called zero or more times. After EOF error is returned, no more responses
+	will be produced.
+	 */
+	public static native void spliceChannel(byte[] msg, RecvStream rStream);
 	/**
 	 * Start starts lnd in a new goroutine.
 	

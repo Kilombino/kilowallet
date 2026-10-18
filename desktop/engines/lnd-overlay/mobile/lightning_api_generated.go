@@ -955,6 +955,72 @@ func CloseChannel(msg []byte, rStream RecvStream) {
 	s.start(msg, rStream)
 }
 
+// EstimateSplice reports what adding funds to, or moving funds out of, an
+// open channel would cost and allow, for a splice this node would start. It
+// is purely local: the peer is not contacted and no coins are leased.
+//
+// NOTE: This method produces a single result or error, and the callback will
+// be called only once.
+func EstimateSplice(msg []byte, callback Callback) {
+	s := &syncHandler{
+		newProto: func() proto.Message {
+			return &lnrpc.EstimateSpliceRequest{}
+		},
+		getSync: func(ctx context.Context,
+			req proto.Message) (proto.Message, error) {
+
+			// Get the gRPC client.
+			client, closeClient, err := getLightningClient()
+			if err != nil {
+				return nil, err
+			}
+			defer closeClient()
+
+			r := req.(*lnrpc.EstimateSpliceRequest)
+			return client.EstimateSplice(ctx, r)
+		},
+	}
+	s.start(msg, callback)
+}
+
+// SpliceChannel adds funds from the wallet to an open channel, or moves funds
+// out of it to an address, without closing it. The stream reports progress
+// until the splice locks or ends. Once the transaction is agreed with the
+// peer, the splice carries on whether or not the stream is still open.
+//
+// NOTE: This method produces a stream of responses, and the receive stream can
+// be called zero or more times. After EOF error is returned, no more responses
+// will be produced.
+func SpliceChannel(msg []byte, rStream RecvStream) {
+	s := &readStreamHandler{
+		newProto: func() proto.Message {
+			return &lnrpc.SpliceChannelRequest{}
+		},
+		recvStream: func(ctx context.Context,
+			req proto.Message) (*receiver, func(), error) {
+
+			// Get the gRPC client.
+			client, closeClient, err := getLightningClient()
+			if err != nil {
+				return nil, nil, err
+			}
+
+			r := req.(*lnrpc.SpliceChannelRequest)
+			stream, err := client.SpliceChannel(ctx, r)
+			if err != nil {
+				closeClient()
+				return nil, nil, err
+			}
+			return &receiver{
+				recv: func() (proto.Message, error) {
+					return stream.Recv()
+				},
+			}, closeClient, nil
+		},
+	}
+	s.start(msg, rStream)
+}
+
 // AbandonChannel removes all channel state from the database except for a
 // close summary. This method can be used to get rid of permanently unusable
 // channels due to bugs fixed in newer versions of lnd. This method can also be

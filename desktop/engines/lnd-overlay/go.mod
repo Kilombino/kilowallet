@@ -46,7 +46,7 @@ require (
 	github.com/lightningnetwork/lnd/tor v1.1.7
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/miekg/dns v1.1.43
-	github.com/paulscode/lightning-fork-bridge v0.1.4
+	github.com/paulscode/lightning-fork-bridge v0.1.7
 	github.com/prometheus/client_golang v1.11.1
 	github.com/stretchr/testify v1.11.1
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02
@@ -220,7 +220,7 @@ retract v0.0.2
 
 // Lightning Fork follows the Bitcoin BLAKE2b chain; the block header and
 // block id logic lives in a btcd fork that keeps upstream's module path.
-replace github.com/btcsuite/btcd => github.com/paulscode/btcd-blake2b v0.25.1-blake2b.6
+replace github.com/btcsuite/btcd => github.com/paulscode/btcd-blake2b v0.25.1-blake2b.7
 
 // txauthor with configurable hash types, so the wallet's own on-chain sends
 // can opt into the unified signature hash.
@@ -228,4 +228,4 @@ replace github.com/btcsuite/btcwallet/wallet/txauthor => github.com/paulscode/bt
 
 replace github.com/lightningnetwork/lnd/fn/v2 => ./fn
 
-replace github.com/lightninglabs/neutrino => github.com/Kilombino/neutrino-blake2b v0.0.0-20261012222229-e3dedd4d1590
+replace github.com/lightninglabs/neutrino => github.com/paulscode/neutrino-blake2b v0.17.1-blake2b.1
