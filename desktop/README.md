@@ -37,8 +37,8 @@ cp both into desktop/resources/linux-x64/
 ./gradlew :desktop:test                       # the Android app's unit tests too, on the desktop JVM
 # a portable JDK for the bundled runtime (Temurin 17, checked against Adoptium's SHA-256):
 KW_PACKAGE_JDK=/path/to/jdk-17.0.20.1+1 ./gradlew :desktop:packageDeb :desktop:createDistributable
-packaging/build-appimage.sh 0.1.0-beta7       # → build/appimage/Kilowallet-…-x86_64.AppImage
-packaging/finish-deb.sh 0.1.0-beta7           # → build/release/kilowallet_…_amd64.deb
+packaging/build-appimage.sh 0.1.0-beta8       # → build/appimage/Kilowallet-…-x86_64.AppImage
+packaging/finish-deb.sh 0.1.0-beta8           # → build/release/kilowallet_…_amd64.deb
 packaging/sign-release.py OUTDIR FILES…       # SHA256SUMS + SHA256SUMS.sig
 ```
 
