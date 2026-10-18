@@ -43,8 +43,14 @@ class RelayClient(
         require(u.scheme == "wss") { "only wss:// relays" }
         val host = u.host
         val port = if (u.port > 0) u.port else 443
-        val s = (SSLSocketFactory.getDefault().createSocket() as SSLSocket)
-        s.connect(InetSocketAddress(host, port), 15_000)
+        // Through the app's Tor when it is already running (for a .onion node), so the relay sees
+        // a Tor exit, not this phone's address. TLS goes end to end over it as usual.
+        val proxy = if (com.kilombino.pyblockwatch.chain.Tor.running) com.kilombino.pyblockwatch.chain.Tor.proxy(0) else null
+        val s = if (proxy != null) {
+            val raw = java.net.Socket(proxy)
+            raw.connect(InetSocketAddress.createUnresolved(host, port), 60_000)
+            (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(raw, host, port, true) as SSLSocket
+        } else (SSLSocketFactory.getDefault().createSocket() as SSLSocket).also { it.connect(InetSocketAddress(host, port), 15_000) }
         // The certificate must be for this host name: the TLS layer checks it (endpoint
         // identification), and on Android the platform's verifier checks it again, as
         // HttpsURLConnection would. (Off Android that verifier refuses everything by design.)

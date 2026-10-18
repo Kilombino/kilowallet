@@ -48,6 +48,12 @@ object ArkBackup {
         val contacts: String? = null,
         /** Settings and coinjoin rounds ([com.kilombino.pyblockwatch.data.AppBackup]); null in older files. */
         val app: String? = null,
+        /**
+         * The Ark wallet uses the words derived from [words] ([Ark.derivedWords], 1.1.4 on), not
+         * [words] themselves. Such a file is version 4, so an older app refuses it rather than
+         * restore Ark with the wrong words.
+         */
+        val arkDerived: Boolean = false,
     ) {
         val hasArk: Boolean get() = config != null && db != null && db.isNotEmpty()
     }
@@ -73,7 +79,8 @@ object ArkBackup {
             // Version 2 only when there is a passphrase: an older app, which would restore
             // the words without it and open the wrong wallet, refuses the file instead.
             // Version 3 when there is no Ark wallet in it: an older app could not restore it.
-            .put("version", if (!s.hasArk) 3 else if (s.passphrase.isEmpty()) 1 else 2)
+            .put("version", if (s.hasArk && s.arkDerived) 4 else if (!s.hasArk) 3 else if (s.passphrase.isEmpty()) 1 else 2)
+            .apply { if (s.hasArk && s.arkDerived) put("ark_words", "derived") }
             .put("network", "mainnet")
             .put("created", s.created)
             .put("movements", s.movements)
@@ -116,7 +123,7 @@ object ArkBackup {
         }
         val j = JSONObject(String(gunzip(payload), Charsets.UTF_8))
         require(j.optString("format") == "kilombino-ark-backup") { "Not a Kilombino Ark backup." }
-        require(j.optInt("version") in 1..3) { "This backup was made by a newer version of the app." }
+        require(j.optInt("version") in 1..4) { "This backup was made by a newer version of the app." }
         require(j.optString("network") == "mainnet") { "This backup is not for XBT mainnet." }
         return Snapshot(
             words = j.getString("mnemonic").trim().split(Regex("\\s+")),
@@ -128,6 +135,7 @@ object ArkBackup {
             created = j.optLong("created"),
             contacts = j.optJSONArray("contacts")?.toString(),
             app = j.optJSONObject("app")?.toString(),
+            arkDerived = j.optString("ark_words") == "derived",
         )
     }
 

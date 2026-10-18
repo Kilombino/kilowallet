@@ -11,6 +11,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.math.BigInteger
 import java.net.HttpURLConnection
@@ -256,5 +257,59 @@ class CoinjoinE2ETest {
         waitFor("confirmed", 60) { a.state.phase == PoolSession.Phase.CONFIRMED && right.state.phase == PoolSession.Phase.CONFIRMED }
         println("private txid ${a.state.txid}")
         a.stop(); right.stop()
+    }
+
+    /**
+     * Kilojoin v3 for real: A opens a v3 pool, B and C join; C asks to close; each output is
+     * signed blindly by A and handed in from a fresh key; the three sign and the round is mined
+     * on the BLAKE2b regtest. Checks that nothing on the pool channel says whose output is whose.
+     * KILOJOIN_E2E_V3=<coins file> with three P2WPKH coins (seeds 1, 2, 3).
+     */
+    @Test fun v3BlindOutputs() {
+        val path = System.getenv("KILOJOIN_E2E_V3") ?: return
+        Protocol.NETWORK = "blake2b-regtest"
+        val coins = java.io.File(path).readLines().filter { it.isNotBlank() }.map { it.trim().split(" ") }
+            .map { (seed, txid, vout, value) -> seed.toInt() to CoinjoinTx.Coin(txid, vout.toInt(), value.toLong(), pub(key(seed.toInt()))) }
+        val salt = System.nanoTime() % 1_000_000
+        val np = PoolSession.newPool(100_000, 3.0, 5, 1, minPeers = 3, v3 = true)
+        assertEquals(Protocol.V3, np.terms.version)
+        val a = PoolSession(Env("A"), PoolSession.newState(np.terms, true, np.secret, listOf(coins[0].second), listOf(key(coins[0].first)),
+            listOf("a"), script(90_000 + salt), script(91_000 + salt), creatorSecret = np.creatorSecret, blindPriv = np.blindPriv))
+        a.start(); waitFor("A open") { a.state.phase == PoolSession.Phase.OPEN }
+
+        val found = java.util.concurrent.CompletableFuture<Protocol.Terms>()
+        val r = RelayClient(Protocol.RELAY, { _, ev -> Protocol.Terms.parse(ev)?.let { if (it.id == np.terms.id) found.complete(it) } })
+        r.connect(); r.subscribe("p", listOf(JSONObject().put("kinds", JSONArray().put(Protocol.KIND_POOL)).put("#d", JSONArray().put(np.terms.id))))
+        val seen = found.get(30, java.util.concurrent.TimeUnit.SECONDS); r.close()
+        assertEquals(true, seen.v3)
+        assertEquals(np.terms.blindKey, seen.blindKey)
+
+        val b = PoolSession(Env("B"), PoolSession.newState(seen, false, null, coins[1].second, key(coins[1].first), "b",
+            script(92_000 + salt), script(93_000 + salt)))
+        b.start(); waitFor("B welcomed") { b.state.phase == PoolSession.Phase.OPEN && b.state.seats.size >= 2 }
+        val c = PoolSession(Env("C"), PoolSession.newState(seen, false, null, coins[2].second, key(coins[2].first), "c",
+            script(94_000 + salt), script(95_000 + salt)))
+        c.start(); waitFor("C welcomed") { c.state.phase == PoolSession.Phase.OPEN && c.state.seats.size == 3 }
+        waitFor("everyone sees three") { a.state.seats.size == 3 && b.state.seats.size == 3 }
+        // Every member checked every seat's coin proofs itself: the roster carries them.
+        assertTrue(c.state.seats.all { it.joinPub != null && it.proofs.size == it.coins.size })
+
+        c.requestClose()
+        waitFor("vote opened by the creator") { a.state.phase == PoolSession.Phase.VOTING && b.state.phase == PoolSession.Phase.VOTING }
+        a.vote(true); b.vote(true)
+        waitFor("all signing", 240) { listOf(a, b, c).all { it.state.phase == PoolSession.Phase.SIGNING } }
+        // Each member got exactly one blind signature, and the creator's list holds three outputs.
+        assertEquals(2, a.state.blindSigs.size)
+        assertEquals(3, a.state.regOutputs.size)
+        assertTrue(b.state.outSig != null && c.state.outSig != null)
+        val txid = CoinjoinTx.txid(a.plan()!!)
+        assertEquals(txid, CoinjoinTx.txid(b.plan()!!)); assertEquals(txid, CoinjoinTx.txid(c.plan()!!))
+
+        a.sign(key(coins[0].first)); b.sign(key(coins[1].first)); c.sign(key(coins[2].first))
+        waitFor("broadcast") { listOf(a, b, c).all { it.state.txid != null } }
+        rpc("generatetoaddress", 1, rpc("getnewaddress") as String)
+        waitFor("confirmed", 60) { listOf(a, b, c).all { it.state.phase == PoolSession.Phase.CONFIRMED } }
+        println("v3 txid ${a.state.txid}")
+        a.stop(); b.stop(); c.stop()
     }
 }

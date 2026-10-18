@@ -101,7 +101,7 @@ fun ModeChooser(vm: WalletViewModel) {
                 "Coin control, fees, derivation paths, Silent Payments",
                 "Address list, server certificates, gap limit",
             ),
-            accent = Orange,
+            accent = CoinjoinBlue,
         ) { vm.setUiMode("advanced") }
     }
 }
@@ -123,7 +123,7 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel, onToggleNotifications: (Bo
     // Two tabs: BTC (the BLAKE2b chain) and Spamcoin (the SHA-256 spamchain). Ark lives
     // in advanced mode. Send/Receive work on the selected chain.
     val chain = state.selected
-    val accent = if (chain == Chain.BLAKE2B) Purple else Orange
+    val accent = if (chain == Chain.BLAKE2B) Purple else Color(Chain.SHA256.accent)
     val cs = state.chains[chain] ?: ChainState()
     var showSend by remember { mutableStateOf(false) }
     var showReceive by remember { mutableStateOf(false) }
@@ -202,7 +202,7 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel, onToggleNotifications: (Bo
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TabChip("BTC", chain == Chain.BLAKE2B, Purple, Modifier.weight(1f)) { pick(Chain.BLAKE2B) }
-            TabChip("SPAMCOIN", chain == Chain.SHA256, Orange, Modifier.weight(1f)) { pick(Chain.SHA256) }
+            TabChip("SPAMCOIN", chain == Chain.SHA256, Color(Chain.SHA256.accent), Modifier.weight(1f)) { pick(Chain.SHA256) }
         }
         state.chains[chain]?.refreshing?.let {
             Text("↻ refreshing · $it", style = MaterialTheme.typography.bodySmall, color = TextSoft)

@@ -215,10 +215,11 @@ object CoinjoinHub {
         ctx: Context, pick: Pick, amount: Long, feeRate: Double, maxPeers: Int, hours: Int,
         minPeers: Int = Protocol.MIN_PEERS, password: String? = null, maxInputs: Int = 1, auto: Boolean = false,
     ): PoolSession.State {
-        val (terms, secret) = PoolSession.newPool(amount, feeRate, maxPeers, hours, minPeers, !password.isNullOrEmpty(),
-            pick.type, maxInputs)
-        val st = PoolSession.newState(terms, true, secret, pick.txCoins(), pick.coins.map { it.coinKey.key }, pick.coins.map { it.coinPath },
-            pick.mixScript, pick.changeScript, password?.ifEmpty { null })
+        // New pools are v3 (outputs registered blindly); older wallets keep joining v1 and v2 ones.
+        val np = PoolSession.newPool(amount, feeRate, maxPeers, hours, minPeers, !password.isNullOrEmpty(),
+            pick.type, maxInputs, v3 = true)
+        val st = PoolSession.newState(np.terms, true, np.secret, pick.txCoins(), pick.coins.map { it.coinKey.key }, pick.coins.map { it.coinPath },
+            pick.mixScript, pick.changeScript, password?.ifEmpty { null }, np.creatorSecret, np.blindPriv)
         add(ctx, st, if (auto) pick.coins.map { it.coinKey.key } else null)
         CoinjoinAlerts.follow(ctx, st)
         return st
@@ -374,8 +375,9 @@ object CoinjoinHub {
             is PoolSession.Event.CloseRefused -> CoinjoinAlerts.event(ctx, st.poolId, "close_refused", vote)
             is PoolSession.Event.SignNeeded -> CoinjoinAlerts.event(ctx, st.poolId, "sign_needed")
             is PoolSession.Event.Confirmed -> CoinjoinAlerts.event(ctx, st.poolId, "confirmed")
+            // No free text: an abort reason can be another member's own words.
             is PoolSession.Event.Aborted -> CoinjoinAlerts.event(ctx, st.poolId,
-                if (e.reason == PoolSession.LEFT_BY_CHOICE) "left" else "aborted", e.reason)
+                if (e.reason == PoolSession.LEFT_BY_CHOICE) "left" else "aborted")
             else -> {}
         }
     }

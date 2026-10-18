@@ -92,6 +92,19 @@ class PoolSession(private val env: Env, private val s: State) {
         val joinPubs: MutableMap<String, String> = mutableMapOf(), // join pub → token hash
         val tokens: MutableMap<String, String> = mutableMapOf(),   // token hash → token
         var warnedExpiry: Boolean = false, // the under-an-hour warning was given
+        // v3, creator only: its own key, and the RSA key it signs outputs blindly with.
+        val creatorSecret: String? = null,
+        val blindPriv: String? = null,
+        var roundId: String? = null,      // v3: the closing round outputs are signed for
+        // v3, member: our output's blinding, kept so a resent request is the same one.
+        var blindPrefix: String? = null,
+        var blindInv: String? = null,
+        var blindedMsg: String? = null,
+        var outSig: String? = null,       // our output's unblinded signature
+        // v3, creator: per round, the blind signature given to each seat, and the outputs handed in.
+        val blindSigs: MutableMap<String, String> = mutableMapOf(),
+        val blindedOf: MutableMap<String, String> = mutableMapOf(),
+        val regOutputs: MutableSet<String> = linkedSetOf(),
     ) {
         val poolId: String get() = terms.id
         val joinProof: String get() = joinProofs.first()
@@ -114,6 +127,11 @@ class PoolSession(private val env: Env, private val s: State) {
             .put("accepts", org.json.JSONArray(accepts.toList()))
             .put("join_pubs", JSONObject(joinPubs as Map<*, *>)).put("tokens", JSONObject(tokens as Map<*, *>))
             .put("warned_expiry", warnedExpiry)
+            .put("creator_secret", creatorSecret ?: "").put("blind_priv", blindPriv ?: "").put("round_id", roundId ?: "")
+            .put("blind_prefix", blindPrefix ?: "").put("blind_inv", blindInv ?: "").put("blinded_msg", blindedMsg ?: "")
+            .put("out_sig", outSig ?: "")
+            .put("blind_sigs", JSONObject(blindSigs as Map<*, *>)).put("blinded_of", JSONObject(blindedOf as Map<*, *>))
+            .put("reg_outputs", org.json.JSONArray(regOutputs.toList()))
 
         companion object {
             private fun JSONObject.str(k: String): String? = optString(k).ifEmpty { null }
@@ -130,7 +148,8 @@ class PoolSession(private val env: Env, private val s: State) {
                     t.optBoolean("private", false), v,
                     if (v == Protocol.V1) com.kilombino.pyblockwatch.crypto.ScriptType.P2WPKH
                     else Protocol.parseScript(t.getString("script")) ?: error("unknown script"),
-                    if (v == Protocol.V1) 1 else t.getInt("max_inputs"))
+                    if (v == Protocol.V1) 1 else t.getInt("max_inputs"),
+                    t.optString("creator").ifEmpty { null }, t.optString("blind_key").ifEmpty { null })
                 val type = terms.script
                 fun list(k: String, one: String): List<String> = o.optJSONArray(k)?.let { a -> (0 until a.length()).map { a.getString(it) } }
                     ?: listOf(o.getString(one))
@@ -149,6 +168,10 @@ class PoolSession(private val env: Env, private val s: State) {
                     o.str("txid"), o.optLong("created"),
                     (0 until (acc?.length() ?: 0)).map { acc!!.getString(it) }.toMutableSet(),
                     o.map("join_pubs"), o.map("tokens"), o.optBoolean("warned_expiry"),
+                    o.str("creator_secret"), o.str("blind_priv"), o.str("round_id"),
+                    o.str("blind_prefix"), o.str("blind_inv"), o.str("blinded_msg"), o.str("out_sig"),
+                    o.map("blind_sigs"), o.map("blinded_of"),
+                    o.optJSONArray("reg_outputs")?.let { a -> (0 until a.length()).map { a.getString(it) } }?.toMutableSet() ?: linkedSetOf(),
                 )
             }
         }
@@ -167,6 +190,12 @@ class PoolSession(private val env: Env, private val s: State) {
     private val joinPub = NostrEvent.pubOf(joinKey)
     private val myTokenHash: String? get() = s.token?.let { Protocol.tokenHash(it) }
     private val terms = s.terms
+    private val creatorKey: BigInteger? get() = s.creatorSecret?.let { BigInteger(it, 16) }
+    private val blindPk: BlindRsa.PublicKey? by lazy { terms.blindKey?.let { BlindRsa.PublicKey.decode(it) } }
+    /** Seats whose coins this wallet already checked against the chain (v3 roster). */
+    private val verifiedSeats = mutableSetOf<String>()
+    private var lastBlindSent = 0L
+    private var outputScheduled = false
 
     val state: State get() = s
 
@@ -216,6 +245,9 @@ class PoolSession(private val env: Env, private val s: State) {
         // others find out that the creator's app is gone, as the pool bot does.
         if (!s.creator) r.subscribe("listing", listOf(JSONObject().put("kinds", org.json.JSONArray().put(Protocol.KIND_POOL))
             .put("authors", org.json.JSONArray().put(terms.poolPub)).put("#d", org.json.JSONArray().put(terms.id))))
+        // v3: outputs come to the creator's own key, each from a fresh key.
+        if (s.creator && terms.v3) r.subscribe("outs", listOf(JSONObject().put("kinds", org.json.JSONArray().put(Protocol.KIND_MSG))
+            .put("#p", org.json.JSONArray().put(terms.creatorPub))))
         if (s.phase == Phase.JOINING && !s.creator) sendJoin()
         if (s.creator && s.phase == Phase.JOINING) creatorStart()
     }
@@ -252,6 +284,20 @@ class PoolSession(private val env: Env, private val s: State) {
         val conv = Nip44.conversationKey(k, Hashes.hexToBytes(terms.poolPub))
         return publish(Protocol.KIND_MSG, listOf(listOf("p", terms.poolPub)), Nip44.encrypt(o.toString(), conv), k)
     }
+
+    /**
+     * What runs the pool: from the creator's own key in v3 (members check it is the creator's),
+     * from the pool key as any other message before.
+     */
+    private fun creatorChannel(o: JSONObject): Boolean {
+        if (!terms.v3) return channel(o)
+        val k = creatorKey ?: return false
+        val conv = Nip44.conversationKey(k, Hashes.hexToBytes(terms.poolPub))
+        return publish(Protocol.KIND_MSG, listOf(listOf("p", terms.poolPub)), Nip44.encrypt(o.toString(), conv), k)
+    }
+
+    /** The key the creator answers join requests with. */
+    private val replyKey: BigInteger? get() = if (terms.v3) creatorKey else poolKey
 
     private fun direct(toPub: String, o: JSONObject, from: BigInteger): Boolean {
         val conv = Nip44.conversationKey(from, Hashes.hexToBytes(toPub))
@@ -309,15 +355,27 @@ class PoolSession(private val env: Env, private val s: State) {
                     ev.pubkey == terms.poolPub && ev.tag("p") == terms.poolPub -> {
                         val k = poolKey ?: return
                         val msg = Nip44.decrypt(ev.content, Nip44.conversationKey(k, Hashes.hexToBytes(terms.poolPub))) ?: return
-                        onChannel(JSONObject(msg), ev.createdAt)
+                        onChannel(JSONObject(msg), ev.createdAt, fromCreator = !terms.v3)
                     }
-                    // A reply from the pool to our join key.
-                    ev.pubkey == terms.poolPub && ev.tag("p") == joinPub -> {
-                        val msg = Nip44.decrypt(ev.content, Nip44.conversationKey(joinKey, Hashes.hexToBytes(terms.poolPub))) ?: return
+                    // v3: the creator's own messages on the channel.
+                    terms.v3 && ev.pubkey == terms.creatorPub && ev.tag("p") == terms.poolPub -> {
+                        val k = poolKey ?: return
+                        val msg = Nip44.decrypt(ev.content, Nip44.conversationKey(k, Hashes.hexToBytes(terms.creatorPub))) ?: return
+                        onChannel(JSONObject(msg), ev.createdAt, fromCreator = true)
+                    }
+                    // A reply from the pool (v3: from its creator) to our join key.
+                    ev.pubkey == (if (terms.v3) terms.creatorPub else terms.poolPub) && ev.tag("p") == joinPub -> {
+                        val msg = Nip44.decrypt(ev.content, Nip44.conversationKey(joinKey, Hashes.hexToBytes(ev.pubkey))) ?: return
                         onDirect(JSONObject(msg))
                     }
+                    // v3: a mixed output handed in from a fresh key, readable by the creator only.
+                    s.creator && terms.v3 && ev.tag("p") == terms.creatorPub -> {
+                        val k = creatorKey ?: return
+                        val msg = Nip44.decrypt(ev.content, Nip44.conversationKey(k, Hashes.hexToBytes(ev.pubkey))) ?: return
+                        onOutputHandedIn(JSONObject(msg))
+                    }
                     // A join request to the pool (only the creator can read and answer it).
-                    s.creator && ev.tag("p") == terms.poolPub && ev.pubkey != terms.poolPub -> {
+                    s.creator && ev.tag("p") == terms.poolPub && ev.pubkey != terms.poolPub && ev.pubkey != terms.creatorPub -> {
                         val k = poolKey ?: return
                         val msg = Nip44.decrypt(ev.content, Nip44.conversationKey(k, Hashes.hexToBytes(ev.pubkey))) ?: return
                         onJoinRequest(ev.pubkey, JSONObject(msg))
@@ -358,11 +416,12 @@ class PoolSession(private val env: Env, private val s: State) {
         val token = randomHex(16)
         s.token = token
         s.tokens[Protocol.tokenHash(token)] = token
-        s.seats = mutableListOf(s.seat.copy(tokenHash = Protocol.tokenHash(token)))
+        s.seats = mutableListOf(if (terms.v3) s.seat.copy(tokenHash = Protocol.tokenHash(token), joinPub = terms.poolPub, proofs = s.joinProofs)
+            else s.seat.copy(tokenHash = Protocol.tokenHash(token)))
         s.phase = Phase.OPEN
         save()
         announce()
-        channel(roster())
+        creatorChannel(roster())
     }
 
     /** The roster, numbered: a member replaying the channel ignores the ones from before it joined. */
@@ -371,7 +430,7 @@ class PoolSession(private val env: Env, private val s: State) {
         return JSONObject().put("type", "roster").put("seq", s.rosterSeq).put("seats", Protocol.seatsJson(s.seats))
     }
 
-    private fun reject(joinPub: String, reason: String) { env.log("reject: $reason"); poolKey?.let { direct(joinPub, JSONObject().put("type", "reject").put("reason", reason), it) } }
+    private fun reject(joinPub: String, reason: String) { env.log("reject: $reason"); replyKey?.let { direct(joinPub, JSONObject().put("type", "reject").put("reason", reason), it) } }
 
     private fun onJoinRequest(from: String, o: JSONObject) {
         if (o.optString("type") != "join") return
@@ -406,23 +465,28 @@ class PoolSession(private val env: Env, private val s: State) {
         if (coins.any { !runCatching { env.coinUnspent(it) }.getOrDefault(false) }) return reject(from, "that coin is not unspent on the chain")
         val token = randomHex(16)
         val th = Protocol.tokenHash(token)
-        val placed = seat.copy(tokenHash = th)
+        // v3: the seat carries its join key and proofs, so every member can check the coin too.
+        val placed = if (terms.v3) seat.copy(tokenHash = th, joinPub = from, proofs = proofs) else seat.copy(tokenHash = th)
         s.tokens[th] = token; s.joinPubs[from] = th; s.seats.add(placed)
         val roster = roster()
         direct(from, JSONObject().put("type", "welcome").put("pool_secret", s.poolSecret).put("token", token)
-            .put("seq", s.rosterSeq), poolKey!!)
-        channel(roster)
+            .put("seq", s.rosterSeq), replyKey!!)
+        creatorChannel(roster)
         announce()
         env.event(Event.Joined(s.poolId, s.seats.size))
         // Full: ask everyone whether to close now (the creator's own seat counts as a yes).
-        if (s.seats.size >= terms.maxPeers) channel(JSONObject().put("type", "close_request")
-            .put("token", s.token).put("vote_id", randomHex(8)))
+        if (s.seats.size >= terms.maxPeers) {
+            if (terms.v3) creatorChannel(JSONObject().put("type", "vote_open").put("by", myTokenHash).put("vote_id", randomHex(8)))
+            else channel(JSONObject().put("type", "close_request").put("token", s.token).put("vote_id", randomHex(8)))
+        }
     }
 
     private fun callClosing(seats: List<Protocol.Seat>, why: String) {
         s.round = seats.toMutableList()
-        channel(JSONObject().put("type", "closing").put("why", why).put("seats", Protocol.seatsJson(seats))
-            .put("deadline", env.now() + Protocol.OUTPUTS_SECONDS))
+        // v3: a fresh round id; blind signatures and outputs count for this round only.
+        if (terms.v3) { s.roundId = randomHex(8); s.blindSigs.clear(); s.blindedOf.clear(); s.regOutputs.clear(); save() }
+        creatorChannel(JSONObject().put("type", "closing").put("why", why).put("seats", Protocol.seatsJson(seats))
+            .put("deadline", env.now() + Protocol.OUTPUTS_SECONDS).also { o -> s.roundId?.let { if (terms.v3) o.put("round_id", it) } })
     }
 
     private fun creatorOnVote(tokenHash: String, voteId: String, accept: Boolean) {
@@ -433,11 +497,11 @@ class PoolSession(private val env: Env, private val s: State) {
             // reopens for more people, or for another vote if enough are still in.
             if (tokenHash != myTokenHash) {
                 s.seats.removeAll { it.tokenHash == tokenHash }; s.accepts.remove(tokenHash); save()
-                channel(roster()); announce()
+                creatorChannel(roster()); announce()
             }
             // Always reopen: the others said yes to closing with the people there were, not
             // with fewer. They are asked again (or more people join first).
-            channel(JSONObject().put("type", "reopen").put("vote_id", voteId))
+            creatorChannel(JSONObject().put("type", "reopen").put("vote_id", voteId))
             return
         }
         s.accepts.add(tokenHash); save()
@@ -446,10 +510,15 @@ class PoolSession(private val env: Env, private val s: State) {
 
     // ------------------------------------------------------------------------------- channel
 
-    private fun onChannel(o: JSONObject, at: Long) {
+    /**
+     * A channel message. [fromCreator]: it came from the creator's own key (v3), or the pool is
+     * v1/v2, where every member speaks with the pool key and all is taken as before.
+     */
+    private fun onChannel(o: JSONObject, at: Long, fromCreator: Boolean) {
+        val v3 = terms.v3
         when (o.optString("type")) {
             "roster" -> {
-                if (s.phase !in setOf(Phase.OPEN, Phase.VOTING)) return
+                if (!fromCreator || s.phase !in setOf(Phase.OPEN, Phase.VOTING)) return
                 val seq = o.optInt("seq")
                 if (s.creator || seq <= s.rosterSeq) return
                 s.rosterSeq = seq
@@ -461,34 +530,43 @@ class PoolSession(private val env: Env, private val s: State) {
                     s.phase = Phase.ABORTED; s.reason = "left the pool"
                 }
                 save()
+                // v3: every seat's coins are checked here too, not only by the creator.
+                if (v3 && s.phase != Phase.ABORTED) seats.firstOrNull { !seatIsReal(it) }?.let {
+                    s.phase = Phase.ABORTED; s.reason = "the pool listed a seat whose coin is not real"; save()
+                    env.event(Event.Aborted(s.poolId, s.reason)); return
+                }
                 if (!s.creator && seats.size > before && before > 0) env.event(Event.Joined(s.poolId, seats.size))
             }
             "close_request" -> {
-                if (s.phase != Phase.OPEN || s.seats.size < terms.minPeers) return
-                val token = o.getString("token")
-                val th = Protocol.tokenHash(token)
-                if (s.seats.none { it.tokenHash == th }) return
-                s.phase = Phase.VOTING; s.voteId = o.getString("vote_id"); s.voteBy = th
-                s.voteDeadline = at + Protocol.VOTE_SECONDS
-                s.accepts.clear(); s.accepts.add(th)
-                save()
-                env.event(Event.CloseRequested(s.poolId, s.seats.size, th == myTokenHash))
-                if (autoKeys != null && th != myTokenHash) {
-                    runCatching { vote(true) }.onSuccess { env.event(Event.DidAlone(s.poolId, Alone.ACCEPTED)) }
+                if (v3) {
+                    // Only the creator reads it: a member proves its seat with a MAC, never the token.
+                    if (!s.creator || s.phase != Phase.OPEN || s.seats.size < terms.minPeers) return
+                    val th = o.getString("token_hash"); val id = o.getString("vote_id")
+                    if (s.seats.none { it.tokenHash == th } || !Protocol.macOk(s.tokens[th], o.getString("mac"), "close", id)) return
+                    creatorChannel(JSONObject().put("type", "vote_open").put("by", th).put("vote_id", id))
+                    return
                 }
-                if (s.creator && s.seats.all { it.tokenHash in s.accepts }) callClosing(s.seats.toList(), "agreed")
+                val token = o.getString("token")
+                openVote(Protocol.tokenHash(token), o.getString("vote_id"), at)
             }
+            "vote_open" -> if (v3 && fromCreator) openVote(o.getString("by"), o.getString("vote_id"), at)
             "vote" -> if (s.creator) {
-                val th = Protocol.tokenHash(o.getString("token"))
-                creatorOnVote(th, o.getString("vote_id"), o.getBoolean("accept"))
+                if (v3) {
+                    val th = o.getString("token_hash"); val id = o.getString("vote_id"); val yes = o.getBoolean("accept")
+                    if (!Protocol.macOk(s.tokens[th], o.getString("mac"), "vote", id, yes)) return
+                    creatorOnVote(th, id, yes)
+                } else {
+                    val th = Protocol.tokenHash(o.getString("token"))
+                    creatorOnVote(th, o.getString("vote_id"), o.getBoolean("accept"))
+                }
             }
             "reopen" -> {
-                if (s.phase != Phase.VOTING || o.optString("vote_id") != s.voteId) return
+                if (!fromCreator || s.phase != Phase.VOTING || o.optString("vote_id") != s.voteId) return
                 s.phase = Phase.OPEN; s.voteId = null; s.accepts.clear(); save()
                 env.event(Event.CloseRefused(s.poolId))
             }
             "closing" -> {
-                if (s.phase !in setOf(Phase.OPEN, Phase.VOTING)) return
+                if (!fromCreator || s.phase !in setOf(Phase.OPEN, Phase.VOTING)) return
                 val seats = Protocol.parseSeats(o.getJSONArray("seats"), terms.script)
                 if (myTokenHash == null || seats.none { it.tokenHash == myTokenHash }) {
                     s.phase = Phase.ABORTED; s.reason = "the round closed without us"; save()
@@ -500,21 +578,59 @@ class PoolSession(private val env: Env, private val s: State) {
                     s.phase = Phase.ABORTED; s.reason = "the round closed with fewer than ${terms.minPeers} people"; save()
                     env.event(Event.Aborted(s.poolId, s.reason)); return
                 }
+                if (v3) {
+                    val id = o.optString("round_id")
+                    if (id.isEmpty() || (s.creator && id != s.roundId)) return
+                    s.roundId = id
+                }
                 s.round = seats.toMutableList(); s.phase = Phase.CLOSING
                 s.phaseDeadline = o.optLong("deadline", at + Protocol.OUTPUTS_SECONDS)
                 save()
                 // The public listing follows the round: "closing" now, "done" once it is out.
                 if (s.creator) announce()
                 env.event(Event.Closing(s.poolId, seats.size))
-                scheduleOutput()
+                if (!v3) scheduleOutput()
+                else if (s.creator) {
+                    // The creator's own output needs no blinding from itself: it goes straight in.
+                    s.regOutputs.add(s.mixScript.toHex()); s.postedOutput = true; save()
+                    listOutputsIfAll()
+                } else sendBlind()
             }
             "output" -> {
-                if (s.phase != Phase.CLOSING) return
+                if (v3 || s.phase != Phase.CLOSING) return
                 val script = o.getString("script")
-                if (!script.matches(Regex(if (terms.script == com.kilombino.pyblockwatch.crypto.ScriptType.P2TR) "5120[0-9a-f]{64}" else "0014[0-9a-f]{40}"))) return
+                if (!scriptOk(script)) return
                 s.outputs.add(script); save()
                 if (s.outputs.size > s.round.size) return abort("more mixed outputs than people")
                 if (s.outputs.size == s.round.size) toSigning()
+            }
+            "blind" -> if (v3 && s.creator && s.phase == Phase.CLOSING) {
+                // A seat of the round asks for its output to be signed without showing it: one per seat.
+                val th = o.getString("token_hash"); val id = o.getString("round_id"); val blinded = o.getString("blinded")
+                if (id != s.roundId || s.round.none { it.tokenHash == th }) return
+                val digest = Hashes.sha256(Hashes.hexToBytes(blinded)).toHex()
+                if (!Protocol.macOk(s.tokens[th], o.getString("mac"), "blind", id, digest)) return
+                val sig = s.blindSigs[th]?.let { if (s.blindedOf[th] == digest) it else return }
+                    ?: BlindRsa.blindSign(BlindRsa.KeyPair.decode(s.blindPriv ?: return), Hashes.hexToBytes(blinded)).toHex()
+                        .also { s.blindSigs[th] = it; s.blindedOf[th] = digest; save() }
+                creatorChannel(JSONObject().put("type", "blind_sig").put("token_hash", th).put("round_id", id).put("sig", sig))
+            }
+            "blind_sig" -> if (v3 && fromCreator && s.phase == Phase.CLOSING && !s.creator) {
+                if (o.getString("token_hash") != myTokenHash || o.getString("round_id") != s.roundId || s.outSig != null) return
+                val pk = blindPk ?: return
+                val inv = s.blindInv?.let { BigInteger(it, 16) } ?: return
+                val prepared = Hashes.hexToBytes(s.blindPrefix ?: return) + s.mixScript
+                val sig = runCatching { BlindRsa.finalize(pk, prepared, Hashes.hexToBytes(o.getString("sig")), inv) }
+                    .getOrElse { return abort("the creator's blind signature is wrong") }
+                s.outSig = sig.toHex(); save()
+                scheduleOutput()
+            }
+            "outputs" -> if (v3 && fromCreator && s.phase == Phase.CLOSING && o.optString("round_id") == s.roundId) {
+                val a = o.getJSONArray("scripts")
+                val list = (0 until a.length()).map { a.getString(it) }
+                if (list.size != s.round.size || list.toSet().size != list.size || !list.all { scriptOk(it) }) return abort("the list of mixed outputs is wrong")
+                s.outputs.clear(); s.outputs.addAll(list); save()
+                toSigning()
             }
             "sig" -> {
                 if (s.phase != Phase.SIGNING && s.phase != Phase.BROADCAST) return
@@ -533,18 +649,19 @@ class PoolSession(private val env: Env, private val s: State) {
                 if (s.sigs.size == plan.coins.size) return maybeBroadcast(plan)
                 val txid = o.getString("txid")
                 if (txid != CoinjoinTx.txid(plan)) return
-                s.txid = txid; s.phase = Phase.BROADCAST; save()
+                s.txid = txid; s.phase = Phase.BROADCAST; s.phaseDeadline = env.now(); save()
                 // Another wallet sent it: the creator still tells the listing the round is done.
                 if (s.creator) announce()
                 env.event(Event.Broadcast(s.poolId, txid))
             }
             "leave" -> if (s.creator && s.phase in setOf(Phase.OPEN, Phase.VOTING)) {
-                val th = Protocol.tokenHash(o.optString("token"))
+                val th = if (v3) o.getString("token_hash").takeIf { Protocol.macOk(s.tokens[it], o.getString("mac"), "leave") } ?: return
+                    else Protocol.tokenHash(o.optString("token"))
                 if (s.seats.removeAll { it.tokenHash == th }) {
                     s.accepts.remove(th); save()
-                    channel(roster()); announce()
+                    creatorChannel(roster()); announce()
                     if (s.phase == Phase.VOTING && s.seats.size < terms.minPeers)
-                        channel(JSONObject().put("type", "reopen").put("vote_id", s.voteId))
+                        creatorChannel(JSONObject().put("type", "reopen").put("vote_id", s.voteId))
                     else if (s.phase == Phase.VOTING && s.seats.all { it.tokenHash in s.accepts })
                         callClosing(s.seats.toList(), "agreed")
                 }
@@ -556,19 +673,113 @@ class PoolSession(private val env: Env, private val s: State) {
         }
     }
 
+    /** A vote on closing now, asked by the seat [th]: v1/v2 from its close request, v3 from the creator. */
+    private fun openVote(th: String, voteId: String, at: Long) {
+        if (s.phase != Phase.OPEN || s.seats.size < terms.minPeers) return
+        if (s.seats.none { it.tokenHash == th }) return
+        s.phase = Phase.VOTING; s.voteId = voteId; s.voteBy = th
+        s.voteDeadline = at + Protocol.VOTE_SECONDS
+        s.accepts.clear(); s.accepts.add(th)
+        save()
+        env.event(Event.CloseRequested(s.poolId, s.seats.size, th == myTokenHash))
+        if (autoKeys != null && th != myTokenHash) {
+            runCatching { vote(true) }.onSuccess { env.event(Event.DidAlone(s.poolId, Alone.ACCEPTED)) }
+        }
+        if (s.creator && s.seats.all { it.tokenHash in s.accepts }) callClosing(s.seats.toList(), "agreed")
+    }
+
+    private fun scriptOk(script: String) =
+        script.matches(Regex(if (terms.script == com.kilombino.pyblockwatch.crypto.ScriptType.P2TR) "5120[0-9a-f]{64}" else "0014[0-9a-f]{40}"))
+
+    /** v3: a listed seat's coins are signed for its join key and unspent on the chain. */
+    private fun seatIsReal(seat: Protocol.Seat): Boolean {
+        if (seat.tokenHash in verifiedSeats || seat.tokenHash == myTokenHash) return true
+        val jp = seat.joinPub ?: return false
+        if (seat.proofs.size != seat.coins.size) return false
+        val ok = seat.coins.indices.all { CoinjoinTx.checkOwnership(terms.id, jp, seat.coins[it], Hashes.hexToBytes(seat.proofs[it])) } &&
+            seat.coins.all { runCatching { env.coinUnspent(it) }.getOrDefault(false) }
+        if (ok) verifiedSeats.add(seat.tokenHash)
+        return ok
+    }
+
+    /** v3 member: ask the creator to sign our output blindly (the same request again if resent). */
+    private fun sendBlind() {
+        if (s.outSig != null) { scheduleOutput(); return }
+        val pk = blindPk ?: return abort("the pool has no blind-signing key")
+        val round = s.roundId ?: return
+        if (s.blindedMsg == null) {
+            val prepared = BlindRsa.prepare(s.mixScript)
+            val b = BlindRsa.blind(pk, prepared)
+            s.blindPrefix = prepared.copyOfRange(0, BlindRsa.PREFIX_LEN).toHex()
+            s.blindInv = b.inv.toString(16); s.blindedMsg = b.blindedMsg.toHex(); save()
+        }
+        val blinded = s.blindedMsg!!
+        val digest = Hashes.sha256(Hashes.hexToBytes(blinded)).toHex()
+        lastBlindSent = env.now()
+        channel(JSONObject().put("type", "blind").put("token_hash", myTokenHash).put("round_id", round)
+            .put("blinded", blinded).put("mac", Protocol.mac(s.token ?: return, "blind", round, digest)))
+    }
+
+    /** v3 creator: an output handed in with its unblinded signature, from a key nobody can tie to a seat. */
+    private fun onOutputHandedIn(o: JSONObject) {
+        if (o.optString("type") != "output" || s.phase != Phase.CLOSING || o.optString("round_id") != s.roundId) return
+        val script = o.getString("script")
+        if (!scriptOk(script)) return
+        val prefix = Hashes.hexToBytes(o.getString("prefix"))
+        if (prefix.size != BlindRsa.PREFIX_LEN) return
+        val pk = blindPk ?: return
+        if (!BlindRsa.verify(pk, prefix + Hashes.hexToBytes(script), Hashes.hexToBytes(o.getString("sig")))) return
+        s.regOutputs.add(script); save()
+        listOutputsIfAll()
+    }
+
+    /** v3 creator: once every seat of the round has its output in, list them all at once. */
+    private fun listOutputsIfAll() {
+        if (s.phase != Phase.CLOSING) return
+        if (s.regOutputs.size > s.round.size) return abort("more mixed outputs than people")
+        if (s.regOutputs.size < s.round.size) return
+        // Sorted, so the list says nothing about who handed in first.
+        creatorChannel(JSONObject().put("type", "outputs").put("round_id", s.roundId)
+            .put("scripts", org.json.JSONArray(s.regOutputs.sorted())))
+    }
+
     private fun scheduleOutput() {
-        if (s.postedOutput) return
+        if (s.postedOutput || outputScheduled) return
+        outputScheduled = true
         // A random wait, so nobody can tie our output to us by when it shows up.
         val delay = 3L + rnd.nextInt(40)
         timer?.schedule({
             synchronized(this) {
+                outputScheduled = false
                 if (s.phase == Phase.CLOSING && !s.postedOutput) {
-                    if (channel(JSONObject().put("type", "output").put("script", s.mixScript.toHex()))) {
-                        s.postedOutput = true; save()
-                    }
+                    val ok = if (terms.v3) handInOutput()
+                        else channel(JSONObject().put("type", "output").put("script", s.mixScript.toHex()))
+                    if (ok) { s.postedOutput = true; save() }
                 }
             }
         }, delay, TimeUnit.SECONDS)
+    }
+
+    /**
+     * v3: our output with its unblinded signature, from a key made for it alone, over a
+     * connection of its own (through Tor when it runs), encrypted to the creator: nothing in it
+     * points back at our seat.
+     */
+    private fun handInOutput(): Boolean {
+        val sig = s.outSig ?: return false
+        val fresh = NostrEvent.newSecret()
+        val o = JSONObject().put("type", "output").put("round_id", s.roundId).put("script", s.mixScript.toHex())
+            .put("prefix", s.blindPrefix).put("sig", sig)
+        val ev = NostrEvent.sign(fresh, Protocol.KIND_MSG, listOf(listOf("p", terms.creatorPub!!)),
+            Nip44.encrypt(o.toString(), Nip44.conversationKey(fresh, Hashes.hexToBytes(terms.creatorPub))))
+        val r = RelayClient(Protocol.RELAY, { _, _ -> }, {})
+        return try {
+            r.connect()
+            val res = r.publish(ev)
+            env.log("hand in output -> ${res.first} ${res.second}")
+            res.first
+        } catch (e: Exception) { env.log("hand in output failed: ${e.message}"); false }
+        finally { runCatching { r.close() } }
     }
 
     private fun buildPlan(): CoinjoinTx.Plan? {
@@ -619,12 +830,13 @@ class PoolSession(private val env: Env, private val s: State) {
         if (s.sigs.size < plan.coins.size || s.txid != null) return
         val tx = CoinjoinTx.assemble(plan, s.sigs.mapValues { Hashes.hexToBytes(it.value) })
         val ok = runCatching { env.broadcast(tx.rawHex) }
-        // Another member may have broadcast it already: the same txid is just as good.
-        if (ok.isFailure && env.confirmations(tx.txid) == null) {
+        // Another member may have broadcast it already: the same txid is just as good. A
+        // conflict is not: another transaction spends one of the coins, so this one never will be.
+        if (ok.isFailure && runCatching { env.confirmations(tx.txid) }.getOrNull() == null) {
             val msg = ok.exceptionOrNull()?.message ?: "broadcast failed"
-            if (!msg.contains("already", true) && !msg.contains("txn-mempool-conflict", true)) return abort("broadcast failed: $msg")
+            if (!msg.contains("already", true)) return abort("broadcast failed: $msg")
         }
-        s.txid = tx.txid; s.phase = Phase.BROADCAST; save()
+        s.txid = tx.txid; s.phase = Phase.BROADCAST; s.phaseDeadline = env.now(); save()
         channel(JSONObject().put("type", "tx").put("txid", tx.txid))
         announce()
         env.event(Event.Broadcast(s.poolId, tx.txid))
@@ -645,14 +857,22 @@ class PoolSession(private val env: Env, private val s: State) {
     fun requestClose() {
         check(s.phase == Phase.OPEN) { "the pool is not open" }
         check(s.seats.size >= terms.minPeers) { "at least ${terms.minPeers} people are needed" }
-        channel(JSONObject().put("type", "close_request").put("token", s.token).put("vote_id", randomHex(8)))
+        val id = randomHex(8)
+        when {
+            !terms.v3 -> channel(JSONObject().put("type", "close_request").put("token", s.token).put("vote_id", id))
+            s.creator -> creatorChannel(JSONObject().put("type", "vote_open").put("by", myTokenHash).put("vote_id", id))
+            else -> channel(JSONObject().put("type", "close_request").put("token_hash", myTokenHash).put("vote_id", id)
+                .put("mac", Protocol.mac(s.token ?: return, "close", id)))
+        }
     }
 
     @Synchronized
     fun vote(accept: Boolean) {
         val id = s.voteId ?: return
         if (s.phase != Phase.VOTING || s.votedOn == id) return
-        channel(JSONObject().put("type", "vote").put("token", s.token).put("vote_id", id).put("accept", accept))
+        if (terms.v3) channel(JSONObject().put("type", "vote").put("token_hash", myTokenHash).put("vote_id", id).put("accept", accept)
+            .put("mac", Protocol.mac(s.token ?: return, "vote", id, accept)))
+        else channel(JSONObject().put("type", "vote").put("token", s.token).put("vote_id", id).put("accept", accept))
         s.votedOn = id
         // A member saying "not yet" leaves this round; the creator keeps its pool open.
         if (!accept && !s.creator) { s.phase = Phase.ABORTED; s.reason = LEFT_BY_CHOICE }
@@ -665,7 +885,9 @@ class PoolSession(private val env: Env, private val s: State) {
         if (s.phase !in setOf(Phase.JOINING, Phase.OPEN, Phase.VOTING)) return
         if (s.creator) { abort("the creator closed the pool"); return }
         if (s.phase == Phase.JOINING) { s.phase = Phase.ABORTED; s.reason = LEFT_BY_CHOICE; save(); return }
-        channel(JSONObject().put("type", "leave").put("token", s.token ?: ""))
+        if (terms.v3) channel(JSONObject().put("type", "leave").put("token_hash", myTokenHash ?: "")
+            .put("mac", s.token?.let { Protocol.mac(it, "leave") } ?: ""))
+        else channel(JSONObject().put("type", "leave").put("token", s.token ?: ""))
         s.phase = Phase.ABORTED; s.reason = LEFT_BY_CHOICE; save()
     }
 
@@ -723,16 +945,30 @@ class PoolSession(private val env: Env, private val s: State) {
                         val silent = s.seats.filter { it.tokenHash !in s.accepts && it.tokenHash != myTokenHash }
                         if (silent.isNotEmpty()) {
                             s.seats.removeAll(silent.toSet()); save()
-                            channel(roster()); announce()
+                            creatorChannel(roster()); announce()
                         }
-                        channel(JSONObject().put("type", "reopen").put("vote_id", s.voteId))
+                        creatorChannel(JSONObject().put("type", "reopen").put("vote_id", s.voteId))
                     }
                 }
                 Phase.CLOSING -> if (now > s.phaseDeadline + 60) abort("not everyone sent their output in time")
+                else if (terms.v3 && !s.creator) {
+                    // A request or an output the relay did not take is sent again.
+                    if (s.outSig == null && now - lastBlindSent > 30) sendBlind()
+                    else if (s.outSig != null && !s.postedOutput) scheduleOutput()
+                } else if (terms.v3 && s.creator) listOutputsIfAll()
                 Phase.SIGNING -> if (now > s.phaseDeadline + 60) abort("not everyone signed in time")
                 Phase.BROADCAST -> s.txid?.let { txid ->
-                    val c = env.confirmations(txid)
+                    val c = runCatching { env.confirmations(txid) }.getOrNull()
                     if (c != null && c >= 1) { s.phase = Phase.CONFIRMED; save(); env.event(Event.Confirmed(s.poolId, txid)); stop() }
+                    else if (c == null) {
+                        // Never seen by the server half a day after it went out: a coin of the round
+                        // was spent elsewhere, so this transaction can't confirm. Let the round go
+                        // (its coins are free again) instead of waiting for good.
+                        if (s.phaseDeadline > 0 && now > s.phaseDeadline + BROADCAST_GIVE_UP) {
+                            s.phase = Phase.ABORTED; s.reason = "the transaction never appeared: a coin of the round was spent elsewhere"
+                            save(); env.event(Event.Aborted(s.poolId, s.reason)); stop()
+                        }
+                    } else s.phaseDeadline = now // seen (unconfirmed): wait for it, however long it takes
                 }
                 else -> {}
             }
@@ -744,6 +980,8 @@ class PoolSession(private val env: Env, private val s: State) {
     companion object {
         /** Reason of a round this wallet left on purpose: its card goes away by itself. */
         const val LEFT_BY_CHOICE = "you left this round"
+        /** Seconds a broadcast transaction may stay unseen before the round is given up. */
+        const val BROADCAST_GIVE_UP = 12 * 3600L
         /** Seconds a join request waits for the creator's answer. */
         const val JOIN_TIMEOUT = 5 * 60
         /** Seconds past a vote's deadline the others wait for the creator to close or reopen. */
@@ -765,8 +1003,9 @@ class PoolSession(private val env: Env, private val s: State) {
         fun newState(
             terms: Protocol.Terms, creator: Boolean, poolSecret: String?, coins: List<CoinjoinTx.Coin>, coinKeys: List<BigInteger>,
             coinPaths: List<String>, mixScript: ByteArray, changeScript: ByteArray?,
-            password: String? = null,
+            password: String? = null, creatorSecret: String? = null, blindPriv: String? = null,
         ): State {
+            if (creator && terms.v3) require(creatorSecret != null && blindPriv != null) { "a v3 pool's creator needs its keys" }
             require(coins.isNotEmpty() && coinKeys.size == coins.size && coinPaths.size == coins.size) { "one key and path per coin" }
             require(coins.size <= terms.maxInputs) { "this pool takes at most ${terms.maxInputs} coin(s) per person" }
             require(coins.all { it.type == terms.script }) { "these coins are not of the pool's address type" }
@@ -789,6 +1028,7 @@ class PoolSession(private val env: Env, private val s: State) {
                 pwKey = if (creator && terms.private) Protocol.passwordKey(terms.id, password ?: error("a private pool needs a password")).toHex() else null,
                 pwProof = if (!creator && terms.private)
                     Protocol.passwordProof(Protocol.passwordKey(terms.id, password ?: error("this pool needs its password")), joinPub) else null,
+                creatorSecret = if (creator) creatorSecret else null, blindPriv = if (creator) blindPriv else null,
             )
         }
 
@@ -797,17 +1037,27 @@ class PoolSession(private val env: Env, private val s: State) {
          * SegWit pool of one coin each is a v1 pool, which older wallets can join too; Taproot or
          * several coins per person make it v2.
          */
+        /** A new pool's terms and keys; the v3 ones ([creatorSecret], [blindPriv]) stay with its creator. */
+        data class NewPool(val terms: Protocol.Terms, val secret: String, val creatorSecret: String? = null, val blindPriv: String? = null)
+
         fun newPool(amount: Long, feeRate: Double, maxPeers: Int, hours: Int, minPeers: Int = Protocol.MIN_PEERS,
                     private: Boolean = false, script: com.kilombino.pyblockwatch.crypto.ScriptType = com.kilombino.pyblockwatch.crypto.ScriptType.P2WPKH,
-                    maxInputs: Int = 1): Pair<Protocol.Terms, String> {
+                    maxInputs: Int = 1, v3: Boolean = false): NewPool {
             val k = NostrEvent.newSecret()
             val id = ByteArray(8).also { SecureRandom().nextBytes(it) }.toHex()
             val now = System.currentTimeMillis() / 1000
             require(minPeers in Protocol.MIN_PEERS..maxPeers) { "the minimum must be between 2 and the maximum" }
             require(maxInputs in 1..Protocol.MAX_INPUTS) { "1 to ${Protocol.MAX_INPUTS} coins per person" }
             val v1 = script == com.kilombino.pyblockwatch.crypto.ScriptType.P2WPKH && maxInputs == 1
-            return Protocol.Terms(id, NostrEvent.pubOf(k), amount, feeRate, maxPeers, now + hours * 3600L, "open", 1, now,
-                minPeers, private, if (v1) Protocol.V1 else Protocol.VERSION, script, maxInputs) to k.toString(16)
+            if (v3) {
+                val ck = NostrEvent.newSecret()
+                val blind = BlindRsa.generate()
+                return NewPool(Protocol.Terms(id, NostrEvent.pubOf(k), amount, feeRate, maxPeers, now + hours * 3600L, "open", 1, now,
+                    minPeers, private, Protocol.V3, script, maxInputs, NostrEvent.pubOf(ck), blind.public.encode()),
+                    k.toString(16), ck.toString(16), blind.encodePrivate())
+            }
+            return NewPool(Protocol.Terms(id, NostrEvent.pubOf(k), amount, feeRate, maxPeers, now + hours * 3600L, "open", 1, now,
+                minPeers, private, if (v1) Protocol.V1 else Protocol.VERSION, script, maxInputs), k.toString(16))
         }
     }
 }

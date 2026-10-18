@@ -43,6 +43,7 @@ import com.kilombino.pyblockwatch.crypto.Bip39
 import com.kilombino.pyblockwatch.ln.Lightning
 import com.kilombino.pyblockwatch.ln.Lnd
 import com.kilombino.pyblockwatch.ln.LnMove
+import com.kilombino.pyblockwatch.ln.LnSeed
 import com.kilombino.pyblockwatch.ln.Inbound
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -118,7 +119,7 @@ private fun turnOn(activity: FragmentActivity, vm: WalletViewModel, onError: (St
                 runCatching {
                     val seed = withContext(Dispatchers.Default) {
                         val secret = vm.revealSecret(authed)
-                        Bip39.toSeed(secret.words, secret.passphrase)
+                        Bip39.toSeed(secret.words, secret.passphrase).also { LnSeed.rememberExpected(activity, it) }
                     }
                     withContext(Dispatchers.IO) { Lightning.enable(activity.applicationContext, seed) }
                 }.onFailure { onError(it.message ?: "Lightning could not be turned on") }
@@ -208,12 +209,28 @@ private fun LnNode(s: Lightning.Status.Running, accent: Color, settings: Boolean
     var selecting by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showTx by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var bumping by remember { mutableStateOf<Pair<String, Long?>?>(null) }
+    bumping?.let { (txid, fee) -> SpeedUpTxDialog(txid, fee, accent) { bumping = null } }
     closing?.let { cs -> CloseChannelDialog(cs, accent, vm, onTx = { showTx = "Closing transaction" to it }) { closing = null; selecting = false; selected = emptySet() } }
-    showTx?.let { (t, id) -> TxDialog(t, id, accent, vm) { showTx = null } }
+    showTx?.let { (t, id) -> TxDialog(t, id, accent, vm, onSpeedUp = { bumping = id to null; showTx = null }) { showTx = null } }
+    var speeding by remember { mutableStateOf<Lnd.Closing?>(null) }
+    speeding?.let { c -> SpeedUpCloseDialog(c, accent) { speeding = null } }
+    var resizing by remember { mutableStateOf<Lnd.Channel?>(null) }
+    resizing?.let { c -> ResizeChannelDialog(c, accent, vm, onTx = { showTx = "Resize transaction" to it }) { resizing = null } }
     val book = remember(s) { ledger(s) }
     var sheet by remember { mutableStateOf(LnSheet.None) }
     val i = s.info
     val b = s.balances
+    // A node moved in from a phone with other words, or a wallet changed after Lightning was
+    // turned on: its coins are those words', and this wallet's words would never bring them back.
+    val expected = LnSeed.expectedPubkey(LocalContext.current)
+    if (expected != null && i.pubkey.isNotEmpty() && !expected.equals(i.pubkey, ignoreCase = true)) Panel(accent = Bad) {
+        SectionLabel("This node is not from this wallet's words", Bad)
+        Explain("Its keys come from other recovery words: it was moved in from a phone with another wallet, or the wallet was " +
+            "changed after Lightning was turned on. Its on-chain coins and its channels come back only with THOSE words, not " +
+            "with this wallet's, nor with the backup file. Move its coins to this wallet (close the channels, then PAY → " +
+            "on-chain to an address of this wallet) and keep the other words until then. Node: ${i.pubkey.take(20)}…")
+    }
     Panel(accent = accent) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             PulseDot(if (i.syncedChain) Good else Warn); Spacer(Modifier.width(8.dp))
@@ -233,12 +250,16 @@ private fun LnNode(s: Lightning.Status.Running, accent: Color, settings: Boolean
         val ln = b?.channels ?: 0
         val chain = (b?.onchainConfirmed ?: 0) + (b?.onchainUnconfirmed ?: 0)
         val closingSats = s.closing.sumOf { it.limbo }
-        Text(street("${groupSats(ln + chain + closingSats + (b?.pendingOpen ?: 0))} sats"), style = MaterialTheme.typography.headlineSmall, color = accent)
+        // Until the wallet has looked through the chain for its coins, its on-chain figure (and so
+        // the total) may still grow: "–", not a 0 that reads as final.
+        val known = i.syncedChain
+        Text(if (known) street("${groupSats(ln + chain + closingSats + (b?.pendingOpen ?: 0))} sats") else "– sats",
+            style = MaterialTheme.typography.headlineSmall, color = accent)
         Text("in the Lightning node", style = MaterialTheme.typography.bodySmall, color = TextFaint)
         Spacer(Modifier.height(8.dp))
         BalanceLine("⚡ Lightning (in channels)", ln, TextMain)
         BalanceLine("⛓ On-chain in the node", b?.onchainConfirmed ?: 0, TextSoft,
-            (b?.onchainUnconfirmed ?: 0).takeIf { it > 0 }?.let { "+" + street(groupSats(it)) + " unconfirmed" })
+            (b?.onchainUnconfirmed ?: 0).takeIf { it > 0 && known }?.let { "+" + street(groupSats(it)) + " unconfirmed" }, known = known)
         if ((b?.pendingOpen ?: 0) > 0) BalanceLine("⏳ Opening channels", b!!.pendingOpen, Warn)
         if (closingSats > 0) BalanceLine("⏳ Closing channels", closingSats, Warn)
     }
@@ -275,6 +296,17 @@ private fun LnNode(s: Lightning.Status.Running, accent: Color, settings: Boolean
             Text(p.peer.take(16) + "…  " + street(groupSats(p.capacity)) + " sats", style = MaterialTheme.typography.bodySmall, color = TextMain)
             Text("opening" + (if (p.confirmationsLeft > 0) " · ${p.confirmationsLeft} confirmations left" else " · waiting for the first confirmation"),
                 style = MaterialTheme.typography.bodySmall, color = Warn)
+            Row {
+                TextButton(onClick = { showTx = "Funding transaction" to p.point.substringBefore(':') },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                    Text("VIEW FUNDING TX", color = accent, style = MaterialTheme.typography.labelSmall)
+                }
+                Spacer(Modifier.width(16.dp))
+                TextButton(onClick = { bumping = p.point.substringBefore(':') to null },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                    Text("SPEED UP", color = accent, style = MaterialTheme.typography.labelSmall)
+                }
+            }
         }
         s.channels.forEach { c ->
             Spacer(Modifier.height(6.dp))
@@ -296,12 +328,34 @@ private fun LnNode(s: Lightning.Status.Running, accent: Color, settings: Boolean
                          else "Cannot reach it yet; it keeps trying. " + e.lines().first().substringAfter("desc = "),
                         style = MaterialTheme.typography.labelSmall, color = TextFaint)
                 }
+            c.splice?.let { sp ->
+                Text(spliceLine(sp), style = MaterialTheme.typography.bodySmall, color = if (sp.dead) Bad else Warn)
+            }
             Row {
                 TextButton(onClick = { showTx = "Funding transaction" to c.point.substringBefore(':') },
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
                     Text("VIEW FUNDING TX", color = accent, style = MaterialTheme.typography.labelSmall)
                 }
                 Spacer(Modifier.width(16.dp))
+                if (c.splice == null) {
+                    TextButton(onClick = { resizing = c }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                        Text("RESIZE", color = accent, style = MaterialTheme.typography.labelSmall)
+                    }
+                    Spacer(Modifier.width(16.dp))
+                } else if (c.splice.txid.isNotEmpty()) {
+                    TextButton(onClick = { showTx = "Resize transaction" to c.splice.txid },
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                        Text("VIEW RESIZE TX", color = accent, style = MaterialTheme.typography.labelSmall)
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    if (c.splice.confirmations == 0 && !c.splice.dead) {
+                        TextButton(onClick = { bumping = c.splice.txid to c.splice.fee.takeIf { it > 0 } },
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                            Text("SPEED UP", color = accent, style = MaterialTheme.typography.labelSmall)
+                        }
+                        Spacer(Modifier.width(16.dp))
+                    }
+                }
                 TextButton(onClick = { closing = listOf(c) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
                     Text("CLOSE CHANNEL", color = accent, style = MaterialTheme.typography.labelSmall)
                 }
@@ -320,9 +374,17 @@ private fun LnNode(s: Lightning.Status.Running, accent: Color, settings: Boolean
             Spacer(Modifier.height(6.dp))
             Text(c.peer.take(16) + "…  " + street(groupSats(c.capacity)) + " sats", style = MaterialTheme.typography.bodySmall, color = TextMain)
             Text(c.note + " · yours " + street(groupSats(c.limbo)), style = MaterialTheme.typography.bodySmall, color = Warn)
-            if (c.txid.isNotEmpty()) TextButton(onClick = { showTx = "Closing transaction" to c.txid },
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
-                Text("VIEW CLOSING TX", color = accent, style = MaterialTheme.typography.labelSmall)
+            if (c.txid.isNotEmpty()) Row {
+                TextButton(onClick = { showTx = "Closing transaction" to c.txid },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                    Text("VIEW CLOSING TX", color = accent, style = MaterialTheme.typography.labelSmall)
+                }
+                if (c.waiting) {
+                    Spacer(Modifier.width(16.dp))
+                    TextButton(onClick = { speeding = c }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                        Text("SPEED UP", color = accent, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
             }
         }
     }
@@ -492,9 +554,13 @@ private fun OpenSheet(accent: Color, onchain: Long, onTx: (String) -> Unit, onDo
         OutlinedTextField(fee, { fee = it.filter(Char::isDigit) }, label = { Text("Fee rate (sat/vB)") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
         Explain("Minimum 20,000 sats. Leave some sats on-chain: closing and fee bumps need them. The channel is private: it is not announced and nobody routes other people's payments through your phone.")
+        // A fee rate that looks like a slip needs a second yes, as in the wallet's own sends.
+        val openRate = fee.toLongOrNull() ?: 1
+        var openFeeOk by remember { mutableStateOf(false) }
+        if (openRate > HIGH_FEE_RATE) FeeGate("This fee is high: $openRate sat/vB.", openFeeOk) { openFeeOk = !openFeeOk }
         Spacer(Modifier.height(6.dp))
         val useAll = chosen.isNotEmpty() && amount.isBlank()
-        Button(enabled = !busy && ((amount.toLongOrNull() ?: 0) >= 20_000 || (useAll && chosen.sumOf { it.sats } > 20_000)), modifier = Modifier.fillMaxWidth(),
+        Button(enabled = !busy && (openRate <= HIGH_FEE_RATE || openFeeOk) && ((amount.toLongOrNull() ?: 0) >= 20_000 || (useAll && chosen.sumOf { it.sats } > 20_000)), modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = accent), onClick = {
                 busy = true; msg = null
                 scope.launch {
@@ -745,7 +811,13 @@ private fun BridgePay(accent: Color, invoice: String, sha: Lnd.PayReq, est: com.
                                     "aborted" -> "Not paid: the price moved against the bridge before it paid, so it gave your BTC back. Nothing was charged."
                                     "failed" -> "Not paid: the bridge could not pay the SHA-256 invoice (no route there, or the invoice was refused). Your BTC came back."
                                     "expired" -> "Not paid: the price expired before your payment reached the bridge. Nothing was charged."
-                                    else -> Lnd.payError(e) + " Nothing was charged."
+                                    // The bridge has the payment (or already paid with it): the app only lost sight of it.
+                                    "funded", "paying", "paid" -> "Your payment reached the bridge and is still being settled: it completes, or comes back, by itself. Don't pay again; see Payments."
+                                    "settled" -> "The bridge paid the invoice. This phone lost track of the end of it: see Payments."
+                                    // Never funded on the bridge's side: nothing left this node for it.
+                                    "quoted", "offered" -> Lnd.payError(e) + " Nothing was charged."
+                                    // The bridge can't say: the payment may still be on its way.
+                                    else -> Lnd.payError(e) + " If it is still on its way it completes or comes back by itself: check Payments before paying again."
                                 })
                             }
                             if (!B.proves(preimage, sha.hash)) throw IllegalStateException(
@@ -851,15 +923,18 @@ private fun PayOnchain(accent: Color, scanned: String?, onTx: (String) -> Unit) 
             onClick = { confirm = true }) { Text(if (busy) "SENDING…" else "SEND") }
         msg?.let { (t, ok) -> Text(t, color = if (ok) Good else Bad, style = MaterialTheme.typography.bodySmall) }
     }
-    if (confirm) AlertDialog(onDismissRequest = { confirm = false },
+    val sendRate = fee.toLongOrNull() ?: 1
+    var sendFeeOk by remember { mutableStateOf(false) }
+    if (confirm) AlertDialog(onDismissRequest = { confirm = false; sendFeeOk = false },
         title = { Text(if (all) "Send everything ticked?" else "Send ${groupSats(amount.toLongOrNull() ?: 0)} sats?") },
         text = {
             Text("From ${chosen.size} coin(s) (${groupSats(total)} sats) of the Lightning node to ${address.take(14)}…${address.takeLast(6)} at " +
                 "${fee.ifBlank { "1" }} sat/vB." + (if (all) " The fee comes out of the amount." else ""),
                 style = MaterialTheme.typography.bodySmall)
+            if (sendRate > HIGH_FEE_RATE) Column { FeeGate("This fee is high: $sendRate sat/vB.", sendFeeOk) { sendFeeOk = !sendFeeOk } }
         },
         confirmButton = {
-            TextButton(onClick = {
+            TextButton(enabled = sendRate <= HIGH_FEE_RATE || sendFeeOk, onClick = {
                 confirm = false; busy = true; msg = null
                 scope.launch {
                     runCatching {
@@ -907,7 +982,7 @@ private fun MoveOut(accent: Color) {
         val b = pack ?: return@rememberLauncherForActivityResult
         if (uri == null) {
             // Not saved: the node stays here, stopped; it starts again with the app.
-            pack = null; msg = "Not saved. Lightning stays on this phone (it starts again when you reopen the app)." to false
+            pack = null; LnMove.cancelMove(ctx); msg = "Not saved. Lightning stays on this phone (it starts again when you reopen the app)." to false
             return@rememberLauncherForActivityResult
         }
         runCatching {
@@ -915,7 +990,7 @@ private fun MoveOut(accent: Color) {
             val back = ctx.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
             check(back.contentEquals(b)) { "the saved file does not match" }
         }.onSuccess { pack = null; LnMove.forgetHere(ctx) }
-         .onFailure { msg = "Error saving: ${it.message}. Lightning stays on this phone." to false }
+         .onFailure { LnMove.cancelMove(ctx); msg = "Error saving: ${it.message}. Lightning stays on this phone." to false }
     }
     Panel(accent = accent) {
         SectionLabel("Move Lightning to another phone", accent)
@@ -930,13 +1005,14 @@ private fun MoveOut(accent: Color) {
         title = { Text("Move Lightning out of this phone?") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("The node stops, its whole state goes into a file protected by this password, and Lightning is deleted here once the file is saved. Keep the file and the password: they are the only copy of the open channels until the other phone takes it in.",
+                Text("The node stops, its whole state goes into a file protected by this password, and Lightning is deleted here once the file is saved. Keep the file and the password: they are the only copy of the open channels until the other phone takes it in." +
+                    "\n\nAt least ${LnMove.MIN_PASSWORD} characters: the file holds the node's keys.",
                     style = MaterialTheme.typography.bodySmall)
                 PasswordFields(pw1, pw2, { pw1 = it }, { pw2 = it })
             }
         },
         confirmButton = {
-            TextButton(enabled = pw1.length >= 8 && pw1 == pw2, onClick = {
+            TextButton(enabled = pw1.length >= LnMove.MIN_PASSWORD && pw1 == pw2, onClick = {
                 val pw = pw1; ask = false; pw1 = ""; pw2 = ""
                 Biometric.confirm(activity, "Move Lightning out", "Confirm it is you",
                     onSuccess = {
@@ -944,7 +1020,7 @@ private fun MoveOut(accent: Color) {
                         scope.launch {
                             runCatching { withContext(Dispatchers.IO) { LnMove.export(ctx, pw) } }
                                 .onSuccess { pack = it; msg = null; save.launch("kilowallet-lightning.move") }
-                                .onFailure { msg = "Error: ${it.message}" to false }
+                                .onFailure { LnMove.cancelMove(ctx); msg = "Error: ${it.message}" to false }
                         }
                     },
                     onError = { msg = it to false })
@@ -1043,12 +1119,15 @@ private fun DeleteEmptyNode(accent: Color, s: Lightning.Status.Running) {
     var closeNow by remember { mutableStateOf(false) }
     val activity = LocalContext.current as FragmentActivity
     val b = s.balances
-    val empty = s.channels.isEmpty() && s.pending.isEmpty() && b != null &&
+    // A channel still closing (waiting or force closed) holds sats only this node can sweep:
+    // a node made again from the words would not know it.
+    val empty = s.channels.isEmpty() && s.pending.isEmpty() && s.closing.isEmpty() && b != null &&
         b.onchainConfirmed == 0L && b.onchainUnconfirmed == 0L && b.channels == 0L && b.pendingOpen == 0L
     Panel(accent = accent) {
         SectionLabel("Delete this node", accent)
         Spacer(Modifier.height(6.dp))
         Explain(if (empty) "This node holds nothing. Delete it to move another phone's node in here (MIGRATE TO THIS PHONE, then shown with Lightning off)."
+                else if (s.closing.isNotEmpty()) "A channel is still closing: its sats can only be swept by this node. Wait until it is done (Closing channels above)."
                 else "Only an empty node can be deleted: close its channels and send its on-chain coins out (PAY → on-chain) first.")
         TextButton(enabled = empty, onClick = { ask = true }) { Text("DELETE THIS NODE", color = if (empty) Warn else TextFaint) }
     }
@@ -1064,7 +1143,12 @@ private fun DeleteEmptyNode(accent: Color, s: Lightning.Status.Running) {
         confirmButton = {
             TextButton(onClick = {
                 ask = false
-                scope.launch { withContext(Dispatchers.IO) { Lightning.deleteNode(ctx) }; closeNow = true }
+                scope.launch {
+                    // Asked again now, not from the last refresh.
+                    val stillClosing = withContext(Dispatchers.IO) { runCatching { Lnd.pendingClose().isNotEmpty() }.getOrDefault(true) }
+                    if (stillClosing) return@launch
+                    withContext(Dispatchers.IO) { Lightning.deleteNode(ctx) }; closeNow = true
+                }
             }) { Text("DELETE", color = Warn) }
         },
         dismissButton = { TextButton(onClick = { ask = false }) { Text("CANCEL") } })
@@ -1169,10 +1253,10 @@ private fun LnLog(accent: Color) {
 
 /** One movement in the channels: [delta] in sats (+ received, − paid with its fee), [left] after it. */
 @Composable
-private fun BalanceLine(label: String, sats: Long, color: Color, note: String? = null) {
+private fun BalanceLine(label: String, sats: Long, color: Color, note: String? = null, known: Boolean = true) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label, style = MaterialTheme.typography.bodySmall, color = color, modifier = Modifier.weight(1f))
-        Text(street(groupSats(sats)) + " sats", style = MaterialTheme.typography.bodySmall, color = color)
+        Text((if (known) street(groupSats(sats)) else "–") + " sats", style = MaterialTheme.typography.bodySmall, color = color)
     }
     note?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = TextFaint) }
 }
@@ -1214,6 +1298,145 @@ private fun Movements(accent: Color, moves: List<LnEntry>, title: String) {
     }
 }
 
+/** A resize in progress, in a line: how far it is and what it does to our side. */
+private fun spliceLine(sp: Lnd.Splice): String = when {
+    sp.dead -> "resize failed: one of its coins was spent elsewhere. The channel keeps working at its old size; a new resize can't start until it closes."
+    else -> "resizing " + (if (sp.localDelta >= 0) "+" else "") + groupSats(sp.localDelta) + " sats → " + groupSats(sp.newCapacity) +
+        " sats · " + when (sp.state) {
+            "confirmed" -> "${sp.confirmations}/${sp.lockDepth} confirmations"
+            "broadcast" -> "waiting for its first confirmation"
+            else -> sp.state
+        } + " · the channel keeps working meanwhile"
+}
+
+/** Why a channel can't be resized now (lnrpc Channel.splice_status), in words. */
+private fun spliceRefusal(code: String): String = when (code) {
+    "peer_offline" -> "The other node is offline: it has to be online to resize."
+    "peer_unsupported" -> "The other node doesn't support resizing channels."
+    "no_unified_sigs", "taproot", "zero_conf" -> "This channel can't be resized (it was opened without the signatures resizing needs). Close it and open a new one."
+    "pending" -> "A resize of this channel is already under way."
+    "closing" -> "The channel is closing."
+    "disabled" -> "Resizing is off on this node."
+    "peer_not_locked" -> "The other node hasn't finished the last resize yet."
+    "peer_misbehaved" -> "The other node broke an earlier resize: try again after restarting the app."
+    "insufficient_funds" -> "Not enough on-chain coins in the node for that (FUND first)."
+    "immature_inputs" -> "The node's on-chain coins need more confirmations first."
+    "below_min" -> "That amount is too small."
+    "above_max_out" -> "That's more than your side of the channel can give."
+    "fee_below_floor" -> "That fee rate is below what the network relays now."
+    "reserve_on_change" -> "The node must keep a reserve on-chain for its channels: try a little less."
+    "close_address_set" -> "This channel only pays out to the address it was opened with."
+    "node_cap" -> "Too many resizes at once on this node: try later."
+    else -> "Not possible now ($code)."
+}
+
+/**
+ * RESIZE: more of the node's on-chain coins into the channel, or part of our side out of it,
+ * without closing it (splicing). The channel keeps working while the new transaction confirms.
+ */
+@Composable
+private fun ResizeChannelDialog(c: Lnd.Channel, accent: Color, vm: WalletViewModel, onTx: (String) -> Unit, onDone: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var out by remember { mutableStateOf(false) }
+    var amount by remember { mutableStateOf("") }
+    var fee by remember { mutableStateOf("2") }
+    val rate = (fee.toLongOrNull() ?: 0).coerceAtLeast(0)
+    var feeOk by remember { mutableStateOf(false) }
+    // Funds moved out: to the BTC wallet (a fresh address), the node's own coins, or another address.
+    val btc = remember { runCatching { vm.receiveAddress(vm.nextReceiveIndex())?.first }.getOrNull() }
+    var dest by remember { mutableStateOf(if (btc != null) 0 else 1) }
+    var pasted by remember { mutableStateOf("") }
+    val to = when { !out -> null; dest == 0 -> btc; dest == 2 -> pasted.ifBlank { null }; else -> null }
+    val sats = amount.toLongOrNull()
+    var est by remember { mutableStateOf<Lnd.SpliceEstimate?>(null) }
+    var estError by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    LaunchedEffect(out, sats, rate, to) {
+        est = null; estError = null
+        if (c.spliceStatus != "ok" && c.spliceStatus != "peer_not_announcing") return@LaunchedEffect
+        if (rate < 1) return@LaunchedEffect
+        kotlinx.coroutines.delay(400)
+        runCatching { withContext(Dispatchers.IO) { Lnd.estimateSplice(c.point, out, sats, rate, to) } }
+            .onSuccess { est = it }.onFailure { estError = it.message }
+    }
+    AlertDialog(onDismissRequest = { if (!busy) onDone() },
+        title = { Text("Resize the channel with ${c.peerAlias.ifBlank { c.peer.take(12) + "…" }}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+                if (c.spliceStatus != "ok" && c.spliceStatus != "peer_not_announcing") {
+                    Text(spliceRefusal(c.spliceStatus.ifEmpty { "disabled" }), style = MaterialTheme.typography.bodySmall, color = Warn)
+                    return@Column
+                }
+                Text("Now ${groupSats(c.capacity)} sats · yours ${groupSats(c.local)}", style = MaterialTheme.typography.bodySmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.RadioButton(selected = !out, onClick = { out = false })
+                    Text("Add from the node's on-chain coins", style = MaterialTheme.typography.bodySmall)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.RadioButton(selected = out, onClick = { out = true })
+                    Text("Take out part of your side", style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedTextField(amount, { amount = it.filter(Char::isDigit) }, label = { Text("sats (empty = as much as possible)") },
+                    singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                if (out) {
+                    Text("Send them to:", style = MaterialTheme.typography.bodySmall)
+                    if (btc != null) Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.RadioButton(selected = dest == 0, onClick = { dest = 0 })
+                        Text("My BTC wallet (" + btc.take(10) + "…)", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.RadioButton(selected = dest == 1, onClick = { dest = 1 })
+                        Text("The Lightning node's on-chain coins", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.RadioButton(selected = dest == 2, onClick = { dest = 2 })
+                        Text("Another address", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (dest == 2) OutlinedTextField(pasted, { pasted = it.trim().removePrefix("bitcoin:").substringBefore('?') },
+                        label = { Text("bc1…") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                }
+                OutlinedTextField(fee, { fee = it.filter(Char::isDigit) }, label = { Text("Fee rate (sat/vB)") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                if (rate > HIGH_FEE_RATE) FeeGate("This fee is high: $rate sat/vB.", feeOk) { feeOk = !feeOk }
+                est?.let { e ->
+                    if (e.refusal.isNotEmpty()) Text(spliceRefusal(e.refusal), style = MaterialTheme.typography.bodySmall, color = Warn)
+                    else {
+                        Text((if (out) "Out: " else "In: ") + groupSats(e.amount) + " sats · fee " + groupSats(e.fee) + " sats (" + e.satPerVbyte + " sat/vB)",
+                            style = MaterialTheme.typography.bodySmall, color = TextMain)
+                        Text("Channel after: ${groupSats(e.newCapacity)} sats · yours ${groupSats(e.newLocal)}", style = MaterialTheme.typography.bodySmall, color = TextMain)
+                        if (e.minSatPerVbyte > 0 && rate < e.minSatPerVbyte)
+                            Text("The network wants at least ${e.minSatPerVbyte} sat/vB now.", style = MaterialTheme.typography.bodySmall, color = Warn)
+                    }
+                }
+                estError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Bad) }
+                Text("The channel keeps working while the new transaction confirms. It takes the new size after " +
+                    "${est?.lockDepth?.takeIf { it > 0 } ?: 6} confirmations." +
+                    (if (!out) " The coins you add can pay through this peer only after 36 confirmations (about 6 hours): " +
+                        "it waits that long so nobody can undo them with a chain reorganisation." else ""),
+                    style = MaterialTheme.typography.bodySmall, color = TextSoft)
+                msg?.let { (t, ok) -> Text(t, color = if (ok) Good else Bad, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = {
+            val ok = c.spliceStatus == "ok" || c.spliceStatus == "peer_not_announcing"
+            if (msg?.second == true) TextButton(onClick = onDone) { Text("OK", color = accent) }
+            else if (ok) TextButton(enabled = !busy && est != null && est!!.refusal.isEmpty() && rate >= 1 &&
+                (!out || dest != 2 || pasted.length > 20) && (rate <= HIGH_FEE_RATE || feeOk), onClick = {
+                busy = true; msg = null
+                scope.launch {
+                    runCatching { withContext(Dispatchers.IO) { Lnd.splice(c.point, out, sats, rate, to) } }
+                        .onSuccess { txid -> msg = "Resize sent. It locks after its confirmations; the channel keeps working." to true; onTx(txid) }
+                        .onFailure { msg = (it.message ?: "The resize failed") to false }
+                    busy = false
+                }
+            }) { Text(if (busy) "RESIZING…" else if (out) "TAKE OUT" else "ADD", color = accent) }
+        },
+        dismissButton = { if (!busy && msg?.second != true) TextButton(onClick = onDone) { Text("CANCEL", color = TextSoft) } },
+        containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
+    )
+}
+
 /**
  * Closing a channel: cooperatively to this wallet's BTC account, the node's on-chain coins or a
  * pasted address; or forced, for a peer that is gone (the money then waits the channel's delay).
@@ -1228,6 +1451,8 @@ private fun CloseChannelDialog(cs: List<Lnd.Channel>, accent: Color, vm: WalletV
     var dest by remember { mutableStateOf(if (btc != null) 0 else 1) }   // 0 BTC wallet, 1 node, 2 pasted
     var pasted by remember { mutableStateOf("") }
     var fee by remember { mutableStateOf("1") }
+    val closeRate = fee.toLongOrNull() ?: 1
+    var closeFeeOk by remember { mutableStateOf(false) }
     var force by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
@@ -1256,6 +1481,7 @@ private fun CloseChannelDialog(cs: List<Lnd.Channel>, accent: Color, vm: WalletV
                         label = { Text("bc1…") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(fee, { fee = it.filter(Char::isDigit) }, label = { Text("Fee rate (sat/vB)") }, singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                    if (closeRate > HIGH_FEE_RATE) FeeGate("This fee is high: $closeRate sat/vB.", closeFeeOk) { closeFeeOk = !closeFeeOk }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     androidx.compose.material3.Checkbox(checked = force, onCheckedChange = { force = it })
@@ -1268,7 +1494,7 @@ private fun CloseChannelDialog(cs: List<Lnd.Channel>, accent: Color, vm: WalletV
         },
         confirmButton = {
             if (msg?.second == true) TextButton(onClick = onDone) { Text("OK", color = accent) }
-            else TextButton(enabled = !busy && (force || dest != 2 || pasted.length > 20), onClick = {
+            else TextButton(enabled = !busy && (force || dest != 2 || pasted.length > 20) && (force || closeRate <= HIGH_FEE_RATE || closeFeeOk), onClick = {
                 busy = true; msg = null
                 val to = when { force -> null; dest == 0 -> btc; dest == 2 -> pasted; else -> null }
                 scope.launch {
@@ -1296,9 +1522,115 @@ private fun CloseChannelDialog(cs: List<Lnd.Channel>, accent: Color, vm: WalletV
         dismissButton = { if (msg?.second != true) TextButton(enabled = !busy, onClick = onDone) { Text("CANCEL") } })
 }
 
-/** A transaction of the node: its id to copy, and the explorer to look at it. */
+/**
+ * Speeding up a cooperative close stuck on a low fee. It can't be replaced (both nodes signed
+ * it, and it doesn't signal RBF), so the node spends its own output of it with a child that
+ * pays for both (CPFP). A close paid to the BTC wallet is sped up from the BTC tab instead.
+ */
 @Composable
-private fun TxDialog(title: String, txid: String, accent: Color, vm: WalletViewModel, onDone: () -> Unit) {
+private fun SpeedUpCloseDialog(c: Lnd.Closing, accent: Color, onDone: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var coin by remember { mutableStateOf<Lnd.CloseCoin?>(null) }
+    var looked by remember { mutableStateOf(false) }
+    LaunchedEffect(c.txid) {
+        coin = withContext(Dispatchers.IO) { runCatching { Lnd.unconfirmedCoinOf(c.txid) }.getOrNull() }
+        looked = true
+    }
+    var fee by remember { mutableStateOf("3") }
+    val rate = fee.toLongOrNull() ?: 0
+    var feeOk by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    AlertDialog(onDismissRequest = { if (!busy) onDone() },
+        title = { Text("Speed up the close") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                when {
+                    !looked -> Text("Looking for the node's coin in it…", style = MaterialTheme.typography.bodySmall)
+                    coin == null -> Text("This close doesn't pay the node's on-chain coins. If it pays your BTC wallet, speed it up there: " +
+                        "BTC tab, the incoming transaction, SPEED UP (CPFP).", style = MaterialTheme.typography.bodySmall)
+                    else -> {
+                        Text("A cooperative close can't be replaced: both nodes signed it. Instead the node spends its " +
+                            groupSats(coin!!.sats) + " sats from it with a second transaction whose fee pays for both, " +
+                            "so miners take the two together.", style = MaterialTheme.typography.bodySmall)
+                        OutlinedTextField(fee, { fee = it.filter(Char::isDigit) }, label = { Text("Fee rate for both together (sat/vB)") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                        if (rate > HIGH_FEE_RATE) FeeGate("This fee is high: $rate sat/vB.", feeOk) { feeOk = !feeOk }
+                    }
+                }
+                msg?.let { (t, ok) -> Text(t, color = if (ok) Good else Bad, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = {
+            if (msg?.second == true || coin == null) TextButton(onClick = onDone) { Text("OK", color = accent) }
+            else TextButton(enabled = !busy && rate >= 1 && (rate <= HIGH_FEE_RATE || feeOk), onClick = {
+                busy = true; msg = null
+                scope.launch {
+                    runCatching { withContext(Dispatchers.IO) { Lnd.speedUpClose(c.txid, c.capacity, rate) } }
+                        .onSuccess { child -> msg = "Sent: the second transaction pays $child sat/vB, both together about $rate." to true; Lightning.refresh() }
+                        .onFailure { msg = (it.message ?: "could not speed it up") to false }
+                    busy = false
+                }
+            }) { Text(if (busy) "SENDING…" else "SPEED UP", color = accent) }
+        },
+        dismissButton = { if (msg?.second != true && coin != null) TextButton(enabled = !busy, onClick = onDone) { Text("CANCEL") } })
+}
+
+/**
+ * SPEED UP for a transaction of the node that pays it change (opening, on-chain payment, resize):
+ * a child (CPFP) from the node's output of it, so the two confirm together at the rate chosen.
+ */
+@Composable
+private fun SpeedUpTxDialog(txid: String, knownFee: Long?, accent: Color, onDone: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var coin by remember { mutableStateOf<Lnd.CloseCoin?>(null) }
+    var looked by remember { mutableStateOf(false) }
+    LaunchedEffect(txid) {
+        coin = withContext(Dispatchers.IO) { runCatching { Lnd.unconfirmedCoinOf(txid) }.getOrNull() }
+        looked = true
+    }
+    var fee by remember { mutableStateOf("3") }
+    val rate = fee.toLongOrNull() ?: 0
+    var feeOk by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    AlertDialog(onDismissRequest = { if (!busy) onDone() },
+        title = { Text("Speed up the transaction") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                when {
+                    !looked -> Text("Looking for the node's coin in it…", style = MaterialTheme.typography.bodySmall)
+                    coin == null -> Text("The node has no unconfirmed coin from this transaction to speed it up with: it gave no change " +
+                        "back to the node, or it already confirmed.", style = MaterialTheme.typography.bodySmall)
+                    else -> {
+                        Text("The node spends its " + groupSats(coin!!.sats) + " sats of change from it with a second transaction " +
+                            "whose fee pays for both, so miners take the two together.", style = MaterialTheme.typography.bodySmall)
+                        OutlinedTextField(fee, { fee = it.filter(Char::isDigit) }, label = { Text("Fee rate for both together (sat/vB)") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                        if (rate > HIGH_FEE_RATE) FeeGate("This fee is high: $rate sat/vB.", feeOk) { feeOk = !feeOk }
+                    }
+                }
+                msg?.let { (t, ok) -> Text(t, color = if (ok) Good else Bad, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = {
+            if (msg?.second == true || (looked && coin == null)) TextButton(onClick = onDone) { Text("OK", color = accent) }
+            else TextButton(enabled = !busy && coin != null && rate >= 1 && (rate <= HIGH_FEE_RATE || feeOk), onClick = {
+                busy = true; msg = null
+                scope.launch {
+                    runCatching { withContext(Dispatchers.IO) { Lnd.speedUpTx(txid, rate, knownFee) } }
+                        .onSuccess { child -> msg = "Sent: the second transaction pays $child sat/vB, both together about $rate." to true; Lightning.refresh() }
+                        .onFailure { msg = (it.message ?: "could not speed it up") to false }
+                    busy = false
+                }
+            }) { Text(if (busy) "SENDING…" else "SPEED UP", color = accent) }
+        },
+        dismissButton = { if (msg?.second != true && coin != null) TextButton(enabled = !busy, onClick = onDone) { Text("CANCEL") } })
+}
+
+/** A transaction of the node: its id to copy, the explorer to look at it, and SPEED UP while it waits. */
+@Composable
+private fun TxDialog(title: String, txid: String, accent: Color, vm: WalletViewModel, onSpeedUp: (() -> Unit)? = null, onDone: () -> Unit) {
     val clip = LocalClipboardManager.current
     val uri = androidx.compose.ui.platform.LocalUriHandler.current
     val explorer = vm.explorerFor(com.kilombino.pyblockwatch.chain.Chain.BLAKE2B)
@@ -1318,10 +1650,15 @@ private fun TxDialog(title: String, txid: String, accent: Color, vm: WalletViewM
         dismissButton = {
             Row {
                 TextButton(onClick = { clip.setText(AnnotatedString(txid)) }) { Text("COPY", color = accent) }
+                // A closing transaction has its own SPEED UP (it knows the channel's capacity).
+                if (onSpeedUp != null && title != "Closing transaction") TextButton(onClick = onSpeedUp) { Text("SPEED UP", color = accent) }
                 TextButton(onClick = onDone) { Text("CLOSE") }
             }
         })
 }
+
+/** An on-chain fee rate above this (sat/vB) looks like a slip: it needs a second yes (see FeeGate). */
+private const val HIGH_FEE_RATE = 100L
 
 /** How much a Lightning payment may cost in routing fees, at most. */
 @Composable
@@ -1342,8 +1679,8 @@ private fun FeeLimitPanel(accent: Color) {
                 }
             }
         }
-        OutlinedTextField(min, { v -> min = v.filter(Char::isDigit); Lightning.setFeeLimit(ctx, pct, min.toLongOrNull() ?: 0L) },
-            label = { Text("Minimum (sats)") }, singleLine = true,
+        OutlinedTextField(min, { v -> min = v.filter(Char::isDigit).take(5); Lightning.setFeeLimit(ctx, pct, min.toLongOrNull() ?: 0L) },
+            label = { Text("Minimum (sats, up to ${Lightning.MAX_FEE_MIN})") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
     }
 }
@@ -1470,7 +1807,11 @@ private fun InboundPanel(accent: Color, s: Lightning.Status.Running, onTx: (Stri
                     quote = null; orderId = q.id; status = "Paying the fee and waiting for the channel…"
                     scope.launch {
                         // The payment only completes once the channel is out (hold invoice).
-                        runCatching { withContext(Dispatchers.IO) { Lnd.pay(q.invoice, Lightning.feeLimit(ctx, q.fee), 120) } }
+                        runCatching { withContext(Dispatchers.IO) {
+                            // Checked on this phone's node before a sat leaves: Kilombino's node, the fee shown, the size asked.
+                            Inbound.mismatch(q, millions * 1_000_000L, info?.feePerMillion ?: -1)?.let { throw IllegalStateException(it) }
+                            Lnd.pay(q.invoice, Lightning.feeLimit(ctx, q.fee), 120)
+                        } }
                             .onFailure { e -> if (orderId != null) { err = "The fee was not paid: " + (e.message ?: "failed"); status = null } }
                     }
                 }) { Text("PAY AND OPEN", color = accent) }

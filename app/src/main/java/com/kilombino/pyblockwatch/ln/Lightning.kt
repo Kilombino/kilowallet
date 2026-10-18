@@ -129,7 +129,10 @@ object Lightning {
         val notifier = com.kilombino.pyblockwatch.data.Notifier(app)
         for (a in addrs) {
             val arr = runCatching {
-                val c = (java.net.URL("https://mempool.kilombino.com/api/address/$a/txs").openConnection() as java.net.HttpURLConnection)
+                // Through Tor when it is already on: the explorer would otherwise see this phone's
+                // address next to the node's on-chain addresses.
+                val u = java.net.URL("https://mempool.kilombino.com/api/address/$a/txs")
+                val c = ((com.kilombino.pyblockwatch.chain.Tor.proxyIfRunning()?.let { u.openConnection(it) } ?: u.openConnection()) as java.net.HttpURLConnection)
                     .apply { connectTimeout = 10_000; readTimeout = 10_000 }
                 try { org.json.JSONArray(c.inputStream.bufferedReader().use { it.readText() }) } finally { c.disconnect() }
             }.getOrNull() ?: continue
@@ -173,13 +176,15 @@ object Lightning {
     /** The routing fee a payment may cost at most: [feePercent] of it, never under [feeMinSats]. */
     fun feeLimit(ctx: Context, sats: Long): Long {
         val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val pct = p.getFloat("fee_pct", 1f); val min = p.getLong("fee_min", 10L)
+        val pct = p.getFloat("fee_pct", 1f); val min = p.getLong("fee_min", 10L).coerceIn(0, MAX_FEE_MIN)
         return maxOf(min, (sats * pct / 100.0).toLong())
     }
     fun feePercent(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getFloat("fee_pct", 1f)
     fun feeMinSats(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong("fee_min", 10L)
+    /** The highest "at least" a user can set: a larger minimum would take the cap away for small payments. */
+    const val MAX_FEE_MIN = 1_000L
     fun setFeeLimit(ctx: Context, pct: Float, min: Long) =
-        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putFloat("fee_pct", pct).putLong("fee_min", min).apply()
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putFloat("fee_pct", pct).putLong("fee_min", min.coerceIn(0, MAX_FEE_MIN)).apply()
 
     /** Stops and deletes an empty node (the screen checks it holds nothing). */
     suspend fun deleteNode(ctx: Context) {
@@ -190,6 +195,17 @@ object Lightning {
         Lnd.dir(app).deleteRecursively()
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("enabled", false).apply()
         markOff()
+    }
+
+    /**
+     * Removes the node of a wallet that was forgotten or replaced, with all it remembered (name,
+     * birthday, password). The caller made sure no channel is open or closing.
+     */
+    suspend fun wipe(ctx: Context) {
+        val app = ctx.applicationContext
+        if (Lnd.running || Lnd.dir(app).exists()) deleteNode(app)
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().commit()
+        File(app.noBackupFilesDir, RESTORE_SCB).delete()
     }
 
     fun enabled(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("enabled", false)
@@ -223,7 +239,7 @@ object Lightning {
                     File(app.noBackupFilesDir, RESTORE_SCB).delete()
                 }
             }
-            app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("enabled", true).apply()
+            app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("enabled", true).putBoolean("moving", false).apply()
         } catch (e: Exception) {
             _status.value = Status.Failed(e.message ?: "Lightning did not start"); throw e
         } finally { bip39Seed.fill(0) }
@@ -233,6 +249,9 @@ object Lightning {
     fun resume(ctx: Context) {
         val app = ctx.applicationContext
         if (!enabled(app)) { _status.value = Status.Off; return }
+        // A move to another phone was under way when the app last stopped: don't bring this node
+        // up by itself (it may already run there). Turning Lightning on by hand clears this.
+        if (app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("moving", false)) { _status.value = Status.Off; return }
         scope.launch {
             lock.withLock {
                 if (Lnd.running && _status.value is Status.Running) return@withLock

@@ -68,6 +68,20 @@ object Ark {
     }
 
     /**
+     * Removes the Ark wallet from this phone (its wallet was forgotten or replaced): the engine
+     * stops and its database, words and alerts go. The coins stay with the server and come back
+     * from the words, or from a backup file.
+     */
+    fun wipe(ctx: Context) {
+        val app = ctx.applicationContext
+        stop()
+        datadir(app).deleteRecursively()
+        ArkSeed(app).clear()
+        prefs(app).edit().clear().commit()
+        app.getSharedPreferences("kilombino_ark_watch", Context.MODE_PRIVATE).edit().clear().commit()
+    }
+
+    /**
      * Restarts the engine with a recovery-mailbox scan first: the server's record of every
      * coin these words were given. It brings in coins this phone never recorded (a round that
      * finished on the server after the app lost track of it, or a renewal made with the same
@@ -206,12 +220,39 @@ object Ark {
         }
     }
 
-    /** True when the Ark words (and passphrase) are also the XBT spending wallet's. */
+    /** True when the Ark words (and passphrase) are also the XBT spending wallet's (Ark made before 1.1.4). */
+    /**
+     * An Ark wallet brought back by a whole-wallet backup file waits for the user to turn it on
+     * in the Ark tab: until then the engine does not start, look up balances or send alerts.
+     */
+    fun paused(ctx: Context): Boolean = prefs(ctx).getBoolean("paused", false)
+    fun setPaused(ctx: Context, on: Boolean) { prefs(ctx).edit().putBoolean("paused", on).apply() }
+
+    /** Set when a restored Ark wallet starts: its first look tells what it found, once. */
+    fun announceFound(ctx: Context) = prefs(ctx).getBoolean("announce_found", false)
+    fun setAnnounceFound(ctx: Context, on: Boolean) { prefs(ctx).edit().putBoolean("announce_found", on).apply() }
+
     fun wordsShared(ctx: Context): Boolean = prefs(ctx).getBoolean("words_shared", false)
 
     fun setWordsShared(ctx: Context, shared: Boolean) {
         prefs(ctx).edit().putBoolean("words_shared", shared).apply()
     }
+
+    /** True when the Ark words are [derivedWords] of the XBT spending wallet's (1.1.4 on). */
+    fun wordsDerived(ctx: Context): Boolean = prefs(ctx).getBoolean("words_derived", false)
+
+    fun setWordsDerived(ctx: Context, derived: Boolean) {
+        prefs(ctx).edit().putBoolean("words_derived", derived).apply()
+    }
+
+    /**
+     * The Ark wallet's own words, made from the XBT spending wallet's in one direction only:
+     * the first 32 bytes of HMAC-SHA512("Kilowallet Ark v1", BIP-39 seed of [words] and
+     * [passphrase]) as 24 new words, no passphrase. The written words still bring Ark back
+     * (they make these again), but what Ark keeps without the fingerprint, to renew coins in
+     * the background, only opens Ark: never the on-chain coins. As Lightning's root is made.
+     */
+    fun derivedWords(words: List<String>, passphrase: String): List<String> = ArkDerive.words(words, passphrase)
 
     /** The [stateFingerprint] captured by the latest [snapshot]. */
     @Volatile var lastSnapshotFingerprint: String? = null
@@ -247,7 +288,9 @@ object Ark {
         File(dir, "config.toml").writeText(withOurServers(s.config!!))
         File(dir, "db.sqlite").writeBytes(s.db!!)
         s.dbWal?.let { File(dir, "db.sqlite-wal").writeBytes(it) }
-        ArkSeed(ctx).save(s.words, s.passphrase)
+        // A whole-wallet file of an Ark made from derived words carries the wallet's words: make
+        // Ark's own from them again.
+        if (s.arkDerived) ArkSeed(ctx).save(derivedWords(s.words, s.passphrase), "") else ArkSeed(ctx).save(s.words, s.passphrase)
         Contacts.merge(ctx, s.contacts)
         ensureStarted(ctx)
         // The restored wallet is exactly what the file holds.
@@ -327,6 +370,25 @@ object Ark {
         val req = JSONObject()
         if (feeRate != null) req.put("fee_rate_sat_per_vb", feeRate)
         call("POST", "/boards/board-all", req, 180_000)
+    }
+
+    /**
+     * Network fee of a move into Ark funded by exactly [coins] (coin control), at [rate] sat/vB:
+     * [sats] into Ark with change back to the deposit, or all of them when null. Exact: the
+     * engine builds the funding transaction without signing it.
+     */
+    fun estimateBoardCoinsFee(coins: List<String>, sats: Long?, rate: Double): Long {
+        val req = JSONObject().put("outpoints", ids(coins)).put("fee_rate_sat_per_vb", rate)
+        if (sats != null) req.put("amount_sat", sats)
+        return JSONObject(call("POST", "/boards/board-selected/estimate", req)).getLong("fee_sat")
+    }
+
+    /** Moves [sats] (null: all) of exactly [coins] into Ark, the funding transaction at [rate] sat/vB. */
+    fun boardCoins(coins: List<String>, sats: Long?, rate: Double?) {
+        val req = JSONObject().put("outpoints", ids(coins))
+        if (sats != null) req.put("amount_sat", sats)
+        if (rate != null) req.put("fee_rate_sat_per_vb", rate)
+        call("POST", "/boards/board-selected", req, 180_000)
     }
 
     /** The chain source's current fee rates in sat/vB: fast (~1 block), regular (~3), slow (~6). */
@@ -529,7 +591,7 @@ object Ark {
      * estimate from the current rate and the size of a transaction spending every deposit
      * coin, which is what the wallet's coin selection does at worst.
      */
-    fun estimateDepositSend(dest: String, sats: Long?): Estimate? = runCatching {
+    fun estimateDepositSend(dest: String, sats: Long?, feeRate: Double? = null): Estimate? = runCatching {
         val d = dest.trim()
         if (d.startsWith("ark1", ignoreCase = true) || d.startsWith("ln", ignoreCase = true)) {
             return@runCatching Estimate(0, 0, 0, false, "",
@@ -537,7 +599,7 @@ object Ark {
         }
         val b = balance()
         val available = b.onchainConfirmed
-        val rate = JSONObject(call("GET", "/fees/onchain")).let { r ->
+        val rate = feeRate ?: JSONObject(call("GET", "/fees/onchain")).let { r ->
             listOf("regular_sat_per_vb", "slow_sat_per_vb", "fast_sat_per_vb").firstNotNullOfOrNull { k -> r.optDouble(k).takeIf { !it.isNaN() && it > 0 } } ?: 1.0
         }.coerceAtLeast(1.0)
         val inputs = runCatching { JSONArray(call("GET", "/onchain/utxos")).length() }.getOrDefault(1).coerceAtLeast(1)
@@ -555,10 +617,26 @@ object Ark {
                 String.format(java.util.Locale.US, "%.1f", rate) + " sat/vB), no Ark reserves.", problem)
     }.getOrNull()
 
-    fun sendFromDeposit(dest: String, sats: Long?): String {
+    /**
+     * The engine carries no cap for these (only Ark payments have max_total_sat): ask for the
+     * cost again right before acting and refuse if it grew past what the user approved, with a
+     * little slack for an on-chain fee rate that moved meanwhile.
+     */
+    private fun recheck(maxTotal: Long?, now: () -> Estimate?) {
+        if (maxTotal == null) return
+        val e = now() ?: error("Could not confirm the cost right before sending; nothing was sent.")
+        require(e.problem == null) { e.problem ?: "" }
+        require(e.total <= maxTotal + maxOf(20L, maxTotal / 100)) {
+            "The cost went up since you reviewed it (${e.total} sats instead of at most $maxTotal); nothing was sent."
+        }
+    }
+
+    fun sendFromDeposit(dest: String, sats: Long?, maxTotal: Long? = null, feeRate: Double? = null): String {
+        recheck(maxTotal) { estimateDepositSend(dest, sats, feeRate) }
         val d = dest.trim()
-        val r = if (sats == null) JSONObject(call("POST", "/onchain/drain", JSONObject().put("destination", d), 120_000))
-        else JSONObject(call("POST", "/onchain/send", JSONObject().put("destination", d).put("amount_sat", sats), 120_000))
+        val req = JSONObject().put("destination", d).apply { if (feeRate != null) put("fee_rate_sat_per_vb", feeRate) }
+        val r = if (sats == null) JSONObject(call("POST", "/onchain/drain", req, 120_000))
+        else JSONObject(call("POST", "/onchain/send", req.put("amount_sat", sats), 120_000))
         return "Sent from the deposit: " + r.optString("txid").take(16) + "…"
     }
 
@@ -738,9 +816,10 @@ object Ark {
     private fun ids(a: List<String>) = JSONArray().apply { a.forEach { put(it) } }
 
     /** Deposit send from exactly [coins]: [sats] to [dest], or all of them with no amount. */
-    fun estimateDepositCoins(dest: String, sats: Long?, coins: List<String>): Estimate? = runCatching {
+    fun estimateDepositCoins(dest: String, sats: Long?, coins: List<String>, feeRate: Double? = null): Estimate? = runCatching {
         val req = JSONObject().put("destination", dest.trim()).put("outpoints", ids(coins))
         if (sats != null) req.put("amount_sat", sats)
+        if (feeRate != null) req.put("fee_rate_sat_per_vb", feeRate)
         val r = JSONObject(call("POST", "/onchain/send-selected/estimate", req))
         val amount = r.optLong("amount_sat"); val fee = r.optLong("fee_sat"); val change = r.optLong("change_sat")
         Estimate(amount, fee, amount + fee, true,
@@ -748,9 +827,11 @@ object Ark {
                 (if (change > 0) "; ${change} sats of change back to the deposit." else "."))
     }.getOrElse { e -> if (e is ArkError) Estimate(0, 0, 0, false, "", e.message) else null }
 
-    fun sendDepositCoins(dest: String, sats: Long?, coins: List<String>): String {
+    fun sendDepositCoins(dest: String, sats: Long?, coins: List<String>, maxTotal: Long? = null, feeRate: Double? = null): String {
+        recheck(maxTotal) { estimateDepositCoins(dest, sats, coins, feeRate) }
         val req = JSONObject().put("destination", dest.trim()).put("outpoints", ids(coins))
         if (sats != null) req.put("amount_sat", sats)
+        if (feeRate != null) req.put("fee_rate_sat_per_vb", feeRate)
         val r = JSONObject(call("POST", "/onchain/send-selected", req, 120_000))
         return "Sent from the chosen coins: " + r.optString("txid").take(16) + "…"
     }
@@ -762,7 +843,8 @@ object Ark {
             "${coins.size} chosen Ark coin" + (if (coins.size == 1) "" else "s") + " leave Ark whole in the next round.")
     }.getOrElse { e -> if (e is ArkError) Estimate(0, 0, 0, false, "", e.message) else null }
 
-    fun withdrawCoins(dest: String, coins: List<String>): String {
+    fun withdrawCoins(dest: String, coins: List<String>, maxTotal: Long? = null): String {
+        recheck(maxTotal) { estimateWithdrawCoins(dest, coins) }
         call("POST", "/wallet/offboard/vtxos", JSONObject().put("address", dest.trim()).put("vtxos", ids(coins)), 180_000)
         return "Withdrawal requested: the chosen coins leave Ark in the next round."
     }
@@ -889,6 +971,17 @@ object Ark {
         /** For a move into Ark still waiting, or a deposit in the mempool: blocks deep so far. */
         val confirmations: Int? = null,
     )
+
+    /**
+     * Speeds up an unconfirmed transaction of the deposit (a move into Ark, a send from it, or a
+     * payment to it whose output the deposit holds): a child that spends the deposit's outputs of
+     * it, paying for both to reach [rate] sat/vB. Returns the child's fee in sats.
+     */
+    fun speedUp(txid: String, rate: Double): Long {
+        val r = JSONObject(call("POST", "/onchain/cpfp", JSONObject().put("txid", txid).put("fee_rate_sat_per_vb", rate), 120_000))
+        syncOnchain()
+        return r.optLong("fee_sat")
+    }
 
     /** Plain names for the engine's movement subsystems. */
     private fun kindLabel(subsystem: String): String = when (subsystem) {

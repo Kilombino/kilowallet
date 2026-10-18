@@ -88,10 +88,13 @@ fun SeedWordsInput(words: SnapshotStateList<String>, accent: Color = Purple) {
                         .clickable { setCount(n) }.padding(horizontal = 14.dp, vertical = 6.dp))
             }
         }
-        for (row in 0 until words.size / 2) {
+        // Two columns read top to bottom (1–6 | 7–12, 1–12 | 13–24), as the words are written on paper;
+        // typing still moves on to the next number.
+        val half = words.size / 2
+        for (row in 0 until half) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (col in 0..1) {
-                    val i = row * 2 + col
+                    val i = row + col * half
                     val w = words[i]
                     val bad = !possible(w)
                     OutlinedTextField(
@@ -115,14 +118,15 @@ fun SeedWordsInput(words: SnapshotStateList<String>, accent: Color = Purple) {
             }
             // Suggestions under the row being typed in.
             val f = focused
-            if (f in words.indices && f / 2 == row) {
+            if (f in words.indices && f % half == row) {
                 val typed = words[f]
                 val matches = if (typed.isEmpty()) emptyList() else Bip39Wordlist.WORDS.filter { it.startsWith(typed) }
                 if (matches.isNotEmpty() && !(matches.size == 1 && matches[0] == typed)) {
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         matches.take(12).forEach { m ->
-                            Text(m, style = MaterialTheme.typography.bodyMedium, color = Ink,
+                            // A seed word is never translated ("receive" is one).
+                            androidx.compose.material3.Text(m, style = MaterialTheme.typography.bodyMedium, color = Ink,
                                 modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(accent)
                                     .clickable { pick(f, m) }.padding(horizontal = 12.dp, vertical = 8.dp))
                         }

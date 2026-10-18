@@ -39,6 +39,27 @@ object LnSeed {
         return Base58.encodeChecked(out)
     }
 
+    /**
+     * The node's identity key, hex: LND's m/1017'/0'/6'/0/0 under [masterXprv]'s root, the pubkey
+     * peers see. Compared with the running node's, it tells whether that node comes from these
+     * words (a node moved in from another phone keeps the keys of that phone's words).
+     */
+    fun nodePubkey(bip39Seed: ByteArray): String {
+        val i = Hashes.hmacSha512(TAG.toByteArray(Charsets.UTF_8), bip39Seed)
+        val master = com.kilombino.pyblockwatch.crypto.Bip32Priv.ExtendedPrivKey(BigInteger(1, i.copyOfRange(0, 32)), i.copyOfRange(32, 64), 0)
+        i.fill(0)
+        return com.kilombino.pyblockwatch.crypto.Bip32Priv.derivePath(master, "m/1017'/0'/6'/0/0").publicKey()
+            .joinToString("") { "%02x".format(it) }
+    }
+
+    /** The pubkey a node made from the wallet's words has, kept when the words were last at hand; null if never. */
+    fun expectedPubkey(ctx: Context): String? =
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("words_pubkey", null)
+
+    fun rememberExpected(ctx: Context, bip39Seed: ByteArray) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("words_pubkey", nodePubkey(bip39Seed)).apply()
+    }
+
     // ---------------------------------------------------------------- the wallet password
 
     private const val KEY_ALIAS = "kilowallet_lnd_password"

@@ -95,12 +95,18 @@ object Bridge {
         hold.destination != NODE -> "the bridge's invoice pays another node"
         !hold.blake2b -> "the bridge's invoice is not a BTC invoice"
         holdMsat <= 0 -> "the bridge's invoice has no amount"
+        // A hold invoice can keep the payment held until its timelock: refuse one longer than
+        // two weeks of blocks (the bridge's own come in at about 1,400).
+        hold.cltv > MAX_HOLD_CLTV -> "the bridge's invoice could hold your payment too long (${hold.cltv} blocks)"
         ceilSat(holdMsat) > maxPaySat -> "the price moved: it is now ${ceilSat(holdMsat)} sats, more than the $maxPaySat you accepted"
         q.expiresAt - now < 15 || hold.timestamp + hold.expiry - now < 15 -> "the bridge's price expired before it could be paid"
         else -> null
     }
 
     fun ceilSat(msat: Long) = (msat + 999) / 1000
+
+    /** The longest timelock a bridge hold invoice may ask for: 2016 blocks, about two weeks. */
+    const val MAX_HOLD_CLTV = 2016L
 
     /** True when [preimageHex] is the secret of [hashHex]: the proof the invoice was paid. */
     fun proves(preimageHex: String, hashHex: String): Boolean = runCatching {

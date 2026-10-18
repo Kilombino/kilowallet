@@ -70,9 +70,13 @@ object CoinjoinAlerts {
         Thread { runCatching { post(app, path, body.toString()) } }.start()
     }
 
-    /** POST over Tor to the onion when Tor is there, else over https. */
+    /**
+     * POST over Tor to the onion. Never over https when this phone has Tor: the request says
+     * which pools this Telegram account is in, so if Tor doesn't come up the alert is skipped.
+     * Only a phone without Tor (not arm64) uses https, and the switch says so there.
+     */
     private fun post(ctx: Context, path: String, body: String): String {
-        val proxy = if (Tor.available) { Tor.start(ctx); Tor.proxy(60_000) } else null
+        val proxy = if (Tor.available) { Tor.start(ctx); Tor.proxy(60_000) ?: error("Tor did not come up: not sent over the clear net") } else null
         val base = if (proxy != null) ONION else CLEARNET
         val u = java.net.URL(base + path)
         if (proxy == null) {

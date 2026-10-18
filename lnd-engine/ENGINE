@@ -1,7 +1,7 @@
-sha256-arm64=19be4b51e02adf523c79158446b892a2f20a3d80d6fa8a708e5fb9d5da848ced
-repo=https://github.com/Kilombino/lnd
-branch=neutrino-blake2b
-commit=7a8ca829e
+sha256-arm64=dd871e8b33e573911df97c9a6b48f3914b3f6c8195bb5ee9b82ea226973c1169
+repo=https://github.com/paulscode/lightning-fork
+tag=v0.21.4-beta-blake2b.21
+commit=eb0848bad
 build=lnd-engine/build.sh
 go=1.26.8
 gomobile=v0.0.0-20261011034528-197770444867

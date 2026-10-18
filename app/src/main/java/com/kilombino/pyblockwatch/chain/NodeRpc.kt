@@ -30,6 +30,18 @@ data class RpcConn(val url: String, val user: String, val pass: String, val pin:
          * A connection from what a QR or a paste gives: `http://user:pass@host:port`,
          * `btcrpc://user:pass@host:port`, `user:pass@host:port`, or plain `host:port`.
          */
+        /** A host on this network (private or link-local address, localhost, a one-word or .local name) or a .onion. */
+        fun localOrOnion(host: String): Boolean {
+            val h = host.lowercase().trim('[', ']')
+            if (h.endsWith(".onion") || h == "localhost" || !h.contains('.') && !h.contains(':')) return true
+            if (h.endsWith(".local") || h.endsWith(".lan") || h.endsWith(".home.arpa")) return true
+            val v4 = h.split('.').mapNotNull { it.toIntOrNull() }.takeIf { it.size == 4 && h.count { c -> c == '.' } == 3 }
+            if (v4 != null) return v4[0] == 10 || v4[0] == 127 || (v4[0] == 192 && v4[1] == 168) ||
+                (v4[0] == 172 && v4[1] in 16..31) || (v4[0] == 169 && v4[1] == 254) || (v4[0] == 100 && v4[1] in 64..127)
+            if (h.contains(':')) return h == "::1" || h.startsWith("fc") || h.startsWith("fd") || h.startsWith("fe80")
+            return false
+        }
+
         fun parse(text: String): RpcConn {
             var t = text.trim()
             t = t.replaceFirst(Regex("^(btcrpc|bitcoin-rpc|rpc)://", RegexOption.IGNORE_CASE), "http://")
@@ -38,6 +50,11 @@ data class RpcConn(val url: String, val user: String, val pass: String, val pin:
             require(u.host.isNotEmpty()) { "No host in that address." }
             val (user, pass) = (u.userInfo ?: "").split(":", limit = 2).let { (it.getOrNull(0) ?: "") to (it.getOrNull(1) ?: "") }
             val port = if (u.port > 0) u.port else 8332
+            // Plain http carries the password and the node's answers in clear: only to this
+            // network or a .onion. Anything farther has to be https (pinned) or .onion.
+            require(u.protocol != "http" || localOrOnion(u.host)) {
+                "Plain http only to your own network (192.168.x.x, 10.x.x.x, a .local name…) or a .onion address. From elsewhere use https."
+            }
             return RpcConn("${u.protocol}://${u.host}:$port/", java.net.URLDecoder.decode(user, "UTF-8"), java.net.URLDecoder.decode(pass, "UTF-8"))
         }
     }
@@ -340,8 +357,14 @@ class NodeRpcBackend(private val node: RpcNode) {
     fun relayFeePerKb(): Double = runCatching { (call("getnetworkinfo") as JSONObject).getDouble("relayfee") }.getOrDefault(0.0)
 
     fun transaction(txid: String): String {
-        wtx(txid)?.optString("hex")?.takeIf { it.isNotEmpty() }?.let { return it }
-        return call("getrawtransaction", txid) as? String ?: throw NodeException("The node does not know $txid (it needs txindex for others' transactions).")
+        val hex = wtx(txid)?.optString("hex")?.takeIf { it.isNotEmpty() }
+            ?: call("getrawtransaction", txid) as? String
+            ?: throw NodeException("The node does not know $txid (it needs txindex for others' transactions).")
+        // As for an Electrum server: the transaction must hash to the id asked for, so a plain
+        // http link can't slip in another one (RBF and CPFP re-sign to its outputs).
+        val got = runCatching { com.kilombino.pyblockwatch.crypto.TxParse.txid(com.kilombino.pyblockwatch.crypto.TxParse.parse(hex)) }.getOrNull()
+        if (got != txid.lowercase()) throw NodeException("The node answered another transaction for $txid.")
+        return hex
     }
 
     fun broadcast(rawTxHex: String): String = call("sendrawtransaction", rawTxHex) as String
@@ -361,8 +384,42 @@ class NodeRpcBackend(private val node: RpcNode) {
 
         /** Try [c] and say what is there: chain, height and node version, or why it failed. */
         /** Try [c]: (what is there, the TLS certificate's fingerprint for https). Accepts any certificate, to show it. */
+        /**
+         * The certificate an https node presents, from the TLS handshake alone: no request is
+         * sent, so the RPC password goes nowhere before the user has compared this fingerprint
+         * with the one the node shows (StartOS: the interface's certificate) and trusted it.
+         */
+        fun probeCertificate(c: RpcConn): String {
+            val u = URL(c.url)
+            var leaf: java.security.cert.X509Certificate? = null
+            val tm = object : javax.net.ssl.X509TrustManager {
+                override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
+                override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) { leaf = chain.firstOrNull() }
+                override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = emptyArray()
+            }
+            val ctx = javax.net.ssl.SSLContext.getInstance("TLS").apply { init(null, arrayOf(tm), java.security.SecureRandom()) }
+            val port = if (u.port > 0) u.port else 443
+            val raw = if (c.isOnion) {
+                val proxy = torProxy?.invoke() ?: throw NodeException("${c.url} is a .onion: turn on Tor first.")
+                java.net.Socket(proxy).apply { connect(java.net.InetSocketAddress.createUnresolved(u.host, port), 60_000) }
+            } else java.net.Socket().apply { connect(java.net.InetSocketAddress(u.host, port), 10_000) }
+            (ctx.socketFactory.createSocket(raw, u.host, port, true) as javax.net.ssl.SSLSocket).use { s ->
+                s.soTimeout = 15_000
+                s.startHandshake()
+            }
+            return leaf?.let { Hashes.sha256(it.encoded).toHex() } ?: throw NodeException("${c.url} showed no certificate.")
+        }
+
+        /** A fingerprint as it is easiest to compare by eye: groups of four. */
+        fun spaced(fp: String): String = fp.uppercase().chunked(4).joinToString(" ")
+
+        /**
+         * Logs in and reads what the node is. An https connection must carry the pin the user
+         * confirmed ([probeCertificate] first): the password is sent only to that certificate.
+         */
         fun test(c: RpcConn): Pair<String, String?> {
-            val b = NodeRpcBackend(RpcNode(listOf(c), "", ScriptType.P2WPKH)).apply { testing = true }
+            if (c.isTls && c.pin.isEmpty()) throw NodeException("Check the node's certificate first.")
+            val b = NodeRpcBackend(RpcNode(listOf(c), "", ScriptType.P2WPKH))
             val info = b.call(c, "getblockchaininfo") as JSONObject
             val dep = b.call(c, "getdeploymentinfo") as JSONObject
             val blake = dep.toString().contains(Regex("\"(blake2b|hardfork)\":\\{[^}]*\"active\":true"))

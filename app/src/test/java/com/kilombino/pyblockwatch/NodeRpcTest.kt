@@ -21,6 +21,13 @@ class NodeRpcTest {
         assertEquals(RpcConn("http://10.0.0.5:8332/", "u", "p:x"), RpcConn.parse("btcrpc://u:p%3Ax@10.0.0.5:8332"))
         assertEquals(RpcConn("http://abc.onion:8332/", "", ""), RpcConn.parse("abc.onion"))
         assertTrue(RpcConn.parse("http://a:b@xyz.onion:18443").isOnion)
+        // Plain http only to this network or a .onion; https anywhere.
+        assertTrue(runCatching { RpcConn.parse("http://u:p@203.0.113.5:8332") }.isFailure)
+        assertTrue(runCatching { RpcConn.parse("http://u:p@node.example.com:8332") }.isFailure)
+        assertTrue(runCatching { RpcConn.parse("https://u:p@node.example.com:8332") }.isSuccess)
+        assertTrue(runCatching { RpcConn.parse("http://u:p@192.168.1.20:8332") }.isSuccess)
+        assertTrue(runCatching { RpcConn.parse("http://u:p@umbrel:8332") }.isSuccess)
+        assertTrue(runCatching { RpcConn.parse("http://u:p@start9.local:8332") }.isSuccess)
     }
 
     @Test fun answersLikeAnElectrumServer() {

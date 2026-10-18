@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -81,6 +82,8 @@ private sealed interface ArkView {
     data class Failed(val message: String) : ArkView
     data object NoWallet : ArkView
     data object Ready : ArkView
+    /** Brought back by a backup file, waiting to be turned on. */
+    data object Paused : ArkView
 }
 
 /** The user's fiat choice and the latest price, for "≈ $" lines across the Ark tab. */
@@ -160,7 +163,10 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
             onSuccess = { run(label, block) },
             onError = { message = "Error: $it" })
 
-    LaunchedEffect(Unit) {
+    var turnOn by remember { mutableIntStateOf(0) }
+    LaunchedEffect(turnOn) {
+        if (Ark.paused(ctx)) { view = ArkView.Paused; return@LaunchedEffect }
+        view = ArkView.Starting
         view = try {
             withContext(Dispatchers.IO) {
                 Ark.ensureStarted(ctx)
@@ -197,6 +203,15 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
         is ArkView.Failed -> Panel(accent = Bad) {
             SectionLabel("Ark could not start", Bad); Spacer(Modifier.height(8.dp))
             Explain(v.message)
+        }
+        ArkView.Paused -> Panel(accent = accent) {
+            SectionLabel("Ark wallet in your backup", accent); Spacer(Modifier.height(8.dp))
+            Explain("The backup file brought back an Ark wallet. It stays off, without looking up balances or sending alerts, until you turn it on.")
+            Spacer(Modifier.height(10.dp))
+            Button(onClick = { Ark.setPaused(ctx, false); Ark.setAnnounceFound(ctx, true); turnOn++ },
+                colors = ButtonDefaults.buttonColors(containerColor = accent), modifier = Modifier.fillMaxWidth()) {
+                Text("TURN ON ARK", color = Ink, style = MaterialTheme.typography.titleMedium)
+            }
         }
         ArkView.NoWallet -> {
             ArkWarnings()
@@ -245,7 +260,7 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
                 "receive" -> ArkReceiveSheet(accent, busy) { action, done ->
                     run(action.first) { val r = withContext(Dispatchers.IO) { action.second() }; done(r); null }
                 }
-                "send" -> ArkSendSheet(accent, (balance?.onchainConfirmed ?: 0)) { dest, sats, approved, fromDeposit, coins ->
+                "send" -> ArkSendSheet(accent, (balance?.onchainConfirmed ?: 0)) { dest, sats, approved, fromDeposit, coins, rate ->
                     secured("Send from Ark", "Sending…") {
                         // Offer to keep the destination as soon as the payment is confirmed:
                         // a Lightning payment can take a minute to report its outcome, and the
@@ -253,11 +268,11 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
                         askSave = dest
                         val result = withContext(Dispatchers.IO) {
                             when {
-                                coins.isNotEmpty() && fromDeposit -> Ark.sendDepositCoins(dest, sats, coins)
+                                coins.isNotEmpty() && fromDeposit -> Ark.sendDepositCoins(dest, sats, coins, approved, rate)
                                 coins.isNotEmpty() && dest.startsWith("ark1", true) && sats != null && approved != null ->
                                     Ark.sendArkCoins(dest, sats, approved, coins)
-                                coins.isNotEmpty() -> Ark.withdrawCoins(dest, coins)
-                                fromDeposit -> Ark.sendFromDeposit(dest, sats)
+                                coins.isNotEmpty() -> Ark.withdrawCoins(dest, coins, approved)
+                                fromDeposit -> Ark.sendFromDeposit(dest, sats, approved, rate)
                                 else -> Ark.send(dest, sats, approved)
                             }
                         }.ifBlank { "Sent." }
@@ -265,9 +280,15 @@ private fun ArkScreenBody(vm: WalletViewModel, accent: Color, pull: Int) {
                     }
                     sheet = null
                 }
-                "board" -> ArkBoardSheet(balance, accent) { sats, rate ->
+                "board" -> ArkBoardSheet(balance, accent) { sats, rate, coins ->
                     secured("Move into Ark", "Moving funds into Ark…") {
-                        withContext(Dispatchers.IO) { if (sats == null) Ark.boardAll(rate) else Ark.board(sats, rate) }
+                        withContext(Dispatchers.IO) {
+                            when {
+                                coins != null -> Ark.boardCoins(coins, sats, rate)
+                                sats == null -> Ark.boardAll(rate)
+                                else -> Ark.board(sats, rate)
+                            }
+                        }
                         "Moving into Ark. It becomes spendable after ${Ark.BOARD_CONFIRMATIONS} confirmations."
                     }
                     sheet = null
@@ -358,8 +379,11 @@ private fun ArkBalancePanel(b: Ark.Balance?, expiry: Int?, boardConfs: Int?, acc
 private fun PocketRow(label: String, sats: Long, note: String, color: Color) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Text(label, style = MaterialTheme.typography.bodySmall, color = TextSoft, modifier = Modifier.width(130.dp))
-        Text(street(groupSats(sats) + " sats"), style = MaterialTheme.typography.bodyMedium, color = color, modifier = Modifier.weight(1f))
-        Text(note, style = MaterialTheme.typography.bodySmall, color = TextFaint)
+        // The amount never wraps; a long note does, on the right, instead of squeezing it.
+        Text(street(groupSats(sats) + " sats"), style = MaterialTheme.typography.bodyMedium, color = color, maxLines = 1, softWrap = false)
+        Spacer(Modifier.width(8.dp))
+        Text(note, style = MaterialTheme.typography.bodySmall, color = TextFaint, modifier = Modifier.weight(1f),
+            textAlign = androidx.compose.ui.text.style.TextAlign.End)
     }
 }
 
@@ -501,7 +525,7 @@ private fun ArkReceiveSheet(
 }
 
 @Composable
-private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, Long?, Boolean, List<String>) -> Unit) {
+private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, Long?, Boolean, List<String>, Double?) -> Unit) {
     FlowOpenWhileShown()
     var dest by remember { mutableStateOf("") }
     // Coin control: spend exactly the coins ticked here (deposit coins, or Ark coins to withdraw).
@@ -511,6 +535,8 @@ private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, L
     // Two pockets: Ark coins (Ark, Lightning or a withdrawal) or the plain on-chain deposit.
     var fromDeposit by remember { mutableStateOf(false) }
     var amount by remember { mutableStateOf("") }
+    var rateText by remember { mutableStateOf("") }
+    val rate = rateText.replace(',', '.').toDoubleOrNull()?.takeIf { it in 0.1..10_000.0 }
     var review by remember { mutableStateOf<Ark.Estimate?>(null) }
     var reviewing by remember { mutableStateOf(false) }
     var reviewError by remember { mutableStateOf<String?>(null) }
@@ -544,6 +570,11 @@ private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, L
         if (choose) CoinPicker(coins, picked, accent) { id -> picked = if (id in picked) picked - id else picked + id; review = null }
         if (fromDeposit) Text("Plain on-chain XBT to an XBT address. Only the network fee; no Ark reserves.",
                               style = MaterialTheme.typography.bodySmall, color = TextFaint)
+        // The deposit pays its own network fee, at the rate chosen here. From Ark, a withdrawal to an
+        // XBT address leaves in the server's next round, at the round's own fee.
+        if (fromDeposit) FeeRatePicker(rateText, accent) { rateText = it; review = null }
+        else if (dest.startsWith("bc1", true) || dest.startsWith("1") || dest.startsWith("3")) Text("A withdrawal from Ark leaves in the server's next round: its network fee is the round's, shown in the cost.",
+                              style = MaterialTheme.typography.bodySmall, color = TextFaint)
         Spacer(Modifier.height(6.dp))
         OutlinedTextField(value = dest, onValueChange = { dest = it.trim(); review = null },
             label = { Text("Ark address, Lightning invoice or XBT address") }, modifier = Modifier.fillMaxWidth())
@@ -576,7 +607,8 @@ private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, L
                                 val sats = amount.toLongOrNull()
                                 when {
                                     choose && picked.isEmpty() -> Ark.Estimate(0, 0, 0, false, "", "Tick the coins to spend.")
-                                    choose && fromDeposit -> Ark.estimateDepositCoins(dest, sats, picked.toList())
+                                    fromDeposit && rate == null -> Ark.Estimate(0, 0, 0, false, "", "Choose a network fee (sat/vB, at least 0.1).")
+                                    choose && fromDeposit -> Ark.estimateDepositCoins(dest, sats, picked.toList(), rate)
                                     choose && dest.startsWith("ark1", true) ->
                                         if (sats == null) Ark.Estimate(0, 0, 0, false, "", "Enter the amount to pay.")
                                         else Ark.estimateArkCoins(dest, sats, picked.toList())
@@ -586,7 +618,7 @@ private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, L
                                     choose && sats != null -> Ark.Estimate(0, 0, 0, false, "",
                                         "Chosen Ark coins leave whole: leave the amount empty.")
                                     choose -> Ark.estimateWithdrawCoins(dest, picked.toList())
-                                    fromDeposit -> Ark.estimateDepositSend(dest, sats)
+                                    fromDeposit -> Ark.estimateDepositSend(dest, sats, rate)
                                     else -> Ark.estimateSend(dest, sats)
                                 }
                             }.getOrNull()
@@ -604,14 +636,46 @@ private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, L
             if (r.problem == null) CostBreakdown(r, "They receive", "You pay in total", accent)
             Spacer(Modifier.height(8.dp))
             r.problem?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Warn) }
+            // A cost that looks like a slip needs a second yes, as the wallet's own sends do.
+            val fee = (r.total - r.amount).coerceAtLeast(0)
+            val concern = if (r.problem == null && (fee > 100_000 || (r.amount > 0 && fee * 100 > r.amount * 5)))
+                "This fee is high: ${groupSats(fee)} sats." else null
+            var feeOk by remember(r) { mutableStateOf(false) }
+            concern?.let { FeeGate(it, feeOk) { feeOk = !feeOk } }
             if (r.problem == null) Button(
-                onClick = { onSend(dest, amount.toLongOrNull(), r.total, fromDeposit, if (choose) picked.toList() else emptyList()) },
+                enabled = concern == null || feeOk,
+                onClick = { onSend(dest, amount.toLongOrNull(), r.total, fromDeposit, if (choose) picked.toList() else emptyList(), if (fromDeposit) rate else null) },
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
                 shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
             ) { Text("CONFIRM AND SEND", style = MaterialTheme.typography.titleMedium) }
             TextButton(onClick = { review = null }) { Text("change", color = TextSoft) }
         }
     }
+}
+
+/** The network fee of an on-chain send: slow / normal / fast from the chain, or typed in sat/vB. */
+@Composable
+private fun FeeRatePicker(rateText: String, accent: Color, onRate: (String) -> Unit) {
+    var rates by remember { mutableStateOf<Ark.FeeRates?>(null) }
+    LaunchedEffect(Unit) {
+        rates = withContext(Dispatchers.IO) { Ark.onchainFeeRates() }
+        if (rateText.isEmpty()) rates?.let { onRate(it.regular.coerceAtLeast(1).toString()) }
+    }
+    val rate = rateText.replace(',', '.').toDoubleOrNull()
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Network fee", style = MaterialTheme.typography.bodySmall, color = TextSoft, modifier = Modifier.weight(1f))
+        rates?.let { r ->
+            listOf("slow" to r.slow, "normal" to r.regular, "fast" to r.fast).forEach { (name, v) ->
+                val value = v.coerceAtLeast(1).toString()
+                FiatChip(name, rateText == value, accent) { onRate(value) }
+                Spacer(Modifier.width(4.dp))
+            }
+        }
+    }
+    OutlinedTextField(value = rateText, onValueChange = { t -> onRate(t.filter { it.isDigit() || it == '.' || it == ',' }) },
+        label = { Text("sat/vB (decimals allowed, at least 0.1)") }, singleLine = true,
+        isError = rateText.isNotEmpty() && (rate == null || rate < 0.1 || rate > 10_000),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
 }
 
 /** Tick boxes over coins, biggest first, with what each holds. */
@@ -658,9 +722,15 @@ private fun CostBreakdown(e: Ark.Estimate, amountLabel: String, totalLabel: Stri
 }
 
 @Composable
-private fun ArkBoardSheet(b: Ark.Balance?, accent: Color, onBoard: (Long?, Double?) -> Unit) {
+private fun ArkBoardSheet(b: Ark.Balance?, accent: Color, onBoard: (Long?, Double?, List<String>?) -> Unit) {
     var amount by remember { mutableStateOf("") }
-    val available = (b?.onchainConfirmed ?: 0)
+    val scope = rememberCoroutineScope()
+    // Coin control: the deposit's coins to fund the move with, ticked by hand.
+    var choose by remember { mutableStateOf(false) }
+    var coins by remember { mutableStateOf<List<Ark.Coin>>(emptyList()) }
+    var picked by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val chosen = if (choose) picked.toList() else null
+    val available = if (chosen != null) coins.filter { it.id in picked }.sumOf { it.amount } else (b?.onchainConfirmed ?: 0)
     // Network fee of the funding transaction: the wallet's estimate, or one chosen here.
     var rates by remember { mutableStateOf<Ark.FeeRates?>(null) }
     var rateText by remember { mutableStateOf("") }
@@ -675,6 +745,15 @@ private fun ArkBoardSheet(b: Ark.Balance?, accent: Color, onBoard: (Long?, Doubl
         Spacer(Modifier.height(6.dp))
         Explain("Moves confirmed XBT from this wallet's deposit address into Ark. Minimum " +
             "${groupSats(Ark.MIN_BOARD_SAT)} sats; spendable after ${Ark.BOARD_CONFIRMATIONS} confirmations. Available: ${groupSats(available)} sats.")
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
+            choose = !choose; picked = emptySet()
+            if (choose) scope.launch { coins = withContext(Dispatchers.IO) { Ark.depositCoins() } }
+        }) {
+            Text(if (choose) "☑" else "☐", color = accent, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.width(8.dp))
+            Text("Choose coins", style = MaterialTheme.typography.bodySmall, color = TextSoft)
+        }
+        if (choose) CoinPicker(coins, picked, accent) { id -> picked = if (id in picked) picked - id else picked + id }
         OutlinedTextField(value = amount, onValueChange = { amount = it.filter(Char::isDigit) },
             label = { Text("sats (empty = everything)") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
@@ -702,8 +781,10 @@ private fun ArkBoardSheet(b: Ark.Balance?, accent: Color, onBoard: (Long?, Doubl
         val sats = amount.toLongOrNull()
         var est by remember { mutableStateOf<Ark.Estimate?>(null) }
         var netFee by remember { mutableStateOf<Long?>(null) }
-        LaunchedEffect(sats, available, rate) {
-            netFee = if (rateOk) withContext(Dispatchers.IO) { runCatching { Ark.estimateBoardNetworkFee(rate!!, sats == null) }.getOrNull() } else null
+        LaunchedEffect(sats, available, rate, picked, choose) {
+            netFee = if (!rateOk) null
+                else if (chosen != null) { if (chosen.isEmpty()) null else withContext(Dispatchers.IO) { runCatching { Ark.estimateBoardCoinsFee(chosen, sats, rate!!) }.getOrNull() } }
+                else withContext(Dispatchers.IO) { runCatching { Ark.estimateBoardNetworkFee(rate!!, sats == null) }.getOrNull() }
             // Moving everything: the network fee comes out of the deposit first.
             val target = sats ?: (available - (netFee ?: 0))
             est = if (target >= Ark.MIN_BOARD_SAT) withContext(Dispatchers.IO) { runCatching { Ark.estimateBoard(target) }.getOrNull() } else null
@@ -720,9 +801,13 @@ private fun ArkBoardSheet(b: Ark.Balance?, accent: Color, onBoard: (Long?, Doubl
                 style = MaterialTheme.typography.bodySmall, color = TextSoft)
             Spacer(Modifier.height(8.dp))
         }
+        val highRate = (rate ?: 0.0) > 100
+        var boardFeeOk by remember(rate) { mutableStateOf(false) }
+        if (highRate) FeeGate("This fee is high: $rateText sat/vB.", boardFeeOk) { boardFeeOk = !boardFeeOk }
         Button(
-            enabled = available >= Ark.MIN_BOARD_SAT && (sats == null || sats >= Ark.MIN_BOARD_SAT) && rateOk,
-            onClick = { onBoard(sats, rate) },
+            enabled = available >= Ark.MIN_BOARD_SAT && (sats == null || sats >= Ark.MIN_BOARD_SAT) && rateOk && (!highRate || boardFeeOk) &&
+                (chosen == null || (chosen.isNotEmpty() && netFee != null)),
+            onClick = { onBoard(sats, rate, chosen) },
             colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
             shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
         ) { Text("MOVE INTO ARK", style = MaterialTheme.typography.titleMedium) }
@@ -738,6 +823,8 @@ private fun ArkHistory(items: List<Ark.Movement>, accent: Color, explorer: Strin
     if (spendable != null) {
         var run = spendable
         for (m in items) {
+            // The deposit's own on-chain transactions don't touch the Ark balance.
+            if (m.kind == "deposit received" || m.kind == "sent from deposit") continue
             after[m.id] = run
             val st = m.status.lowercase()
             val effect = when {
@@ -827,6 +914,8 @@ private fun ArkMovementDialog(m: Ark.Movement, accent: Color, explorer: String, 
                 }
                 if (m.vtxos.isNotEmpty() || m.paymentHash != null)
                     Text("Tap an identifier to copy it.", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+                // Still in the mempool: the deposit can pay for it with a child (CPFP).
+                if (m.onchainTxid != null && m.confirmations == 0) ArkSpeedUp(m.onchainTxid, accent)
             }
         },
         confirmButton = {
@@ -837,6 +926,35 @@ private fun ArkMovementDialog(m: Ark.Movement, accent: Color, explorer: String, 
         dismissButton = { if (m.onchainTxid != null) TextButton(onClick = onClose) { Text("CLOSE", color = TextSoft) } },
         containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
     )
+}
+
+/** SPEED UP for a deposit transaction still in the mempool: a child from the deposit's outputs of it pays for both. */
+@Composable
+private fun ArkSpeedUp(txid: String, accent: Color) {
+    val scope = rememberCoroutineScope()
+    var rateText by remember { mutableStateOf("3") }
+    val rate = rateText.replace(',', '.').toDoubleOrNull()?.takeIf { it in 0.1..10_000.0 }
+    var feeOk by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    Spacer(Modifier.height(6.dp))
+    Text("Waiting in the mempool. To speed it up, the deposit spends its own output of it with a second transaction " +
+        "whose fee pays for both, so miners take the two together.", style = MaterialTheme.typography.bodySmall, color = TextSoft)
+    OutlinedTextField(value = rateText, onValueChange = { t -> rateText = t.filter { it.isDigit() || it == '.' || it == ',' } },
+        label = { Text("Fee rate for both together (sat/vB)") }, singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+    val high = (rate ?: 0.0) > 100
+    if (high) FeeGate("This fee is high: $rateText sat/vB.", feeOk) { feeOk = !feeOk }
+    TextButton(enabled = !busy && rate != null && (!high || feeOk) && msg?.second != true, onClick = {
+        busy = true; msg = null
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { Ark.speedUp(txid, rate!!) } }
+                .onSuccess { msg = "Sent: the second transaction pays ${groupSats(it)} sats for both." to true }
+                .onFailure { msg = (it.message ?: "could not speed it up") to false }
+            busy = false
+        }
+    }) { Text(if (busy) "SENDING…" else "SPEED UP", color = accent) }
+    msg?.let { (t, ok) -> Text(t, color = if (ok) Good else Bad, style = MaterialTheme.typography.bodySmall) }
 }
 
 /**

@@ -220,6 +220,8 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
         return
     }
 
+    val waitingPerfect by com.kilombino.pyblockwatch.coinjoin.PerfectCoin.waiting.collectAsState()
+    LaunchedEffect(rev / 1_000_000) { com.kilombino.pyblockwatch.coinjoin.PerfectCoin.load(ctx) }
     // JOIN · IN PROGRESS · HISTORY: rounds going are shown first when there are any.
     CoinjoinTabs(tab, active.size, accent) { tab = it }
     // A card opens by itself while its round waits on you; a tap opens or folds it.
@@ -228,8 +230,7 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
         open = unfolded[st.poolId] ?: needsMe(st), onToggle = { unfolded[st.poolId] = !(unfolded[st.poolId] ?: needsMe(st)) }) { message = it }
 
     if (tab == 1) {
-        val perfect by com.kilombino.pyblockwatch.coinjoin.PerfectCoin.waiting.collectAsState()
-        LaunchedEffect(rev / 1_000_000) { com.kilombino.pyblockwatch.coinjoin.PerfectCoin.load(ctx) }
+        val perfect = waitingPerfect
         if (active.isEmpty() && perfect.isEmpty()) Explain("No rounds going. Join a pool, or open your own, in JOIN.")
         perfect.forEach { w -> PerfectCoinCard(w, accent, vm) }
         active.forEach { card(it) }
@@ -262,7 +263,9 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
     }
     // Only rounds still running hide their pool: one that ended or was left shows again to rejoin.
     val ours = mine.filter { it.phase !in setOf(PoolSession.Phase.ABORTED, PoolSession.Phase.REJECTED,
-        PoolSession.Phase.CONFIRMED, PoolSession.Phase.BROADCAST) }.map { it.poolId }.toSet()
+        PoolSession.Phase.CONFIRMED, PoolSession.Phase.BROADCAST) }.map { it.poolId }.toSet() +
+        // A perfect coin being made for a pool: it is already in progress, not one to join again.
+        waitingPerfect.mapNotNull { it.poolId }
     val shown = pools.orEmpty().filter { it.id !in ours && (testPools || it.amount >= Protocol.MIN_AMOUNT) }
     if (pools != null && shown.isEmpty()) Explain("No open pools right now. Open one and others will be notified.")
     shown.forEach { t ->
@@ -299,7 +302,12 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
             "exactly the pool's amount, all identical, so nobody watching the chain can tell whose is whose. " +
             "A pool is either native SegWit (bc1q) or Taproot (bc1p), never both, so no coin stands out. " +
             "Each person pays their own share of the fee from their change. No server ever holds your " +
-            "coins: the relay only passes encrypted messages, and you sign only after checking your output.")
+            "coins: the relay only passes encrypted messages, and you sign only after checking your output." +
+            "\n\nPools marked \"blind outputs\" (Kilojoin v3, every pool this version opens): each output is signed blindly " +
+            "by the pool's creator and handed in from a fresh key over a connection of its own, so neither the relay, nor the other " +
+            "members, nor the creator can tell whose output is whose, and only the creator's own key runs the pool. In older pools " +
+            "the relay's operator together with one member could tell. Either way the relay sees which connection sends what " +
+            "(over Tor only when Tor is already on).")
     }
 
     // How rounds run (on its own or asking), and room to run in the background, in sight.
@@ -310,8 +318,8 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
         SectionLabel("How a round goes", accent)
         Spacer(Modifier.height(8.dp))
         Explain("1. Someone opens a pool with an amount and an address type. 2. People join, each proving they own " +
-            "real coins of that type (one seat per person, and a coin can hold only one seat, which stops one person " +
-            "from filling the pool alone). 3. With two or more in, " +
+            "real coins of that type (one seat per coin: a coin can't sit twice, but one person with several coins can take " +
+            "several seats, so the others in a pool are not proven to be other people). 3. With two or more in, " +
             "anyone can ask to close: the others accept or refuse; whoever does not answer in " +
             "${Protocol.VOTE_SECONDS / 60} minutes is left out. 4. Each wallet posts its mixed output with no name " +
             "on it, after a random wait. 5. Every wallet builds the same transaction, checks its own output and " +
@@ -336,7 +344,8 @@ private fun poolKind(t: Protocol.Terms): String = if (t.script == ScriptType.P2T
 /** What kind of pool it is, in one line. */
 private fun poolTypeLine(t: Protocol.Terms): String =
     (if (t.script == ScriptType.P2TR) "Taproot (bc1p) coins only" else "Native SegWit (bc1q) coins only") +
-        (if (t.maxInputs > 1) " · up to ${t.maxInputs} coins each" else " · one coin each")
+        (if (t.maxInputs > 1) " · up to ${t.maxInputs} coins each" else " · one coin each") +
+        (if (t.v3) " · blind outputs (v3)" else "")
 
 private fun unlockAndPick(
     activity: FragmentActivity, vm: WalletViewModel, u: List<Scanner.SpendableUtxo>, title: String, subtitle: String,
@@ -767,7 +776,8 @@ internal fun CoinjoinAutoSetting(accent: Color) {
                 Text("Run the round on its own", style = MaterialTheme.typography.bodyMedium, color = TextMain)
                 Explain(if (on) "One fingerprint when you join; then it accepts closing and signs by itself, only " +
                     "if the transaction pays your exact output and change. It carries on after the app is closed and opened again: " +
-                    "the keys of the round's coins are kept encrypted on this phone until the round ends."
+                    "the keys of the round's coins are kept encrypted on this phone until the round ends." +
+                    "\n\nThey work without your fingerprint while the round runs: that is what lets it sign alone."
                     else "Off: you accept closing and sign yourself, with your fingerprint, at each step.")
             }
             // Turning it on also asks Android to let the wallet run in the background, which a
@@ -1018,7 +1028,8 @@ private fun TelegramAlertsPanel(accent: Color, mine: List<com.kilombino.pyblockw
                 Text("⚠ Privacy: to do it, the bot's server learns that your Telegram account is in those pools " +
                     "(and Telegram sees the messages). It never learns which mixed output is yours, it talks to this " +
                     "app over Tor, and it forgets each pool when it ends. If that is too much, leave this off: the " +
-                    "app's own notifications already tell you everything.",
+                    "app's own notifications already tell you everything." +
+                    (if (com.kilombino.pyblockwatch.chain.Tor.available) "" else "\n\nThis phone has no Tor: the alerts go to the bot's server over https, from your IP."),
                     style = MaterialTheme.typography.bodySmall, color = Warn)
             }
         },

@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -109,7 +110,6 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         StreetMode.init(this)
         com.kilombino.pyblockwatch.chain.Tor.install(this)
-        Palette.load(this)
         setContent {
             PyBlockWatchTheme {
                 val vm: WalletViewModel = viewModel()
@@ -251,14 +251,25 @@ class MainActivity : FragmentActivity() {
                         AlertDialog(
                             onDismissRequest = {},
                             title = { Text("Kilowallet closed unexpectedly") },
-                            text = { Text("The last time, the app closed on an error. The report says where in the code it " +
-                                "failed, the app version and the phone model; no words, keys or addresses. Share it with the " +
-                                "developer to get it fixed? Nothing is sent unless you do.", style = MaterialTheme.typography.bodySmall) },
+                            text = {
+                                Column {
+                                    Text("The last time, the app closed on an error. The report says where in the code it " +
+                                        "failed, the app version and the phone model; no words, keys or addresses. Share it with the " +
+                                        "developer to get it fixed? Nothing is sent unless you do." +
+                                        "\n\nServer names are blanked out. This is exactly what would be shared:",
+                                        style = MaterialTheme.typography.bodySmall)
+                                    Spacer(Modifier.height(8.dp))
+                                    // The exact text that would be shared.
+                                    Text(com.kilombino.pyblockwatch.data.CrashReport.redact(report),
+                                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
+                                        modifier = Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState()))
+                                }
+                            },
                             confirmButton = { TextButton(onClick = {
                                 val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                                     type = "text/plain"
                                     putExtra(android.content.Intent.EXTRA_SUBJECT, "Kilowallet crash report")
-                                    putExtra(android.content.Intent.EXTRA_TEXT, report)
+                                    putExtra(android.content.Intent.EXTRA_TEXT, com.kilombino.pyblockwatch.data.CrashReport.redact(report))
                                 }
                                 runCatching { startActivity(android.content.Intent.createChooser(send, "Share the crash report")) }
                                 com.kilombino.pyblockwatch.data.CrashLog.clear(this@MainActivity); crash = null
@@ -518,7 +529,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
     }
     // Advanced always opens on BTC | ARK: the spamchain only shows when opened from settings.
     LaunchedEffect(Unit) { if (state.selected == Chain.SHA256) vm.select(Chain.BLAKE2B) }
-    val accent by animateColorAsState(if (arkTab) Purple else Color(chain.accent), tween(400), label = "accent")
+    val accent by animateColorAsState(if (arkTab) ArkRed else Color(chain.accent), tween(400), label = "accent")
     var showSettings by remember { mutableStateOf(false) }
     var showSend by remember { mutableStateOf(false) }
     var showReceive by remember { mutableStateOf(false) }
@@ -599,13 +610,13 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
         }
 
         if (cjTab) {
-            CoinjoinScreen(vm, Color(Chain.BLAKE2B.accent))
+            CoinjoinScreen(vm, CoinjoinBlue)
             Spacer(Modifier.height(30.dp))
             return@Column
         }
 
         if (arkTab) {
-            if (com.kilombino.pyblockwatch.ark.Ark.available) ArkScreen(vm, Purple, arkPull) else ArkComingSoon(Purple)
+            if (com.kilombino.pyblockwatch.ark.Ark.available) ArkScreen(vm, ArkRed, arkPull) else ArkComingSoon(ArkRed)
             Spacer(Modifier.height(30.dp))
             return@Column
         }
@@ -700,8 +711,8 @@ private fun AdvancedTabs(chain: Chain, arkTab: Boolean, cjTab: Boolean, lnTab: B
             add(Triple("⛓\nBTC", !arkTab && !cjTab && !lnTab && chain == Chain.BLAKE2B, Color(Chain.BLAKE2B.accent)) to onBtc)
             if (hot) {
                 add(Triple("⚡\nLIGHTNING", lnTab, LnGold) to onLn)
-                add(Triple("🌀\nCOINJOIN", cjTab, Good) to onCoinjoin)
-                add(Triple("⛵\nARK", arkTab, Purple) to onArk)
+                add(Triple("🌀\nCOINJOIN", cjTab, CoinjoinBlue) to onCoinjoin)
+                add(Triple("⛵\nARK", arkTab, ArkRed) to onArk)
             }
             if (!arkTab && !cjTab && !lnTab && chain == Chain.SHA256) add(Triple("☣\nSPAMCOIN", true, Color(Chain.SHA256.accent)) to {})
         }
@@ -1059,8 +1070,6 @@ internal fun SettingsPanel(
                     colors = switchColors(accent))
             }
             if (cjOn) { Spacer(Modifier.height(10.dp)); CoinjoinAutoSetting(accent) }
-            Spacer(Modifier.height(14.dp))
-            FullBackupPanel(vm, accent)
         }
 
         Spacer(Modifier.height(14.dp))
@@ -1258,25 +1267,13 @@ internal fun SettingsPanel(
                 Switch(checked = StreetMode.byDefault, onCheckedChange = { StreetMode.setByDefault(activity, it) },
                     colors = switchColors(accent))
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Colour", style = MaterialTheme.typography.bodyMedium, color = TextMain)
-                    Explain("The app's accent: purple, or blue (with Lightning in gold).")
-                }
-                TextButton(onClick = { Palette.choose(activity, false); activity.recreate() }) {
-                    Text("PURPLE", color = if (!Palette.isBlue) Palette.PURPLE.accent else TextFaint, style = MaterialTheme.typography.bodySmall)
-                }
-                TextButton(onClick = { Palette.choose(activity, true); activity.recreate() }) {
-                    Text("BLUE", color = if (Palette.isBlue) Palette.BLUE.accent else TextFaint, style = MaterialTheme.typography.bodySmall)
-                }
-            }
             com.kilombino.pyblockwatch.data.CrashReport.last(activity)?.let { report ->
                 val clip = androidx.compose.ui.platform.LocalClipboardManager.current
                 val crashScope = rememberCoroutineScope()
                 TextButton(onClick = { crashScope.launch {
                     val fresh = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         runCatching { com.kilombino.pyblockwatch.data.CrashReport.latest(activity) }.getOrNull() } ?: report
-                    clip.setText(androidx.compose.ui.text.AnnotatedString(fresh))
+                    clip.setText(androidx.compose.ui.text.AnnotatedString(com.kilombino.pyblockwatch.data.CrashReport.redact(fresh)))
                     android.widget.Toast.makeText(activity, com.kilombino.pyblockwatch.ui.i18n.I18n.tr("Crash report copied"), android.widget.Toast.LENGTH_SHORT).show()
                 } }) {
                     Text("COPY THE LAST CRASH REPORT", color = accent, style = MaterialTheme.typography.bodySmall)
@@ -1291,12 +1288,15 @@ internal fun SettingsPanel(
                     else "BTC headers not verified yet (after the next look)"),
                 style = MaterialTheme.typography.bodySmall, color = TextFaint)
         }
+        // The backup file sits next to switching and forgetting, where it is needed first.
+        if (state.isHot) { Spacer(Modifier.height(14.dp)); FullBackupPanel(vm, accent) }
         Spacer(Modifier.height(6.dp))
         // Another hot wallet takes this one's place on the phone: asked first, like forgetting it.
         var askSwitch by remember { mutableStateOf(false) }
         var switchWords by remember { mutableStateOf(false) }
+        var switchBlock by remember { mutableStateOf<String?>(null) }
         Button(
-            onClick = { if (state.hasSeed) { switchWords = false; askSwitch = true } else vm.startSetup() },
+            onClick = { if (state.hasSeed) { switchWords = false; switchBlock = vm.walletBoundBlock(); askSwitch = true } else vm.startSetup() },
             colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = accent),
             shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
         ) { Text(if (state.isHot) "SWITCH / NEW WALLET" else "CREATE A DIFFERENT HOT WALLET",
@@ -1306,13 +1306,15 @@ internal fun SettingsPanel(
             title = { Text("Switch to another wallet?") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    switchBlock?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Bad) }
                     Text("Creating or restoring another spending wallet REPLACES this one's seed on this phone. The coins stay " +
                         "on-chain, but the only way back to them is your recovery words (and passphrase, if it has one). " +
                         "Without them, the money is lost. A watch-only wallet next to it changes nothing.",
                         style = MaterialTheme.typography.bodySmall)
                     Text("Before that: have your recovery words written on paper, the safest backup there is. If you use Ark, also " +
                             "save a backup file (settings → Backup file): it keeps your Ark wallet, its on-chain coins and emergency " +
-                            "exits, nodes, contacts and coinjoin rounds. The file is a help, not a replacement for the words on paper.", style = MaterialTheme.typography.bodySmall, color = Warn)
+                            "exits, nodes, contacts and coinjoin rounds. The file is a help, not a replacement for the words on paper. " +
+                            "This wallet's Lightning node and Ark wallet are removed from this phone too.", style = MaterialTheme.typography.bodySmall, color = Warn)
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { switchWords = !switchWords }) {
                         Text(if (switchWords) "☑" else "☐", color = Bad, style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.width(8.dp))
@@ -1321,8 +1323,8 @@ internal fun SettingsPanel(
                 }
             },
             confirmButton = {
-                TextButton(enabled = switchWords, onClick = { askSwitch = false; vm.startSetup() }) {
-                    Text("GO ON", color = if (switchWords) Bad else TextFaint)
+                TextButton(enabled = switchWords && switchBlock == null, onClick = { askSwitch = false; vm.wipeWalletBound(); vm.startSetup() }) {
+                    Text("GO ON", color = if (switchWords && switchBlock == null) Bad else TextFaint)
                 }
             },
             dismissButton = { TextButton(onClick = { askSwitch = false }) { Text("STAY", color = TextSoft) } },
@@ -1332,7 +1334,8 @@ internal fun SettingsPanel(
         val forgetActivity = LocalContext.current as androidx.fragment.app.FragmentActivity
         var askForget by remember { mutableStateOf(false) }
         var haveWords by remember { mutableStateOf(false) }
-        TextButton(onClick = { haveWords = false; askForget = true }) {
+        var forgetBlock by remember { mutableStateOf<String?>(null) }
+        TextButton(onClick = { haveWords = false; forgetBlock = if (state.isHot) vm.walletBoundBlock() else null; askForget = true }) {
             Text("forget this wallet", color = Bad, style = MaterialTheme.typography.bodySmall)
         }
         if (askForget) AlertDialog(
@@ -1340,6 +1343,7 @@ internal fun SettingsPanel(
             title = { Text("Forget this wallet?") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    forgetBlock?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Bad) }
                     Text(if (state.isHot)
                         "This DELETES the wallet's seed from this phone. The coins stay on-chain, but the only way back to " +
                             "them is your recovery words (and passphrase, if it has one). Without them, the money is lost."
@@ -1347,7 +1351,8 @@ internal fun SettingsPanel(
                         style = MaterialTheme.typography.bodySmall)
                     if (state.isHot) Text("Before that: have your recovery words written on paper, the safest backup there is. If you use Ark, also " +
                             "save a backup file (settings → Backup file): it keeps your Ark wallet, its on-chain coins and emergency " +
-                            "exits, nodes, contacts and coinjoin rounds. The file is a help, not a replacement for the words on paper.", style = MaterialTheme.typography.bodySmall, color = Warn)
+                            "exits, nodes, contacts and coinjoin rounds. The file is a help, not a replacement for the words on paper. " +
+                            "This wallet's Lightning node and Ark wallet are removed from this phone too.", style = MaterialTheme.typography.bodySmall, color = Warn)
                     if (state.isHot) Row(verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.clickable { haveWords = !haveWords }) {
                         Text(if (haveWords) "☑" else "☐", color = Bad, style = MaterialTheme.typography.titleMedium)
@@ -1357,12 +1362,12 @@ internal fun SettingsPanel(
                 }
             },
             confirmButton = {
-                TextButton(enabled = !state.isHot || haveWords, onClick = {
+                TextButton(enabled = (!state.isHot || haveWords) && forgetBlock == null, onClick = {
                     askForget = false
                     if (state.isHot) Biometric.confirm(forgetActivity, "Forget this wallet", "Its seed is deleted from this phone",
                         onSuccess = onForget, onError = { })
                     else onForget()
-                }) { Text("FORGET", color = if (!state.isHot || haveWords) Bad else TextFaint) }
+                }) { Text("FORGET", color = if ((!state.isHot || haveWords) && forgetBlock == null) Bad else TextFaint) }
             },
             dismissButton = { TextButton(onClick = { askForget = false }) { Text("KEEP IT", color = TextSoft) } },
             containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,

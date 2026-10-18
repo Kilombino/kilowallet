@@ -34,6 +34,22 @@ import org.json.JSONObject
  * a join carries one ownership proof per coin in `proofs`, and the change is signed over all of
  * the seat's outpoints. v1 pools (one P2WPKH coin each) are still listed and joined as before;
  * a v1 wallet does not list v2 pools at all (it only accepts `v` = 1).
+ *
+ * Kilojoin v3 (Kilowallet 1.1.5): nobody, not the relay nor the other members, can tell which
+ * mixed output is whose, and nobody can speak for the creator or for another member.
+ *  - The terms carry the creator's own key (`creator`) and an RSA key for blind signatures
+ *    (`blind_key`, RFC 9474, [BlindRsa]). Messages that run the pool (welcome, roster, vote_open,
+ *    closing, blind_sig, outputs, reopen) come from the creator's key: the pool key every
+ *    member holds no longer speaks for it.
+ *  - Members prove themselves to the creator with a MAC under their seat's secret token
+ *    ([mac]); the token itself never goes on the channel, so nobody can vote or leave for them.
+ *  - When a round closes, each member has its mixed output signed blindly by the creator (one
+ *    per seat), then hands it in with the unblinded signature from a fresh key, over its own
+ *    connection, encrypted to the creator only; the creator lists all of them at once. The
+ *    creator can't tell which seat an output came from, and members only see the full list.
+ *  - The roster carries each seat's join key and ownership proofs, and every member checks
+ *    them against the chain, not only the creator.
+ * Older wallets don't list v3 pools (they only accept `v` 1 or 2).
  */
 object Protocol {
     const val RELAY = "wss://relay.kilombino.com"
@@ -44,8 +60,10 @@ object Protocol {
     const val STALE_AFTER = 35 * 60L
     const val KIND_MSG = 2023
     const val TAG = "kilojoin"
-    /** Newest version this wallet speaks; it still reads and joins [V1] pools. */
+    /** v2 pools: one address type, several coins per person. */
     const val VERSION = 2
+    /** v3 pools: blinded outputs and the creator's own key. Newest; v1 and v2 pools still join as before. */
+    const val V3 = 3
     const val V1 = 1
     /** Most coins one person may bring to a v2 pool. */
     const val MAX_INPUTS = 10
@@ -98,19 +116,25 @@ object Protocol {
         val script: ScriptType = ScriptType.P2WPKH,
         /** Most coins one person may bring (v2; always 1 in v1). */
         val maxInputs: Int = 1,
+        /** v3: the creator's own nostr key (x-only hex), which alone runs the pool. */
+        val creatorPub: String? = null,
+        /** v3: the RSA key the creator signs mixed outputs blindly with ([BlindRsa.PublicKey.encode]). */
+        val blindKey: String? = null,
     ) {
+        val v3: Boolean get() = version >= V3
         fun toJson(): JSONObject = JSONObject()
             .put("v", version).put("app", "kilowallet").put("network", NETWORK)
             .put("id", id).put("public_key", poolPub).put("denomination", amount)
             .put("fee_rate", feeRate).put("min_peers", minPeers).put("max_peers", maxPeers).put("private", private)
             .put("timeout", expiresAt).put("state", state).put("peers", peers)
             .also { if (version >= 2) it.put("script", scriptName(script)).put("max_inputs", maxInputs) }
+            .also { if (version >= V3) it.put("creator", creatorPub).put("blind_key", blindKey) }
 
         companion object {
             fun parse(ev: NostrEvent): Terms? = runCatching {
                 val o = JSONObject(ev.content)
                 val v = o.getInt("v")
-                if (v != V1 && v != VERSION || o.getString("network") != NETWORK) return null
+                if (v != V1 && v != VERSION && v != V3 || o.getString("network") != NETWORK) return null
                 val t = Terms(
                     id = o.getString("id"), poolPub = o.getString("public_key"),
                     amount = o.getLong("denomination"), feeRate = o.getDouble("fee_rate"),
@@ -120,7 +144,13 @@ object Protocol {
                     version = v,
                     script = if (v == V1) ScriptType.P2WPKH else parseScript(o.getString("script")) ?: return null,
                     maxInputs = if (v == V1) 1 else o.getInt("max_inputs"),
+                    creatorPub = if (v >= V3) o.getString("creator") else null,
+                    blindKey = if (v >= V3) o.getString("blind_key") else null,
                 )
+                if (t.v3) {
+                    if (!t.creatorPub!!.matches(Regex("[0-9a-f]{64}")) || t.creatorPub == t.poolPub) return null
+                    BlindRsa.PublicKey.decode(t.blindKey!!)
+                }
                 if (t.maxInputs !in 1..MAX_INPUTS) return null
                 // Only the pool's own key may speak for it, and the terms must be in range.
                 if (ev.pubkey != t.poolPub || ev.tag("d") != t.id) return null
@@ -149,7 +179,9 @@ object Protocol {
      * A member's seat: their coins (one in v1), their change (script + value, 0 = no change) and
      * the signature by the first coin's key over all of it, so nobody can swap someone else's change.
      */
-    data class Seat(val tokenHash: String, val coins: List<CoinjoinTx.Coin>, val changeScript: ByteArray?, val changeValue: Long) {
+    data class Seat(val tokenHash: String, val coins: List<CoinjoinTx.Coin>, val changeScript: ByteArray?, val changeValue: Long,
+                    /** v3 roster: the key the seat joined with and its ownership proofs, for every member to check. */
+                    val joinPub: String? = null, val proofs: List<String> = emptyList()) {
         init { require(coins.isNotEmpty()) { "a seat with no coin" } }
         constructor(tokenHash: String, coin: CoinjoinTx.Coin, changeScript: ByteArray?, changeValue: Long) :
             this(tokenHash, listOf(coin), changeScript, changeValue)
@@ -160,13 +192,16 @@ object Protocol {
         fun toJson(): JSONObject = JSONObject().put("token_hash", tokenHash).put("coin", coinJson(coin))
             .put("change_script", changeScript?.toHex() ?: "").put("change_value", changeValue)
             .also { if (coins.size > 1) it.put("coins", JSONArray().also { a -> coins.forEach { c -> a.put(coinJson(c)) } }) }
+            .also { if (joinPub != null) it.put("join_pub", joinPub).put("proofs", JSONArray(proofs)) }
 
         companion object {
             fun parse(o: JSONObject, type: ScriptType = ScriptType.P2WPKH): Seat {
                 val cs = o.optString("change_script")
                 val list = o.optJSONArray("coins")?.let { a -> (0 until a.length()).map { parseCoin(a.getJSONObject(it), type) } }
                     ?: listOf(parseCoin(o.getJSONObject("coin"), type))
-                return Seat(o.getString("token_hash"), list, if (cs.isEmpty()) null else Hashes.hexToBytes(cs), o.getLong("change_value"))
+                val proofs = o.optJSONArray("proofs")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
+                return Seat(o.getString("token_hash"), list, if (cs.isEmpty()) null else Hashes.hexToBytes(cs), o.getLong("change_value"),
+                    o.optString("join_pub").ifEmpty { null }, proofs)
             }
         }
     }
@@ -175,6 +210,13 @@ object Protocol {
     fun changeMessage(poolId: String, coins: List<CoinjoinTx.Coin>, script: ByteArray?, value: Long): ByteArray =
         if (coins.size == 1) Hashes.sha256("kilojoin/v1/change|$poolId|${coins[0].outpoint}|${script?.toHex() ?: ""}|$value".toByteArray())
         else Hashes.sha256("kilojoin/v2/change|$poolId|${coins.joinToString(",") { it.outpoint }}|${script?.toHex() ?: ""}|$value".toByteArray())
+
+    /** v3: a member's proof that it holds the seat with [token], bound to what it says ([parts]). */
+    fun mac(token: String, vararg parts: Any): String =
+        Hashes.hmacSha256(token.toByteArray(), ("kilojoin/v3|" + parts.joinToString("|")).toByteArray()).toHex()
+
+    fun macOk(token: String?, mac: String, vararg parts: Any): Boolean =
+        token != null && java.security.MessageDigest.isEqual(mac(token, *parts).toByteArray(), mac.toByteArray())
 
     fun seatsJson(seats: Collection<Seat>): JSONArray = JSONArray().also { a -> seats.forEach { a.put(it.toJson()) } }
     fun parseSeats(a: JSONArray, type: ScriptType = ScriptType.P2WPKH): List<Seat> =

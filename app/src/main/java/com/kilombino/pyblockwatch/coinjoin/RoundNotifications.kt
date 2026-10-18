@@ -79,7 +79,7 @@ object RoundNotifications {
         val color = when {
             step == 0 -> 0xFFFF5D5D.toInt()
             step == STEPS -> 0xFF34D399.toInt()
-            else -> 0xFFB96BFF.toInt()
+            else -> 0xFF278BF5.toInt()
         }
         val title = "${sats(st.terms.amount, masked)} sats each" + if (st.terms.script == com.kilombino.pyblockwatch.crypto.ScriptType.P2TR) " · Taproot" else ""
         val counting = st.phase == PoolSession.Phase.OPEN && st.terms.expiresAt > System.currentTimeMillis() / 1000

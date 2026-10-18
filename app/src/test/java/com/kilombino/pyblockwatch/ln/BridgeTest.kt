@@ -31,6 +31,12 @@ class BridgeTest {
 
     @Test fun anotherNodeIsRefused() = assertNotNull(check(h = hold.copy(destination = "03" + "00".repeat(32))))
 
+    @Test fun aTimelockLongerThanTwoWeeksIsRefused() {
+        assertNull(check(h = hold.copy(cltv = 1396)))     // what the bridge asks for
+        assertNull(check(h = hold.copy(cltv = 2016)))
+        assertNotNull(check(h = hold.copy(cltv = 2017)))
+    }
+
     @Test fun anInvoiceOfTheOtherChainIsRefused() = assertNotNull(check(h = hold.copy(blake2b = false)))
 
     @Test fun moreThanAcceptedIsRefused() {

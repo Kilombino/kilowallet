@@ -148,14 +148,43 @@ class XbtWidget : AppWidgetProvider() {
                 Size.FULL -> R.layout.widget_full
                 Size.LARGE -> R.layout.widget_large
             })
-            // Tapping the widget opens the wallet; the round arrow asks for fresh data.
-            v.setOnClickPendingIntent(R.id.root, PendingIntent.getActivity(
-                ctx, 0, Intent(ctx, MainActivity::class.java),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-            if (size == Size.LARGE) v.setOnClickPendingIntent(R.id.convert, PendingIntent.getActivity(
-                ctx, 2, Intent(ctx, com.kilombino.pyblockwatch.ui.ConverterActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+            // Every tap asks first what it opens (WidgetOpenActivity): the wallet elsewhere on the
+            // widget, the converter, or the page where a figure can be checked — the exchange for
+            // prices, the explorer for the chain, the rental market for hashrate prices. The round
+            // arrow asks for fresh data.
+            fun ask(id: Int, code: Int, target: String, what: String = "", url: String? = null) =
+                v.setOnClickPendingIntent(id, PendingIntent.getActivity(ctx, code,
+                    Intent(ctx, WidgetOpenActivity::class.java)
+                        .putExtra(WidgetOpenActivity.EXTRA_TARGET, target)
+                        .putExtra(WidgetOpenActivity.EXTRA_WHAT, what)
+                        .putExtra(WidgetOpenActivity.EXTRA_URL, url)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+            var code = 10
+            fun link(id: Int, what: String, url: String) = ask(id, code++, WidgetOpenActivity.TARGET_URL, what, url)
+            ask(R.id.root, 0, WidgetOpenActivity.TARGET_APP)
+            val trade = "https://neoxa.exchange/trade/"
+            val explorer = "https://${MarketFeed.SOURCE}"
+            val graph = "$explorer/graphs/mining/hashrate-difficulty"
+            link(R.id.price, "The price, on the exchange it comes from", trade + "BTCB2_USDC")
+            link(R.id.change, "The price, on the exchange it comes from", trade + "BTCB2_USDC")
+            if (size != Size.SMALL) {
+                link(R.id.range, "The price, on the exchange it comes from", trade + "BTCB2_USDC")
+                link(R.id.poolsats, "The price in Poolsats, on the exchange it comes from", trade + "BTCB2_BTC")
+                link(R.id.poolsats_change, "The price in Poolsats, on the exchange it comes from", trade + "BTCB2_BTC")
+                link(R.id.hashrate, "Hashrate and difficulty, on the explorer", graph)
+                link(R.id.diff_row, "Hashrate and difficulty, on the explorer", graph)
+                link(R.id.block, "The latest block, on the explorer", m?.height?.let { "$explorer/block/$it" } ?: explorer)
+            }
+            if (size == Size.LARGE) {
+                link(R.id.diff_next_row, "Hashrate and difficulty, on the explorer", graph)
+                link(R.id.earns, "Mining, on the explorer", "$explorer/mining")
+                link(R.id.kwh, "Mining, on the explorer", "$explorer/mining")
+                link(R.id.ysh, "YSH, the explorer's tool", "$explorer/es/tools/ysh")
+                link(R.id.chain, "The chain, on the explorer", explorer)
+                link(R.id.rent, "Hashrate rental prices, on MiningRigRentals", "https://www.miningrigrentals.com/rigs/blake2b")
+                ask(R.id.convert, 2, WidgetOpenActivity.TARGET_CONVERTER)
+            }
             if (nextTickElapsed > android.os.SystemClock.elapsedRealtime()) {
                 v.setChronometer(R.id.countdown, nextTickElapsed, null, true)
                 v.setChronometerCountDown(R.id.countdown, true)

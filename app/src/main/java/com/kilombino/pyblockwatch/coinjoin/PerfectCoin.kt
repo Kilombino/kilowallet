@@ -83,7 +83,11 @@ object PerfectCoin {
     fun load(ctx: Context): List<Waiting> {
         val a = runCatching { JSONArray(prefs(ctx).getString("list", "[]")) }.getOrDefault(JSONArray())
         val week = System.currentTimeMillis() / 1000 - 7 * 86400
-        val list = (0 until a.length()).mapNotNull { runCatching { Waiting.parse(a.getJSONObject(it)) }.getOrNull() }.filter { it.since > week }
+        val all = (0 until a.length()).mapNotNull { runCatching { Waiting.parse(a.getJSONObject(it)) }.getOrNull() }
+        val list = all.filter { it.since > week }
+        // A coin that waited more than a week is dropped: its key goes with it, not left on disk.
+        all.filter { it.since <= week }.forEach { AutoKeyVault.remove(ctx, it.key) }
+        if (list.size != all.size) prefs(ctx).edit().putString("list", JSONArray(list.map { it.toJson() }).toString()).apply()
         _waiting.value = list
         return list
     }

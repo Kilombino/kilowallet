@@ -46,6 +46,9 @@ fun RpcNodePanel(vm: WalletViewModel, accent: androidx.compose.ui.graphics.Color
     var pass by remember { mutableStateOf("") }
     var msg by remember { mutableStateOf<String?>(null) }
     var scanning by remember { mutableStateOf(false) }
+    // An https node's certificate, shown for the user to compare before any password goes out.
+    var toTrust by remember { mutableStateOf<Pair<RpcConn, String>?>(null) }
+    var addAfterTrust by remember { mutableStateOf(false) }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (ok) scanning = true }
     fun fill(text: String) {
         runCatching { RpcConn.parse(text) }.onSuccess { c ->
@@ -103,23 +106,52 @@ fun RpcNodePanel(vm: WalletViewModel, accent: androidx.compose.ui.graphics.Color
             }) { Text("PASTE", color = accent, style = MaterialTheme.typography.bodySmall) }
             TextButton(onClick = {
                 val c = runCatching { RpcConn.parse(url).copy(user = user, pass = pass) }.getOrElse { msg = it.message; return@TextButton }
+                if (c.isTls) {
+                    // First the certificate alone, for the user to check; the login only after.
+                    msg = "reading the certificate…"; addAfterTrust = false
+                    scope.launch { vm.probeRpcCertificate(c).onSuccess { msg = null; toTrust = c to it }.onFailure { msg = "✗ " + (it.message ?: "no answer") } }
+                    return@TextButton
+                }
                 msg = "testing…"
-                scope.launch { val (t, fp) = vm.testRpc(c); msg = t + (fp?.let { "\ncertificate ${it.take(16)}… (trusted when you ADD it)" } ?: "") }
+                scope.launch { msg = vm.testRpc(c).first }
             }) { Text("TEST", color = accent, style = MaterialTheme.typography.bodySmall) }
             TextButton(onClick = {
                 val c = runCatching { RpcConn.parse(url).copy(user = user, pass = pass) }.getOrElse { msg = it.message; return@TextButton }
                 if (!c.isTls) { conns.add(c); url = ""; user = ""; pass = ""; msg = "added"; save(); return@TextButton }
-                // https (a StartOS node): trust the certificate it shows now, and only that one.
-                msg = "checking the certificate…"
-                scope.launch {
-                    val (t, fp) = vm.testRpc(c)
-                    if (fp == null || t.startsWith("✗")) { msg = t; return@launch }
-                    conns.add(c.copy(pin = fp)); url = ""; user = ""; pass = ""
-                    msg = "added · certificate ${fp.take(16)}… is trusted for it"; save()
-                }
+                // https (a StartOS node): show its certificate; it is trusted only once the user says it matches.
+                msg = "reading the certificate…"; addAfterTrust = true
+                scope.launch { vm.probeRpcCertificate(c).onSuccess { msg = null; toTrust = c to it }.onFailure { msg = "✗ " + (it.message ?: "no answer") } }
             }) { Text("ADD", color = Good, style = MaterialTheme.typography.bodySmall) }
         }
         msg?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (it.startsWith("✗")) Bad else TextFaint) }
         Spacer(Modifier.height(4.dp))
+    }
+    toTrust?.let { (c, fp) ->
+        androidx.compose.material3.AlertDialog(onDismissRequest = { toTrust = null },
+            title = { Text("Is this your node's certificate?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("${c.url} shows this certificate (SHA-256):", style = MaterialTheme.typography.bodySmall)
+                    Text(com.kilombino.pyblockwatch.chain.NodeRpcBackend.spaced(fp),
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace), color = TextMain)
+                    Text("Compare it with the one your node shows (on StartOS, the RPC interface's certificate). Only if it is the same, " +
+                        "trust it: the password is then sent to this certificate only. Someone on your network could show another one.",
+                        style = MaterialTheme.typography.bodySmall, color = Warn)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    toTrust = null
+                    val pinned = c.copy(pin = fp)
+                    msg = "testing…"
+                    scope.launch {
+                        val (t, _) = vm.testRpc(pinned)
+                        if (t.startsWith("✗") || !addAfterTrust) { msg = t; return@launch }
+                        conns.add(pinned); url = ""; user = ""; pass = ""
+                        msg = "added · $t"; save()
+                    }
+                }) { Text("IT MATCHES: TRUST IT", color = Good) }
+            },
+            dismissButton = { TextButton(onClick = { toTrust = null; msg = "not trusted: nothing was sent" }) { Text("CANCEL") } })
     }
 }

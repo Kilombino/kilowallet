@@ -93,7 +93,8 @@ class WatchService : Service() {
             // before they expire (4,320 blocks); without it the user would have to remember
             // to open the app at least once a month.
             if (com.kilombino.pyblockwatch.ark.Ark.available &&
-                java.io.File(filesDir, "ark/db.sqlite").exists()) {
+                java.io.File(filesDir, "ark/db.sqlite").exists() &&
+                !com.kilombino.pyblockwatch.ark.Ark.paused(this@WatchService)) {
                 runCatching {
                     com.kilombino.pyblockwatch.ark.Ark.ensureStarted(this@WatchService)
                     ArkWatch.evaluate(this@WatchService, notifier)

@@ -111,7 +111,7 @@ class CoinjoinV2Test {
         assertEquals(2, back.version)
 
         // SegWit with several coins each is v2 as well.
-        assertEquals(Protocol.VERSION, PoolSession.newPool(100_000, 2.0, 5, 1, maxInputs = 2).first.version)
+        assertEquals(Protocol.VERSION, PoolSession.newPool(100_000, 2.0, 5, 1, maxInputs = 2).terms.version)
     }
 
     @Test fun seatsAndStateRoundTrip() {

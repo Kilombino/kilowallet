@@ -167,6 +167,11 @@ class Notifier(private val context: Context, private val titlePrefix: String = "
         post(("updated:$version").hashCode(), "Kilowallet $version is installed ✓",
              "Tap to open it.", OpenTab.BTC)
 
+    /** A restored Ark wallet's first look: what it holds in Ark and in its on-chain deposit. */
+    fun arkFound(inArk: Long, deposit: Long) =
+        post(arkId("found", ""), "Ark: balance found",
+             if (deposit > 0) "${sats(inArk)} sats in Ark and ${sats(deposit)} sats in its on-chain deposit" else "${sats(inArk)} sats in Ark", OpenTab.ARK)
+
     fun arkExpiring(blocks: Int) =
         post(arkId("expiry", ""), if (blocks < 432) "Ark: a coin expires in ${blocks * 10 / 60} hours" else "Ark: a coin expires soon",
              (if (blocks < 144) "In about ${blocks * 10 / 60} hours" else "In about ${blocks * 10 / 1440} days") + " ($blocks blocks). Open the Ark tab and tap RENEW: " +

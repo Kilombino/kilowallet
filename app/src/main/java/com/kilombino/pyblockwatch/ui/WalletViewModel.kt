@@ -552,11 +552,45 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         clearSnapshots()
         val wasWatch = store.activeWallet == Store.WATCH
         store.clearWallet()
-        if (!wasWatch) seedVault.clear()
+        if (!wasWatch) { seedVault.clear(); wipeWalletBound() }
         val other = if (wasWatch) Store.HOT else Store.WATCH
         if (Store(getApplication(), other).xpub != null) { switchTo(other); return }
         store = Store(getApplication(), Store.HOT); store.activeWallet = Store.HOT
         _state.value = UiState(notificationsEnabled = store.notificationsEnabled)
+    }
+
+    /**
+     * The Lightning node and the Ark wallet belong to the spending wallet's words: when the wallet
+     * is forgotten or replaced they go too, so restoring words later asks before turning either
+     * on, and a node of other words never stays behind looking like this wallet's.
+     */
+    fun wipeWalletBound() {
+        val ctx = getApplication<Application>()
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            runCatching { com.kilombino.pyblockwatch.ln.Lightning.wipe(ctx) }
+            runCatching { if (com.kilombino.pyblockwatch.ark.Ark.available) com.kilombino.pyblockwatch.ark.Ark.wipe(ctx) }
+        }
+    }
+
+    /**
+     * Why the spending wallet can't be forgotten or replaced yet, or null: its Lightning node
+     * must be running and checked, with no channel open or closing (a deleted node can't get
+     * those back by itself), and a node of other words must have sent its coins away first.
+     */
+    fun walletBoundBlock(): String? {
+        val ctx = getApplication<Application>()
+        val ln = com.kilombino.pyblockwatch.ln.Lightning
+        if (!ln.enabled(ctx) && !com.kilombino.pyblockwatch.ln.Lnd.dir(ctx).exists()) return null
+        val st = ln.status.value as? com.kilombino.pyblockwatch.ln.Lightning.Status.Running
+            ?: return "Your Lightning node is not running. Open the Lightning tab and wait until it runs, so it can be checked first."
+        if (st.channels.isNotEmpty() || st.pending.isNotEmpty() || st.closing.isNotEmpty())
+            return "Your Lightning node still has channels open, opening or closing. Close them and wait until their coins are back on-chain in the node: a deleted node can't get them back by itself."
+        if (!st.info.syncedChain) return "Wait until the Lightning node has finished checking its coins."
+        val onchain = (st.balances?.onchainConfirmed ?: 0) + (st.balances?.onchainUnconfirmed ?: 0)
+        val expected = com.kilombino.pyblockwatch.ln.LnSeed.expectedPubkey(ctx)
+        if (onchain > 0 && expected != null && !expected.equals(st.info.pubkey, ignoreCase = true))
+            return "Your Lightning node is from other recovery words and holds ${groupSats(onchain)} sats on-chain that this wallet's words won't bring back. Send them to this wallet first (Lightning → PAY → on-chain)."
+        return null
     }
 
     fun endpointFor(chain: Chain): NodeEndpoint = store.endpoint(chain)
@@ -606,6 +640,12 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** What is at [c]: node version, height and whether it is on BLAKE2b, or why it failed. */
+    /** The certificate an https node shows, without logging in (null, with the reason, if it can't be reached). */
+    suspend fun probeRpcCertificate(c: com.kilombino.pyblockwatch.chain.RpcConn): Result<String> =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { com.kilombino.pyblockwatch.chain.NodeRpcBackend.probeCertificate(c) }
+        }
+
     suspend fun testRpc(c: com.kilombino.pyblockwatch.chain.RpcConn): Pair<String, String?> =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             runCatching { com.kilombino.pyblockwatch.chain.NodeRpcBackend.test(c) }
@@ -794,14 +834,17 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 runCatching {
                     val ark = com.kilombino.pyblockwatch.ark.Ark
                     val ctx = getApplication<Application>()
-                    if (ark.hasWords(ctx)) ark.setWordsShared(
-                        ctx, ark.words(ctx) == mnemonic && ark.passphrase(ctx) == passphrase,
-                    )
+                    if (ark.hasWords(ctx)) {
+                        ark.setWordsShared(ctx, ark.words(ctx) == mnemonic && ark.passphrase(ctx) == passphrase)
+                        ark.setWordsDerived(ctx, ark.passphrase(ctx).isEmpty() && ark.words(ctx) == ark.derivedWords(mnemonic, passphrase))
+                    }
                 }
                 // The BIP-84 account, and the BIP-86 (Taproot) one so it can be turned on without the seed.
                 val (zpub, tpub) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                    val master = com.kilombino.pyblockwatch.crypto.Bip32Priv
-                        .fromSeed(com.kilombino.pyblockwatch.crypto.Bip39.toSeed(mnemonic, passphrase))
+                    val seed = com.kilombino.pyblockwatch.crypto.Bip39.toSeed(mnemonic, passphrase)
+                    // The pubkey a Lightning node from these words has, to tell a node of other words apart.
+                    runCatching { com.kilombino.pyblockwatch.ln.LnSeed.rememberExpected(getApplication(), seed) }
+                    val master = com.kilombino.pyblockwatch.crypto.Bip32Priv.fromSeed(seed)
                     com.kilombino.pyblockwatch.crypto.Bip32Priv.accountXpub(master, purpose = 84, account = 0) to
                         com.kilombino.pyblockwatch.crypto.Bip32Priv.accountXpub(master, purpose = 86, account = 0)
                 }
@@ -897,6 +940,10 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
             val s = ark.snapshot(ctx)
             // Ark may have its own words; the spending wallet's are what the file restores first.
             if (s.words == words && s.passphrase == passphrase) return s
+            // Ark's words made from these (1.1.4 on): the file keeps the wallet's words and says so.
+            if (s.passphrase.isEmpty() && s.words == ark.derivedWords(words, passphrase))
+                return com.kilombino.pyblockwatch.ark.ArkBackup.Snapshot(words, passphrase, s.config, s.db, s.dbWal, s.movements,
+                    s.created, s.contacts, s.app, arkDerived = true)
         }
         return com.kilombino.pyblockwatch.ark.ArkBackup.Snapshot(
             words = words, passphrase = passphrase, config = null, db = null, dbWal = null,
@@ -926,7 +973,12 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                         com.kilombino.pyblockwatch.data.Contacts.merge(ctx, s.contacts)
                         if (s.hasArk) {
                             val ark = com.kilombino.pyblockwatch.ark.Ark
-                            if (ark.available) { ark.restore(ctx, s); ark.setWordsShared(ctx, true) }
+                            if (ark.available) {
+                                ark.restore(ctx, s)
+                                ark.setWordsShared(ctx, !s.arkDerived); ark.setWordsDerived(ctx, s.arkDerived)
+                                // It waits in the Ark tab until the user turns it on.
+                                ark.setPaused(ctx, true)
+                            }
                             else warning = "This phone cannot run Ark: the Ark part of the backup was not restored."
                         }
                     }
@@ -1269,10 +1321,38 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                         client.connect()
                         val raw = client.transaction(txid)
                         val tx = com.kilombino.pyblockwatch.crypto.TxParse.parse(raw)
-                        val parentVsize = com.kilombino.pyblockwatch.crypto.TxParse.vsize(raw)
-                        val parentFee = tx.inputs.sumOf { i ->
-                            com.kilombino.pyblockwatch.crypto.TxParse.parse(client.transaction(i.txid)).outputs[i.vout].value
-                        } - tx.outputs.sumOf { it.value }
+                        val prevs = tx.inputs.map { i -> i to com.kilombino.pyblockwatch.crypto.TxParse.parse(client.transaction(i.txid)).outputs[i.vout] }
+                        val parentFee = prevs.sumOf { it.second.value } - tx.outputs.sumOf { it.value }
+                        // The txid covers the parent without its witness only: a server could pad the
+                        // witness and make this child pay for bytes that aren't there. So the witness is
+                        // counted from what each input's type needs (P2WPKH 108 WU, Taproot with the
+                        // unified sighash 67), and the served size is used only if smaller.
+                        val served = com.kilombino.pyblockwatch.crypto.TxParse.vsize(raw)
+                        val witnessWu = prevs.map { (_, o) ->
+                            val sc = o.scriptPubKey
+                            when {
+                                sc.size == 22 && sc[0] == 0.toByte() -> 108            // P2WPKH
+                                sc.size == 34 && sc[0] == 0x51.toByte() -> 67          // P2TR key path + 0x21
+                                sc.size == 23 && sc[0] == 0xa9.toByte() -> 108         // P2SH-P2WPKH (the usual case)
+                                sc.size == 25 && sc[0] == 0x76.toByte() -> 0           // P2PKH: no witness
+                                else -> -1                                              // can't tell
+                            }
+                        }
+                        val parentVsize = if (witnessWu.any { it < 0 }) served else {
+                            val base = com.kilombino.pyblockwatch.crypto.TxParse.baseSize(raw)
+                            val wu = base * 4 + witnessWu.sum() + if (witnessWu.any { it > 0 }) 2 else 0
+                            minOf(served, (wu + 3) / 4)
+                        }
+                        // The child pays for its parent only: if the parent spends coins that are
+                        // themselves unconfirmed, miners weigh those too and the package rate shown
+                        // would be too high. Speed up the oldest one first.
+                        val unconfirmedAncestor = prevs.any { (i, o) ->
+                            client.history(com.kilombino.pyblockwatch.crypto.Address.electrumScriptHash(o.scriptPubKey))
+                                .firstOrNull { it.txid == i.txid }?.let { it.height <= 0 } ?: false
+                        }
+                        require(!unconfirmedAncestor) {
+                            "This transaction spends coins that are not confirmed yet either: speed up the earlier one first."
+                        }
                         val byHash = cs.rows.associateBy { it.scriptHash }
                         val unspent = cs.rows.filter { it.isUsed }.flatMap { r -> client.listUnspent(r.scriptHash) }
                             .map { "${it.txid}:${it.vout}" }.toSet()
@@ -1342,7 +1422,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                             oldFee + estimateFee(inputs.size, outs.map { it.scriptPubKey }, 1.0, taprootIn(inputs)) + 1,
                         )
                         val change = outs[changeIdx].value - (newFee - oldFee)
-                        require(change > DUST_SATS) {
+                        require(change >= dustFor(outs[changeIdx].scriptPubKey)) {
                             "The change (${outs[changeIdx].value} sats) can't cover the new fee of $newFee sats."
                         }
                         val newOuts = outs.mapIndexed { n, o -> if (n == changeIdx) o.copy(value = change) else o }
@@ -1458,6 +1538,11 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                             .also { requireSpendableDestination(it, "Recipient ${i + 2}") }, sats)
                 }
                 val totalOut = amountSats + extraOuts.sumOf { it.value }
+                // An output under its type's dust limit is refused by the network: say so here.
+                dustFor(toScript).let { d -> require(amountSats >= d) { "Enter at least $d sats: less can't be sent to that kind of address." } }
+                extraOuts.forEachIndexed { i, o ->
+                    dustFor(o.scriptPubKey).let { d -> require(o.value >= d) { "Recipient ${i + 2}: enter at least $d sats for that kind of address." } }
+                }
 
                 val changeScript = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                     changeScriptPubKey(nextChangeIndex(cs.rows))
@@ -1503,7 +1588,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     com.kilombino.pyblockwatch.crypto.TxBuilder.Output(toScript, amountSats),
                 )
                 outputs += extraOuts
-                if (change > DUST_SATS && !noChangeOutput) {
+                // Taproot change has a higher dust limit (330) than bc1q (294).
+                if (change > maxOf(DUST_SATS, dustFor(changeScript) - 1) && !noChangeOutput) {
                     outputs += com.kilombino.pyblockwatch.crypto.TxBuilder.Output(changeScript, change)
                 } else {
                     fee = sum - totalOut // dust (or unpriced) change folded into the fee
@@ -1959,7 +2045,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         val perInput = when {
             _state.value.isHot -> 68.0
             store.scriptType == ScriptType.P2SH_P2WPKH -> 91.0
-            store.scriptType == ScriptType.P2TR -> 57.5
+            // Key-path signature plus the unified sighash byte the BLAKE2b chain requires (65 bytes).
+            store.scriptType == ScriptType.P2TR -> 57.75
             else -> 68.0
         }
         // A hot wallet's Taproot coins: key-path signature plus the unified sighash byte (57.75 vB).
@@ -2278,5 +2365,18 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         /** Foreground auto-refresh cadence, and the countdown the UI shows. */
         /** Below this, a change output costs more to spend later than it is worth — fold it into fee. */
         const val DUST_SATS = 294L
+
     }
+}
+
+/**
+ * The smallest standard output for [script] (Bitcoin Core's dust limit at 3 sat/vB):
+ * 294 for bc1q, 330 for bc1p and P2WSH, 540 for P2SH, 546 for P2PKH. An output under
+ * it is refused by the network, so change below it goes to the fee instead.
+ */
+internal fun dustFor(script: ByteArray): Long = when {
+    script.size == 22 && script[0] == 0.toByte() -> 294L               // P2WPKH
+    script.size == 34 && (script[0] == 0x51.toByte() || script[0] == 0.toByte()) -> 330L // P2TR, P2WSH
+    script.size == 23 && script[0] == 0xa9.toByte() -> 540L            // P2SH
+    else -> 546L
 }

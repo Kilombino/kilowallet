@@ -29,7 +29,7 @@ enum class Chain(
         ticker = "₿",
         defaultHost = "fulcrum.kilombino.com",
         defaultPort = 17717,
-        accent = 0xFFB96BFF,
+        accent = 0xFFF7931A,
         blurb = "The BLAKE2b proof-of-work fork. 164-byte headers.",
     ),
     SHA256(
@@ -38,7 +38,7 @@ enum class Chain(
         ticker = "₿",
         defaultHost = "electrum.blockstream.info",
         defaultPort = 50002,
-        accent = 0xFFF7931A,
+        accent = 0xFF9AA0A6,
         blurb = "The classic SHA-256 chain. Spends here sign legacy, so they are not replay-protected.",
     );
 

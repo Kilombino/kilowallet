@@ -99,11 +99,21 @@ object AppBackup {
         Scanner.reloadDisk(cache)
     }
 
+    /** Settings that name a server, its pinned certificate, an explorer or your node's RPC. */
+    internal fun isServerKey(k: String): Boolean {
+        val key = k.removePrefix("w_")
+        return key.startsWith("host_") || key.startsWith("port_") || key.startsWith("tls_") || key.startsWith("pin_") ||
+            key.startsWith("explorer_") || key == "use_rpc" || key == "rpc_conns" || key.startsWith("crash_")
+    }
+
     /** Puts back what [export] saved. Run before the wallet screen reads its settings. */
     fun import(ctx: Context, json: String) {
         val app = ctx.applicationContext
         val o = JSONObject(json)
-        o.optJSONObject("store")?.let { Store.importPrefs(app.getSharedPreferences(STORE, Context.MODE_PRIVATE), load(it)) }
+        // Never the servers: a backup file one did not make could point the wallet at a server of
+        // someone else's, with its certificate already pinned, or at their node by RPC. Those are
+        // left as they are here (the defaults on a fresh install) and set again by hand.
+        o.optJSONObject("store")?.let { Store.importPrefs(app.getSharedPreferences(STORE, Context.MODE_PRIVATE), load(it).filterKeys { k -> !isServerKey(k) }) }
         o.optJSONObject("coinjoin")?.let { Store.importPrefs(app.getSharedPreferences(COINJOIN, Context.MODE_PRIVATE), load(it)) }
         o.optJSONObject("scan")?.let { runCatching { restoreScanMemory(app, it) } }
         o.optJSONObject("lightning")?.let { runCatching { com.kilombino.pyblockwatch.ln.Lightning.stageRestore(app, it) } }

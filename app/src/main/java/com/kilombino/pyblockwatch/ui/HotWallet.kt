@@ -65,6 +65,8 @@ import java.security.SecureRandom
  */
 @Composable
 fun DiceScreen(vm: WalletViewModel, onBack: () -> Unit) {
+    // The rolls are the seed (SHA-256 of them): no screenshots, recordings or recents thumbnail.
+    SecureWhileShown()
     val activity = LocalContext.current as FragmentActivity
     var strength by remember { mutableStateOf(256) }          // 24 words by default
     var rolls by remember { mutableStateOf("") }
@@ -364,23 +366,7 @@ private fun SeedBackup(
     }
     Spacer(Modifier.height(10.dp))
     Panel(accent = Purple) {
-        SelectionContainer {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                words.chunked(2).forEachIndexed { rowIdx, pair ->
-                    Row(Modifier.fillMaxWidth()) {
-                        pair.forEachIndexed { colIdx, w ->
-                            val n = rowIdx * 2 + colIdx + 1
-                            Text(
-                                "$n. $w",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontFamily = FontFamily.Monospace, color = TextMain,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                }
-            }
-        }
+        SelectionContainer { WordColumns(words) }
     }
     Spacer(Modifier.height(12.dp))
     PassphraseFields(words, passphrase, { passphrase = it }, repeat, { repeat = it })

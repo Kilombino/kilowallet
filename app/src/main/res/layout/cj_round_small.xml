@@ -9,7 +9,7 @@
             android:textColor="#DCD0EC" android:textSize="13sp" android:textStyle="bold" android:fontFamily="monospace" android:maxLines="1" android:ellipsize="end" />
         <LinearLayout android:id="@+id/cj_timer_box" android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:paddingStart="6dp">
             <Chronometer android:id="@+id/cj_timer" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:textColor="#B96BFF" android:textSize="13sp" android:textStyle="bold" android:fontFamily="monospace" />
+                android:textColor="#278BF5" android:textSize="13sp" android:textStyle="bold" android:fontFamily="monospace" />
         </LinearLayout>
     </LinearLayout>
     <TextView android:id="@+id/cj_status" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" />
