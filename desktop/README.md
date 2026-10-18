@@ -35,7 +35,8 @@ LND=… engines/build-lnd.sh   # → libgojni.so      (pins in engines/ENGINES)
 ARK=… engines/build-ark.sh   # → libkilombino_ark.so
 cp both into desktop/resources/linux-x64/
 ./gradlew :desktop:test                       # the Android app's unit tests too, on the desktop JVM
-./gradlew :desktop:packageDeb :desktop:createDistributable
+# a portable JDK for the bundled runtime (Temurin 17, checked against Adoptium's SHA-256):
+KW_PACKAGE_JDK=/path/to/jdk-17.0.20.1+1 ./gradlew :desktop:packageDeb :desktop:createDistributable
 packaging/build-appimage.sh 0.1.0-beta7       # → build/appimage/Kilowallet-…-x86_64.AppImage
 packaging/finish-deb.sh 0.1.0-beta7           # → build/release/kilowallet_…_amd64.deb
 packaging/sign-release.py OUTDIR FILES…       # SHA256SUMS + SHA256SUMS.sig
@@ -65,7 +66,8 @@ sha256sum -c SHA256SUMS
 ```
 
 The .deb installs on Ubuntu 24.04+ and Debian 12/13 (each renamed library has its Debian name as
-an alternative); the AppImage runs on other distributions.
+an alternative); the AppImage runs on other distributions with glibc 2.34 or newer (Ubuntu 22.04,
+Debian 12, Fedora 35 and later): its Java runtime is Temurin's, and the two engines need 2.34.
 
 ## What the password protects, and what it does not
 

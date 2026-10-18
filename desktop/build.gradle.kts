@@ -100,6 +100,11 @@ dependencies {
 compose.desktop {
     application {
         mainClass = "com.kilombino.kilowallet.desktop.MainKt"
+        // The JDK the bundled runtime is cut from (jlink). For Linux releases a portable one
+        // (Eclipse Temurin, built against an old glibc): a distribution's own JDK ties the
+        // AppImage to that distribution's glibc (Ubuntu 24.04's needs 2.38, so it would not start
+        // on Ubuntu 22.04 or Debian 12). CI already builds with Temurin.
+        System.getenv("KW_PACKAGE_JDK")?.let { javaHome = it }
         // LND (libgojni.so) and Ark (libkilombino_ark.so), loaded by name as on Android.
         jvmArgs("-Djava.library.path=\$APPDIR/resources", "-Dkilowallet.natives=\$APPDIR/resources")
         nativeDistributions {
