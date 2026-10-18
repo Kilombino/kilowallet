@@ -10,7 +10,6 @@
 " Nothing was charged.": " No s'ha cobrat res.",
 " RENEW first joins your coins into one and makes payments cheaper.": " RENOVA primer ajunta les teves monedes en una i abarateix els pagaments.",
 " Rescue XBT from a pre-fork Lightning (LND) seed": " Rescata XBT d'unes paraules de Lightning (LND) d'abans de la bifurcació",
-" The bridge is asked over Tor.": " Al pont se li pregunta per Tor.",
 " The fee comes out of the amount.": " La comissió surt de l'import.",
 " The most you can pay from one coin is {0} sats: tick ": " El màxim que pots pagar des d'una moneda són {0} sats: marca ",
 " The server says {0} other coin(s) were already spent earlier (an older wallet state); they no longer count in your balance.": " El servidor diu que {0} moneda(es) més ja es van gastar abans (un estat antic del moneder); ja no compten al teu saldo.",

@@ -10,7 +10,6 @@
 " Nothing was charged.": " Rien n'a été prélevé.",
 " RENEW first joins your coins into one and makes payments cheaper.": " RENOUVELER regroupe d'abord tes pièces en une seule et rend les paiements moins chers.",
 " Rescue XBT from a pre-fork Lightning (LND) seed": " Récupérer des XBT depuis une graine Lightning (LND) d'avant la bifurcation",
-" The bridge is asked over Tor.": " Le pont est interrogé via Tor.",
 " The fee comes out of the amount.": " Les frais sont déduits du montant.",
 " The most you can pay from one coin is {0} sats: tick ": " Le maximum que tu peux payer depuis une pièce est de {0} sats : coche ",
 " The server says {0} other coin(s) were already spent earlier (an older wallet state); they no longer count in your balance.": " Le serveur indique que {0} autre(s) pièce(s) ont déjà été dépensées plus tôt (un ancien état du portefeuille) ; elles ne comptent plus dans ton solde.",

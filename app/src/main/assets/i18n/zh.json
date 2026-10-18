@@ -10,7 +10,6 @@
 " Nothing was charged.": " 没有扣任何费用。",
 " RENEW first joins your coins into one and makes payments cheaper.": " 续期会先把你的币合并为一个，让付款更便宜。",
 " Rescue XBT from a pre-fork Lightning (LND) seed": " 从分叉前的 Lightning (LND) 助记词中救回 XBT",
-" The bridge is asked over Tor.": " 通过 Tor 向桥询价。",
 " The fee comes out of the amount.": " 手续费从金额中扣除。",
 " The most you can pay from one coin is {0} sats: tick ": " 单个币最多可支付 {0} sats：勾选 ",
 " The server says {0} other coin(s) were already spent earlier (an older wallet state); they no longer count in your balance.": " 服务器称另有 {0} 个币此前已被花费（旧的钱包状态）；它们不再计入你的余额。",

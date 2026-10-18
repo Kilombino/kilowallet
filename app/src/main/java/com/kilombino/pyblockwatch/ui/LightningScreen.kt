@@ -718,8 +718,7 @@ private fun BridgePay(accent: Color, invoice: String, sha: Lnd.PayReq, est: com.
                     "Plus the routing fee to the bridge, at most ${groupSats(feeLimit)} sats.",
                     style = MaterialTheme.typography.bodySmall, color = TextSoft)
                 Text("Nobody holds your money: your payment is held and the bridge can only collect it by paying this invoice. " +
-                    "If it can't, your BTC comes back by itself." +
-                    (if (com.kilombino.pyblockwatch.chain.Tor.running) " The bridge is asked over Tor." else ""),
+                    "If it can't, your BTC comes back by itself.",
                     style = MaterialTheme.typography.bodySmall, color = TextSoft)
                 if (wait > 0) Text(B.text("wait", org.json.JSONObject().put("wait_s", wait)), color = Bad, style = MaterialTheme.typography.bodySmall)
                 if (step.isNotBlank()) Text(step, style = MaterialTheme.typography.bodySmall, color = accent)

@@ -10,7 +10,6 @@
 " Nothing was charged.": " Non è stato addebitato nulla.",
 " RENEW first joins your coins into one and makes payments cheaper.": " RINNOVA prima unisce le tue monete in una sola e rende i pagamenti più economici.",
 " Rescue XBT from a pre-fork Lightning (LND) seed": " Recupera XBT da parole Lightning (LND) di prima del fork",
-" The bridge is asked over Tor.": " Il bridge viene interrogato tramite Tor.",
 " The fee comes out of the amount.": " La commissione esce dall'importo.",
 " The most you can pay from one coin is {0} sats: tick ": " Il massimo che puoi pagare da una moneta è {0} sats: spunta ",
 " The server says {0} other coin(s) were already spent earlier (an older wallet state); they no longer count in your balance.": " Il server dice che {0} altra/e moneta/e era/no già stata/e spesa/e prima (uno stato più vecchio del portafoglio); non contano più nel tuo saldo.",
