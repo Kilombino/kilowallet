@@ -1975,5 +1975,9 @@
 "The node has no unconfirmed coin from this transaction to speed it up with: it gave no change back to the node, or it already confirmed.": "El node no té cap moneda sense confirmar d'aquesta transacció amb què accelerar-la: no li va tornar canvi, o ja està confirmada.",
 "The node spends its {0} sats of change from it with a second transaction whose fee pays for both, so miners take the two together.": "El node gasta els seus {0} sats de canvi amb una segona transacció la comissió de la qual paga per les dues, així els miners s'emporten les dues juntes.",
 "Waiting in the mempool. To speed it up, the deposit spends its own output of it with a second transaction whose fee pays for both, so miners take the two together.": "Esperant a la mempool. Per accelerar-la, el dipòsit gasta la seva pròpia sortida amb una segona transacció la comissió de la qual paga per les dues, així els miners s'emporten les dues juntes.",
-"Sent: the second transaction pays {0} sats for both.": "Enviada: la segona transacció paga {0} sats per les dues."
+"Sent: the second transaction pays {0} sats for both.": "Enviada: la segona transacció paga {0} sats per les dues.",
+"Checked and saved:": "Comprovat i desat:",
+"1. Check its hash in a terminal (it must say OK):": "1. Comprova'n el hash en un terminal (ha de dir OK):",
+"2. Install it:": "2. Instal·la'l:",
+"Then open Kilowallet again.": "Després torna a obrir Kilowallet."
 }

@@ -39,6 +39,11 @@ object AppUpdater {
         object NeedsPermission : State()
         object Installing : State()
         data class Failed(val message: String) : State()
+        /**
+         * Desktop .deb only (Android never gets here): the package was checked and saved at
+         * [path], for the user to install from a terminal with the commands the dialog offers.
+         */
+        data class Saved(val path: String, val sha256: String) : State()
     }
 
     val state = MutableStateFlow<State>(State.Idle)

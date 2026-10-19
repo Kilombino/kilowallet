@@ -1975,5 +1975,9 @@
 "The node has no unconfirmed coin from this transaction to speed it up with: it gave no change back to the node, or it already confirmed.": "Le nœud n'a aucune pièce non confirmée de cette transaction pour l'accélérer : elle ne lui a rendu aucune monnaie, ou elle est déjà confirmée.",
 "The node spends its {0} sats of change from it with a second transaction whose fee pays for both, so miners take the two together.": "Le nœud dépense ses {0} sats de monnaie avec une seconde transaction dont les frais paient pour les deux, et les mineurs prennent les deux ensemble.",
 "Waiting in the mempool. To speed it up, the deposit spends its own output of it with a second transaction whose fee pays for both, so miners take the two together.": "En attente dans la mempool. Pour l'accélérer, le dépôt dépense sa propre sortie avec une seconde transaction dont les frais paient pour les deux, et les mineurs prennent les deux ensemble.",
-"Sent: the second transaction pays {0} sats for both.": "Envoyée : la seconde transaction paie {0} sats pour les deux."
+"Sent: the second transaction pays {0} sats for both.": "Envoyée : la seconde transaction paie {0} sats pour les deux.",
+"Checked and saved:": "Vérifié et enregistré :",
+"1. Check its hash in a terminal (it must say OK):": "1. Vérifiez son hash dans un terminal (il doit afficher OK) :",
+"2. Install it:": "2. Installez-le :",
+"Then open Kilowallet again.": "Puis rouvrez Kilowallet."
 }

@@ -223,6 +223,19 @@ class MainActivity : FragmentActivity() {
                                         is AppUpdater.State.Installing -> Text("Installing… Android may ask you to confirm. Android closes the app to replace it: " +
                                             "a notification tells you when the new version is in, tap it to open it.", style = MaterialTheme.typography.bodySmall)
                                         is AppUpdater.State.Failed -> Text(st.message, style = MaterialTheme.typography.bodySmall, color = Bad)
+                                        is AppUpdater.State.Saved -> {
+                                            // Two commands to paste in a terminal, each copied with one tap: the
+                                            // dialog's text can't be selected with the pointer.
+                                            val path = "'" + st.path.replace("'", "'\\''") + "'"
+                                            Text("Checked and saved:", style = MaterialTheme.typography.bodySmall)
+                                            androidx.compose.material3.Text(st.path, style = MaterialTheme.typography.bodySmall,
+                                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = TextMain)
+                                            Text("1. Check its hash in a terminal (it must say OK):", style = MaterialTheme.typography.bodySmall)
+                                            CommandToCopy("echo '${st.sha256}  ${st.path.replace("'", "")}' | sha256sum -c")
+                                            Text("2. Install it:", style = MaterialTheme.typography.bodySmall)
+                                            CommandToCopy("sudo apt install $path")
+                                            Text("Then open Kilowallet again.", style = MaterialTheme.typography.bodySmall)
+                                        }
                                         else -> {}
                                     }
                                 }
@@ -236,7 +249,7 @@ class MainActivity : FragmentActivity() {
                                         }) { Text("ALLOW", color = Purple) }
                                         TextButton(onClick = { AppUpdater.resume(this@MainActivity) }) { Text("CONTINUE", color = Purple) }
                                     }
-                                    is AppUpdater.State.Failed -> Row {
+                                    is AppUpdater.State.Failed, is AppUpdater.State.Saved -> Row {
                                         update?.let { r -> TextButton(onClick = { runCatching { uri.openUri(r.url) } }) { Text("GITHUB", color = TextSoft) } }
                                         TextButton(onClick = { AppUpdater.reset(); update = null }) { Text("CLOSE", color = Purple) }
                                     }
@@ -1646,3 +1659,18 @@ internal fun TxDetailDialog(
     )
 }
 
+
+/** A command to paste in a terminal: shown as it is (selectable too) with a button that copies it. */
+@Composable
+private fun CommandToCopy(command: String) {
+    val copier = rememberCopier()
+    Column(Modifier.fillMaxWidth().background(Ink, androidx.compose.foundation.shape.RoundedCornerShape(8.dp)).padding(10.dp)) {
+        androidx.compose.foundation.text.selection.SelectionContainer {
+            androidx.compose.material3.Text(command, style = MaterialTheme.typography.bodySmall,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = TextMain)
+        }
+        TextButton(onClick = { copier.copy(command) }, modifier = Modifier.align(Alignment.End)) {
+            Text(if (copier.copied) "COPIED ✓" else "COPY", color = if (copier.copied) Good else Purple)
+        }
+    }
+}
