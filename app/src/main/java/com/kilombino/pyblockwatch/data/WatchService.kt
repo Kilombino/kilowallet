@@ -135,7 +135,15 @@ class WatchService : Service() {
                     com.kilombino.pyblockwatch.widget.XbtWidget.renderAll(this@WatchService)
                 }
             }
-            delay(store.refreshBackgroundMinutes.coerceAtLeast(1) * 60_000L)
+            // Waited a minute at a time, so a changed interval counts from this cycle: shorter,
+            // and the next one comes sooner; off, and the watcher stops (at the loop's top).
+            val since = System.currentTimeMillis()
+            while (scope.isActive) {
+                delay(60_000L)
+                val every = store.refreshBackgroundMinutes
+                if (every <= 0 || !store.notificationsEnabled) break
+                if (System.currentTimeMillis() - since >= every * 60_000L) break
+            }
         }
     }
 
@@ -153,14 +161,11 @@ class WatchService : Service() {
         for (chainIndex in 0..1) {
             // Every address used so far plus the gap, not just the first [gapLimit]: a wallet
             // past its 20th address would otherwise miss payments to its newer ones.
+            // Worked out once and remembered with the scanner's (the same addresses every cycle).
             val depth = store.usedTop(xpub, chainIndex) + store.gapLimit
-            val branch = Bip32.deriveChild(account, chainIndex)
-            for (i in 0 until depth) {
-                val child = Bip32.deriveChild(branch, i)
-                val sh = Address.scriptHashFor(child.pubkey(), type)
+            Scanner.derivedRange(account, type, chainIndex, depth).forEachIndexed { i, (address, sh) ->
                 out += AddressRow(
-                    chainIndex = chainIndex, index = i,
-                    address = Address.encode(child.pubkey(), type),
+                    chainIndex = chainIndex, index = i, address = address,
                     path = "m/$chainIndex/$i", scriptHash = sh, type = tag,
                 )
             }

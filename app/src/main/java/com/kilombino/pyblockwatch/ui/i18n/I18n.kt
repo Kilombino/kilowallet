@@ -43,18 +43,38 @@ object I18n {
         val saved = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null)?.takeIf { l -> LANGUAGES.any { it.first == l } }
         choice.value = saved ?: AUTO
         lang.value = saved ?: system()
+        preload(lang.value)
+    }
+
+    /**
+     * Builds [l]'s table away from the screen: reading it (~200 KB of JSON) and setting up its
+     * templates took the first frame 50–120 ms. Started at app start, it is usually ready before
+     * the first text; a [tr] that comes sooner waits for it rather than build it twice.
+     */
+    private fun preload(l: String) {
+        if (l == EN || tables.containsKey(l)) return
+        Thread { table(l) }.apply { isDaemon = true; name = "i18n"; priority = Thread.NORM_PRIORITY }.start()
     }
 
     /** [l]: a language's code, or [AUTO] to follow the phone. */
     fun set(ctx: Context, l: String) {
         choice.value = l
         lang.value = if (l == AUTO) system() else l
+        preload(lang.value)
         ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().apply {
             if (l == AUTO) remove(KEY) else putString(KEY, l)
         }.apply()
     }
 
-    private class Template(val regex: Regex, val out: String, val fragment: Boolean)
+    /**
+     * [head]: the text before the first placeholder. A string that doesn't start with it can't
+     * match, so most templates are skipped without their regex, which is only compiled when a
+     * string gets that far.
+     */
+    private class Template(val head: String, pattern: String, val out: String, val fragment: Boolean) {
+        val regex by lazy { Regex(pattern, RegexOption.DOT_MATCHES_ALL) }
+        val length = pattern.length
+    }
     private class Table(
         val exact: Map<String, String>, val upper: Map<String, String>, val templates: List<Template>,
         val prefixes: List<Pair<String, String>>, val suffixes: List<Pair<String, String>>,
@@ -65,16 +85,19 @@ object I18n {
     private val bullet = Regex("""^([•·\-–]\s+)(.+)$""", RegexOption.DOT_MATCHES_ALL)
     private val placeholder = Regex("""\{\d+\}""")
 
-    private fun table(l: String): Table? = tables[l] ?: run {
+    private fun table(l: String): Table? = tables[l] ?: synchronized(tables) { tables[l] ?: build(l) }
+
+    private fun build(l: String): Table? {
         val o = runCatching { JSONObject(loader?.invoke(l) ?: return null) }.getOrNull() ?: return null
         val exact = HashMap<String, String>(); val upper = HashMap<String, String>()
         val templates = ArrayList<Template>(); val prefixes = ArrayList<Pair<String, String>>(); val suffixes = ArrayList<Pair<String, String>>()
         for (en in o.keys()) {
             val out = o.getString(en)
             if (placeholder.containsMatchIn(en)) {
-                val pattern = en.split(placeholder).joinToString("(.+?)") { Regex.escape(it) }
+                val parts = en.split(placeholder)
+                val pattern = parts.joinToString("(.+?)") { Regex.escape(it) }
                 val frag = en.last().isWhitespace() || en.last() in "(≈:—-"
-                templates += Template(Regex("^$pattern" + if (frag) "" else "$", RegexOption.DOT_MATCHES_ALL), out, frag)
+                templates += Template(parts.first(), "^$pattern" + if (frag) "" else "$", out, frag)
             } else {
                 exact[en] = out
                 // "BEFORE YOU TURN IT ON": the code upper-cases a mixed-case string.
@@ -84,8 +107,8 @@ object I18n {
             }
         }
         prefixes.sortByDescending { it.first.length }; suffixes.sortByDescending { it.first.length }
-        templates.sortByDescending { it.regex.pattern.length } // the most specific first
-        Table(exact, upper, templates, prefixes, suffixes).also { tables[l] = it }
+        templates.sortByDescending { it.length } // the most specific first
+        return Table(exact, upper, templates, prefixes, suffixes).also { tables[l] = it }
     }
 
     /** One piece of a joined string, its surrounding spaces kept ("m/84'/0'/0'/0/1  ·  receive"). */
@@ -114,6 +137,7 @@ object I18n {
         t.upper[s]?.let { return it }
         if (depth > 4 || s.isEmpty()) return s
         for (tp in t.templates) {
+            if (!s.startsWith(tp.head)) continue
             val m = tp.regex.find(s) ?: continue
             var out = tp.out
             // The placeholders' values, translated themselves when they are words ("Taproot", "OPEN"…).

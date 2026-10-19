@@ -67,7 +67,9 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
     // A heartbeat while the tab is open: the countdowns move, and a round's progress shows
     // even if a change slipped past the version flow.
     var tick by remember { mutableStateOf(0L) }
-    LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(2_000); tick++ } }
+    LaunchedEffect(Unit) {
+        while (true) { kotlinx.coroutines.delay(2_000); if (com.kilombino.pyblockwatch.ui.AppVisible.value) tick++ }
+    }
     val rev = version * 1_000_000 + tick
     val mine = remember(rev) { CoinjoinHub.states.value.toList() }
     var pools by remember { mutableStateOf<List<Protocol.Terms>?>(null) }
@@ -107,7 +109,7 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
         com.kilombino.pyblockwatch.coinjoin.CoinjoinService.refresh(ctx)
         reloadPools()
         // While the tab is open, the open pools are looked up again every minute.
-        while (true) { kotlinx.coroutines.delay(60_000); reloadPools() }
+        while (true) { kotlinx.coroutines.delay(60_000); if (com.kilombino.pyblockwatch.ui.AppVisible.value) reloadPools() }
     }
 
     // Opt-in: until the user accepts the explainer, the tab shows only that.

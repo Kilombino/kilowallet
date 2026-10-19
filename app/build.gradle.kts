@@ -5,7 +5,6 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
@@ -19,14 +18,14 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "com.kilombino.pyblockwatch"
-    compileSdk = 35
+    compileSdk { version = release(37) { minorApiLevel = 1 } }
 
     defaultConfig {
         applicationId = "com.kilombino.pyblockwatch"
         minSdk = 26
         targetSdk = 35
-        versionCode = 166
-        versionName = "1.1.5"
+        versionCode = 171
+        versionName = "1.1.7"
         // One native library of ours: the Ark engine, arm64-v8a only, rebuilt from a pinned
         // commit and checked against ark-engine/ENGINE before every release build. On other
         // ABIs the wallet runs without Ark. See README-REPRODUCIBLE.md §1.
@@ -89,8 +88,6 @@ android {
         // extracts it at install) instead of uncompressed and page-aligned, which would make
         // the download several times bigger.
         jniLibs.useLegacyPackaging = true
-        // Tor ships for every ABI; only arm64 phones run this wallet's engines, so keep just that one.
-        jniLibs.excludes += setOf("lib/armeabi-v7a/libtor.so", "lib/x86/libtor.so", "lib/x86_64/libtor.so")
     }
 }
 
@@ -111,6 +108,18 @@ val verifyArkEngine by tasks.registering {
         check(others.isEmpty()) { "Only arm64-v8a may ship; remove ${others.joinToString { it.name }}" }
     }
 }
+// The same for the Tor engine (Arti, the program libarti.so), pinned in tor-engine/ENGINE.
+val verifyTorEngine by tasks.registering {
+    val pin = rootProject.file("tor-engine/ENGINE")
+    val exe = file("src/main/jniLibs/arm64-v8a/libarti.so")
+    inputs.files(pin)
+    doLast {
+        val expected = pin.readLines().first { it.startsWith("sha256=") }.substringAfter("=").trim()
+        check(exe.exists()) { "Missing $exe — build it with tor-engine/build.sh." }
+        val actual = MessageDigest.getInstance("SHA-256").digest(exe.readBytes()).joinToString("") { "%02x".format(it) }
+        check(actual == expected) { "Tor engine hash $actual does not match the pinned $expected" }
+    }
+}
 // The same for the Lightning engine (LND as a gomobile library), pinned in lnd-engine/ENGINE.
 val verifyLndEngine by tasks.registering {
     val pin = rootProject.file("lnd-engine/ENGINE")
@@ -126,7 +135,7 @@ val verifyLndEngine by tasks.registering {
         check(actual == expected) { "Lightning engine hash $actual does not match the pinned $expected" }
     }
 }
-tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(verifyArkEngine, verifyLndEngine) }
+tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(verifyArkEngine, verifyLndEngine, verifyTorEngine) }
 
 // The Lightning engine's AAR carries an x86_64 build for the emulator: debug builds keep it,
 // a release ships arm64 only, like the Ark engine.
@@ -175,7 +184,6 @@ dependencies {
     // 1.3.0+, so pull a current fragment forward explicitly.
     implementation("androidx.fragment:fragment:1.8.5")
     // Tor inside the app (no Orbot), for a node reached by .onion. BSD-3, Guardian Project.
-    implementation("info.guardianproject:tor-android:0.4.9.5")
     implementation("info.guardianproject:jtorctl:0.4.5.7")
 
     // NOTE: there is deliberately no crypto dependency here — no BouncyCastle, no

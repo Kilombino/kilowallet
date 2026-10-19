@@ -24,21 +24,23 @@ pulled transitively and pinned by hash like every other dependency:
 `libandroidx.graphics.path.so` (a Compose path parser), and
 `libimage_processing_util_jni.so` and `libsurface_util_jni.so` from CameraX.
 
-Since 0.24.0 it also carries **Tor**: `lib/arm64-v8a/libtor.so` from Guardian Project's
-`info.guardianproject:tor-android:0.4.9.5` (BSD-3), prebuilt and pinned by hash in
-`gradle/verification-metadata.xml` like every other dependency. It only runs when a
-connection goes to a `.onion` (your node reached from outside); the other ABIs' copies
-are left out of the APK.
+It also carries **Tor**: since 1.1.7 it is **Arti**, the Tor Project's Tor in Rust
+(MIT/Apache-2.0), as the program `lib/arm64-v8a/libarti.so` (named like a library so Android
+extracts it next to the app's native code, from where the app runs it). Like the Ark engine
+it is rebuilt from a pinned tag, reproducibly, and the release build refuses any program
+whose SHA-256 differs from the pin in `tor-engine/ENGINE` (§9). It only runs when a
+connection needs Tor (Lightning, a `.onion` node), as a local SOCKS proxy; it holds no keys.
+Until 1.1.6 the APK carried Guardian Project's prebuilt `tor-android` (C Tor) instead.
 
 ## 2. Toolchain pins
 
 | Component | Version |
 |---|---|
 | JDK (build) | Temurin/OpenJDK **17.0.20+8** |
-| Android Gradle Plugin | **8.7.3** |
-| Gradle (wrapper) | **8.11.1** |
+| Android Gradle Plugin | **9.4.1** (Kotlin built in) |
+| Gradle (wrapper) | **9.8.1** |
 | Kotlin (android + compose) | **2.3.10** |
-| compileSdk / targetSdk | **35** / **35** · build-tools **35.0.0** |
+| compileSdk / targetSdk | **37.1** / **35** · build-tools **36.0.0** |
 | Jetpack Compose | BOM **2024.12.01** |
 | R8 / minify | **on** since 0.18.0 (deterministic: two clean builds still match byte for byte); only the Ark JNI class is kept by name |
 | Packaged ABIs | all for the Kotlin app; the Ark engine is arm64-v8a only |
@@ -153,3 +155,22 @@ The script remaps the source and toolchain paths, so the result does not depend 
 anything lives: two clean clones in different directories produced that identical hash. (0.15.0–0.15.1 shipped `5f0e55e089b652b6d29833fc92a2ea6100846ad02f43ca85a183e4b974474c03`, commit 72de502; 0.14.3 shipped `ff1009e99da20516ce11ab195f421a5c9b08dbe4e967c2cf474a860b435a662f`, commit fbc0d05; 0.11.0–0.14.2 shipped engines up to `c3e4856f3a3879071edb125a300efe853dae5c701cbc75216f8887f55ccc206e`, commit a7d0f82; 0.10.8–0.10.9 shipped `1e6cb4466b2fe4b9c1796a82e6a6dc2eb0a7cb6a8e2d591e116f9a7d1cb1a445`, commit bd446d9; 0.10.5–0.10.7 shipped `7fd3728da779e1cdd84550e9db8f03ab206c20701b53115be705c43ec4d70381`, commit 8d6be19; 0.10.4 shipped `6378b4e6bcf20502db958cd73c6fe4bfff5fe5c0c5eacaf3304191bacefd1780`, commit 7b33f3c; 0.10.3 shipped `a3b019ef6b782084f6b59797dee7ea5167b61bd1cb5ec8a13242bb0342202a44`, commit 0769c94; 0.10.0–0.10.2 shipped `29eb7ec38aef01563c581f94204c3bd5020f0a52245f679320b58a537d7692d9`, commit 7fadbef.)
 `./gradlew assembleRelease` runs `verifyArkEngine` first and fails if the library in
 `jniLibs` differs from the pin, or if any other ABI directory is present.
+
+## 9. The Tor engine (Arti)
+
+`tor-engine/ENGINE` pins the tag, commit, features, toolchain and SHA-256. To rebuild:
+
+```
+git clone --branch arti-v2.7.0 https://gitlab.torproject.org/tpo/core/arti
+ARTI=$PWD/arti tor-engine/build.sh arm64-v8a
+cp arti/target/aarch64-linux-android/release-small/arti app/src/main/jniLibs/arm64-v8a/libarti.so
+```
+
+`build.sh` uses cargo-ndk with the NDK in the table above, Android API 26, the `release-small`
+profile with all symbols stripped, and path remapping, so the program has no build paths in it and the same bytes come out
+on any machine with the same toolchain; its SHA-256 must equal `sha256=` in `ENGINE`. Features:
+a SOCKS proxy with `.onion` client support, rustls (no OpenSSL) and SQLite built in; no onion
+service hosting, bridges or pluggable transports. (1.1.7-beta1 shipped
+`b4b50742a24ff3dc540e6fbad4c269c68f515982314629551a0b9834f584d846`, the same build with only debug
+info stripped.)
+

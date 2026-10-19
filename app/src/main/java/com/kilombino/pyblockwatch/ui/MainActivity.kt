@@ -105,8 +105,13 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         com.kilombino.pyblockwatch.data.OpenTab.from(intent)
         // A coinjoin round left running (app killed, updated, phone restarted) picks up again.
-        if (com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.hasActive(this))
-            com.kilombino.pyblockwatch.coinjoin.CoinjoinService.start(this)
+        // Looked for off the main thread: it opens each round's key from the Keystore.
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            if (com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.hasActive(this@MainActivity))
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    com.kilombino.pyblockwatch.coinjoin.CoinjoinService.start(this@MainActivity)
+                }
+        }
         enableEdgeToEdge()
         StreetMode.init(this)
         com.kilombino.pyblockwatch.chain.Tor.install(this)
@@ -117,11 +122,13 @@ class MainActivity : FragmentActivity() {
                 // Notifications are on by default: start the watcher (and ask for the
                 // POST_NOTIFICATIONS permission on Android 13+) as soon as there is a wallet.
                 // With background checks off (⏻ or settings) the watcher, and its persistent
-                // notification, stop; a change of interval restarts it so it takes effect now.
+                // notification, stop. One already running is left alone: restarting it on every
+                // opening repeated all its network work right next to the app's own first look.
+                // It reads a changed interval itself, within a minute.
                 LaunchedEffect(state.hasWallet, state.notificationsEnabled, state.refreshBackgroundMinutes) {
                     if (state.hasWallet && state.notificationsEnabled) {
-                        stopService(Intent(this@MainActivity, WatchService::class.java))
                         if (state.refreshBackgroundMinutes > 0) toggleNotifications(vm, true)
+                        else stopService(Intent(this@MainActivity, WatchService::class.java))
                     }
                 }
                 // ARK and COINJOIN live in advanced mode: a notification about them switches to it.
@@ -148,7 +155,8 @@ class MainActivity : FragmentActivity() {
                         while (true) {
                             // CHECK NOW asks even with the periodic check switched off.
                             val now = com.kilombino.pyblockwatch.data.OpenTab.checkNow
-                            if (now || prefs.getBoolean("check_updates", true)) {
+                            // Not while in the background: the watcher looks (and notifies) there.
+                            if (now || (AppVisible.value && prefs.getBoolean("check_updates", true))) {
                                 com.kilombino.pyblockwatch.data.OpenTab.checkNow = false
                                 val current = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: ""
                                 val o = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {

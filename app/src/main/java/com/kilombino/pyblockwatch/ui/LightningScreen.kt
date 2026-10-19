@@ -37,6 +37,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import com.kilombino.pyblockwatch.crypto.Bip39
@@ -57,9 +59,13 @@ import kotlinx.coroutines.withContext
 fun LightningScreen(vm: WalletViewModel, accent: Color, settings: Boolean) {
     val activity = LocalContext.current as FragmentActivity
     val ctx = activity.applicationContext
-    val ui by vm.state.collectAsState()
+    // Only the chain's height is wanted here: collecting the whole state redrew this tab on
+    // every scan step and countdown of the wallet behind it.
+    val height by androidx.compose.runtime.remember(vm) {
+        vm.state.map { it.current.height }.distinctUntilChanged()
+    }.collectAsState(vm.state.value.current.height)
     val status by Lightning.status.collectAsState()
-    Lightning.chainTip = ui.current.height
+    androidx.compose.runtime.SideEffect { Lightning.chainTip = height }
 
     LaunchedEffect(Unit) { Lightning.resume(ctx) }
     DisposableEffect(Unit) { Lightning.watch(true); onDispose { Lightning.watch(false) } }
@@ -86,7 +92,7 @@ fun LightningScreen(vm: WalletViewModel, accent: Color, settings: Boolean) {
                     PulseDot(accent); Spacer(Modifier.width(8.dp))
                     Text(s.step.replaceFirstChar { it.uppercase() } + "…", color = TextSoft)
                 }
-                val tip = ui.current.height
+                val tip = height
                 val h = s.height
                 if (h != null && tip > 0) {
                     Spacer(Modifier.height(10.dp))
@@ -419,6 +425,8 @@ private fun FundSheet(accent: Color, onTx: (String) -> Unit) {
         runCatching { withContext(Dispatchers.IO) { Lnd.newAddress() } }
             .onSuccess { addr = it; Lightning.rememberFundAddress(ctxF, it) }.onFailure { err = it.message }
         while (true) {
+            // In the background: no calls to the node or the explorer until the app is back.
+            if (!com.kilombino.pyblockwatch.ui.AppVisible.value) { kotlinx.coroutines.delay(2_000); continue }
             coins = runCatching { withContext(Dispatchers.IO) { Lnd.utxos() } }.getOrDefault(coins)
             txs = runCatching {
                 withContext(Dispatchers.IO) {

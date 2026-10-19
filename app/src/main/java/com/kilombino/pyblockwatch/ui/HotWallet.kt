@@ -973,10 +973,16 @@ fun QrImage(text: String, sizeDp: Int) {
 fun ReceiveSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
     val copier = rememberCopier()
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    // The wallet the addresses come from: switching HOT/WATCH (or the receive account) with the
+    // sheet open, or its look finding newly used addresses, works the address out again instead of
+    // leaving the other wallet's on screen.
+    val st by vm.state.collectAsState()
+    val walletKey = listOf(st.xpub, st.taprootXpub, st.isHot, st.receiveTaproot,
+        st.chains.values.sumOf { c -> c.rows.count { it.chainIndex == 0 && it.isUsed } })
     // Every unused address, the ones skipped below the last used one included: ◀ ▶ move among them.
-    val unused = remember { vm.unusedReceiveIndexes() }
-    var index by remember { mutableStateOf(vm.nextReceiveIndex()) }
-    val pair = remember(index) { vm.receiveAddress(index) }
+    val unused = remember(walletKey) { vm.unusedReceiveIndexes() }
+    var index by remember(walletKey) { mutableStateOf(vm.nextReceiveIndex()) }
+    val pair = remember(walletKey, index) { vm.receiveAddress(index) }
     var sweeping by remember { mutableStateOf(false) }
     if (sweeping) {
         SweepSheet(vm, accent) { sweeping = false; vm.resetSweep() }

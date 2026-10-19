@@ -28,8 +28,8 @@ val engineFiles = when (hostOs) {
 }
 
 /** The desktop app's own version (its betas are numbered apart from Android's). */
-val desktopVersion = "0.1.0-beta9"
-val desktopCode = 9
+val desktopVersion = "0.1.0-beta10"
+val desktopCode = 10
 
 val writeBuildInfo by tasks.registering {
     val out = layout.buildDirectory.dir("generated/buildinfo")
@@ -51,6 +51,9 @@ val sharedSources by tasks.registering(Sync::class) {
             "com/kilombino/pyblockwatch/ui/QrScanner.kt",
             "com/kilombino/pyblockwatch/data/UpdateCheck.kt",
             "com/kilombino/pyblockwatch/data/AppUpdater.kt",
+            // The phone runs Arti (libarti.so, Android 1.1.7+); the desktop keeps the C tor of the
+            // Tor Project's expert bundle, behind the same Tor object (src/main/kotlin).
+            "com/kilombino/pyblockwatch/chain/Tor.kt",
         )
         // The screens' Text is the app's translating one; on the desktop it also says "computer"
         // for "phone" and "password" for "fingerprint" (desktop i18n.Text, over the same tables).

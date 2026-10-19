@@ -67,7 +67,7 @@ account. Apache-2.0, reproducible, and every line of cryptography is in this rep
 - **Your own node.** The BLAKE2b side can point at any Electrum server you run, or straight at your
   Bitcoin node by RPC (no Electrum server): the node gets a watch-only wallet for the account, the keys
   stay on the phone. Several ways to reach it (home, a `.onion` from outside) are tried in order, and
-  `.onion` goes through Tor built into the app (tor-android, no Orbot needed).
+  `.onion` goes through Tor built into the app (Arti, the Tor Project's Tor in Rust; no Orbot needed).
 - **Balance-change notifications** without a push server: the phone asks the Electrum
   server itself, on a visible foreground service you opt into.
 - **Simple or Advanced.** On first open you choose. *Simple* is one screen: your XBT

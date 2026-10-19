@@ -311,8 +311,9 @@ class Scanner(
         val client = ElectrumClient(endpoint, pinnedFingerprint)
         return try {
             client.connect()
-            rows.flatMap { r ->
-                client.listUnspent(r.scriptHash).map { SpendableUtxo(it.txid, it.vout, it.value, r.chainIndex, r.index, it.height, r.type) }
+            // One round trip for all of them, not one per address.
+            client.listUnspentMany(rows.map { it.scriptHash }).zip(rows).flatMap { (us, r) ->
+                us.map { SpendableUtxo(it.txid, it.vout, it.value, r.chainIndex, r.index, it.height, r.type) }
             }
         } finally {
             client.close()
@@ -326,10 +327,8 @@ class Scanner(
         val client = ElectrumClient(endpoint, pinnedFingerprint)
         return try {
             client.connect()
-            val all = rows.flatMap { r ->
-                client.listUnspent(r.scriptHash).map {
-                    SpendableUtxo(it.txid, it.vout, it.value, r.chainIndex, r.index, it.height, r.type)
-                }
+            val all = client.listUnspentMany(rows.map { it.scriptHash }).zip(rows).flatMap { (us, r) ->
+                us.map { SpendableUtxo(it.txid, it.vout, it.value, r.chainIndex, r.index, it.height, r.type) }
             }
             // A mined reward (coinbase) can't be spent until it matures; a spend using one would
             // only fail at broadcast. Leave out the immature ones.
@@ -477,16 +476,17 @@ class Scanner(
             com.kilombino.pyblockwatch.chain.HeaderChain.useDir(dir)
             runCatching {
                 val o = org.json.JSONObject(java.io.File(dir, "derived.json").readText())
-                for (k in o.keys()) { val a = o.getJSONArray(k); derivedCache[k] = a.getString(0) to a.getString(1) }
+                for (k in o.keys()) { val a = o.getJSONArray(k); derivedCache.putIfAbsent(k, a.getString(0) to a.getString(1)) }
             }
             runCatching {
                 val o = org.json.JSONObject(java.io.File(dir, "status.json").readText())
                 for (k in o.keys()) {
                     val e = o.getJSONObject(k)
                     val h = e.getJSONArray("h")
-                    statusCache[k] = CachedAddress(e.getString("s"),
+                    // putIfAbsent: a look that started before the disk was read keeps what it found.
+                    statusCache.putIfAbsent(k, CachedAddress(e.getString("s"),
                         (0 until h.length()).map { val x = h.getJSONArray(it); ElectrumClient.HistoryItem(x.getString(0), x.getInt(1)) },
-                        ScriptHashBalance(e.getLong("c"), e.getLong("u")))
+                        ScriptHashBalance(e.getLong("c"), e.getLong("u"))))
                 }
             }
         }
@@ -528,6 +528,21 @@ class Scanner(
             derivedCache[key]?.let { return it }
             val v = make(); derivedCache[key] = v; derivedDirty = true
             return v
+        }
+
+        /**
+         * The first [count] addresses (and script hashes) of [account]'s branch [chainIndex] as
+         * [type], from the same cache a look uses: the watcher asks for them every cycle.
+         */
+        fun derivedRange(account: Bip32.ExtendedPubKey, type: ScriptType, chainIndex: Int, count: Int): List<Pair<String, String>> {
+            val tag = accountTag(account, type)
+            val branch by lazy { Bip32.deriveChild(account, chainIndex) }
+            return (0 until count).map { i ->
+                derived(tag, chainIndex, i) {
+                    val child = Bip32.deriveChild(branch, i); val pub = child.pubkey()
+                    Address.encode(pub, type) to Address.scriptHashFor(pub, type)
+                }
+            }
         }
 
         /** Read the remembered statuses again (a backup file just put them back). */

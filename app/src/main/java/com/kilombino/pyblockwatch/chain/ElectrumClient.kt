@@ -311,31 +311,44 @@ class ElectrumClient(
      */
     fun statuses(scriptHashes: List<String>): List<String?> {
         if (node != null || scriptHashes.size <= 1) return scriptHashes.map { status(it) }
+        return batch("blockchain.scripthash.subscribe", scriptHashes)
+            .map { it?.takeIf { r -> r != JSONObject.NULL }?.toString() }
+    }
+
+    /** [listUnspent] of many scripthashes, batched like [statuses]. */
+    fun listUnspentMany(scriptHashes: List<String>): List<List<Utxo>> {
+        if (node != null || scriptHashes.size <= 1) return scriptHashes.map { listUnspent(it) }
+        return batch("blockchain.scripthash.listunspent", scriptHashes).map { utxos(it as? JSONArray) }
+    }
+
+    /** One request per scripthash, all written before any answer is read; the answers in order. */
+    private fun batch(method: String, scriptHashes: List<String>): List<Any?> {
         // Servers cap how many requests may wait at once: a long list goes in rounds.
-        if (scriptHashes.size > 50) return scriptHashes.chunked(50).flatMap { statuses(it) }
+        if (scriptHashes.size > 50) return scriptHashes.chunked(50).flatMap { batch(method, it) }
+        val what = method.substringAfterLast('.')
         val w = writer ?: throw ElectrumException("client not connected")
         val r = reader ?: throw ElectrumException("client not connected")
         val ids = scriptHashes.map { sh ->
             val id = nextId++
             val req = JSONObject().put("jsonrpc", "2.0").put("id", id)
-                .put("method", "blockchain.scripthash.subscribe").put("params", JSONArray().put(sh))
+                .put("method", method).put("params", JSONArray().put(sh))
             try { w.write(req.toString()); w.write("\n") } catch (e: Exception) {
-                throw ElectrumException("Lost the connection while sending subscribe: ${e.message}", e)
+                throw ElectrumException("Lost the connection while sending $what: ${e.message}", e)
             }
             id
         }
         try { w.flush() } catch (e: Exception) { throw ElectrumException("Lost the connection: ${e.message}", e) }
         val want = ids.toHashSet()
-        val got = HashMap<Int, String?>()
+        val got = HashMap<Int, Any?>()
         while (got.size < ids.size) {
             val line = try { r.readLine() } catch (e: Exception) {
-                throw ElectrumException("Lost the connection while waiting for subscribe: ${e.message}", e)
-            } ?: throw ElectrumException("The server closed the connection during subscribe")
+                throw ElectrumException("Lost the connection while waiting for $what: ${e.message}", e)
+            } ?: throw ElectrumException("The server closed the connection during $what")
             val obj = try { JSONObject(line) } catch (e: Exception) { continue }
             val id = obj.optInt("id", -1)
             if (id !in want) continue   // a notification, not one of our answers
-            if (obj.has("error") && !obj.isNull("error")) throw ElectrumException("subscribe: ${obj.get("error")}")
-            got[id] = obj.opt("result")?.takeIf { it != JSONObject.NULL }?.toString()
+            if (obj.has("error") && !obj.isNull("error")) throw ElectrumException("$what: ${obj.get("error")}")
+            got[id] = obj.opt("result")
         }
         return ids.map { got[it] }
     }
@@ -378,12 +391,12 @@ class ElectrumClient(
     /** The unspent outputs a scripthash controls — the coins a send can draw on. */
     fun listUnspent(scriptHash: String): List<Utxo> {
         node?.let { return it.listUnspent(scriptHash) }
-        val r = call("blockchain.scripthash.listunspent", JSONArray().put(scriptHash)) as? JSONArray
-            ?: return emptyList()
-        return (0 until r.length()).map {
-            val o = r.getJSONObject(it)
-            Utxo(o.optString("tx_hash"), o.optInt("tx_pos"), o.optLong("value"), o.optInt("height"))
-        }
+        return utxos(call("blockchain.scripthash.listunspent", JSONArray().put(scriptHash)) as? JSONArray)
+    }
+
+    private fun utxos(r: JSONArray?): List<Utxo> = if (r == null) emptyList() else (0 until r.length()).map {
+        val o = r.getJSONObject(it)
+        Utxo(o.optString("tx_hash"), o.optInt("tx_pos"), o.optLong("value"), o.optInt("height"))
     }
 
     /**

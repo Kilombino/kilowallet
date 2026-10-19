@@ -237,7 +237,6 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     init {
-        Scanner.useDisk(java.io.File(getApplication<Application>().noBackupFilesDir, "scan-cache"))
         val xpub = store.xpub
         // A hot wallet set to another address type in an older version: back to its own BIP84.
         if (seedVault.hasSeed() && store.activeWallet != Store.WATCH && store.scriptType != ScriptType.P2WPKH)
@@ -268,7 +267,16 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 store.coinjoinAsked = true; store.coinjoinEnabled = true; store.coinjoinNotify = true
             }
         }
-        if (xpub != null) scannableChains().forEach { look(it) }
+        // The caches, verified headers and last snapshots come off the disk away from the
+        // screen: read (and the headers re-hashed) on the main thread they held up the first
+        // frame by 30–150 ms, more as the wallet grew. The looks start once they are in.
+        viewModelScope.launch {
+            val snaps = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                Scanner.useDisk(java.io.File(getApplication<Application>().noBackupFilesDir, "scan-cache"))
+                if (xpub == null) emptyMap() else scannableChains().associateWith { readSnapshot(it) }
+            }
+            if (_state.value.xpub == xpub) snaps.forEach { (chain, snap) -> look(chain, snap) }
+        }
         startRefreshLoop()
         refreshMarket()
     }
@@ -699,7 +707,26 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
 
         jobs[chain] = viewModelScope.launch {
             val found = mutableListOf<AddressRow>()
+            // Progress (each address derived, checked or found) is shown at most every 300 ms,
+            // as refresh does: one state change per address redrew the whole screen hundreds
+            // of times in a scan, and copied the growing list each time.
+            var progress: ScanPhase.Scanning? = null
+            var lastShown = 0L
             scanner.scan(xpub, chain, endpoint, pin, ws.scriptType, ws.gapLimit, extraAccount()).collect { ev ->
+                when (ev) {
+                    is ScanEvent.Deriving -> progress = ScanPhase.Scanning(ev.path, ev.chainIndex, 0, 20)
+                    is ScanEvent.GapProgress -> progress = progress?.copy(gapUsed = ev.consecutiveEmpty, gapLimit = ev.gapLimit)
+                    is ScanEvent.Found -> found += ev.row
+                    else -> {}
+                }
+                if (ev is ScanEvent.Deriving || ev is ScanEvent.GapProgress || ev is ScanEvent.Found) {
+                    val now = System.currentTimeMillis()
+                    if (now - lastShown < 300) return@collect
+                    lastShown = now
+                    val p = progress
+                    updateIf(xpub, chain) { st -> st.copy(phase = p ?: st.phase, rows = found.toList()) }
+                    return@collect
+                }
                 updateIf(xpub, chain) { st ->
                     when (ev) {
                         is ScanEvent.Connecting ->
@@ -712,15 +739,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                             st.copy(server = ev.server, height = ev.height, fingerprint = ev.fingerprint,
                                     fingerprintChanged = ev.fingerprintChanged)
                         }
-                        is ScanEvent.Deriving ->
-                            st.copy(phase = ScanPhase.Scanning(ev.path, ev.chainIndex, 0, 20))
-                        is ScanEvent.GapProgress ->
-                            st.copy(phase = (st.phase as? ScanPhase.Scanning)
-                                ?.copy(gapUsed = ev.consecutiveEmpty, gapLimit = ev.gapLimit) ?: st.phase)
-                        is ScanEvent.Found -> {
-                            found += ev.row
-                            st.copy(rows = found.toList())
-                        }
+                        is ScanEvent.Deriving, is ScanEvent.GapProgress, is ScanEvent.Found -> st
                         is ScanEvent.Done -> {
                             noteUsed(ev.rows)
                             // Reset the notification baseline to what the user is now looking at,
@@ -752,10 +771,10 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
      * shown at once (marked as not yet checked), and a silent look ([refresh]) walks every
      * address again behind them, so nothing is ever skipped. Without a snapshot, a normal scan.
      */
-    private fun look(chain: Chain) {
+    private fun look(chain: Chain, snap: Snapshot? = readSnapshot(chain)) {
         val cs = _state.value.chains[chain]
         val shown = cs != null && cs.rows.isNotEmpty() && cs.phase is ScanPhase.Complete
-        if (shown || restoreSnapshot(chain)) refresh(chain) else scan(chain)
+        if (shown || restoreSnapshot(chain, snap)) refresh(chain) else scan(chain)
     }
 
     /** One file per wallet, chain and account set: another xpub or address type never reads it. */
@@ -790,9 +809,12 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         }.onFailure { android.util.Log.w("Kilowallet", "snapshot not saved: $it") }
     }
 
-    private fun restoreSnapshot(chain: Chain): Boolean {
-        val f = snapshotFile(chain)?.takeIf { it.exists() } ?: return false
-        val xpub = _state.value.xpub ?: return false
+    /** What [saveSnapshot] wrote, read back (a file and its JSON: done off the main thread at start). */
+    private class Snapshot(val xpub: String, val rows: List<AddressRow>, val txs: List<TxConf>, val height: Int)
+
+    private fun readSnapshot(chain: Chain): Snapshot? {
+        val f = snapshotFile(chain)?.takeIf { it.exists() } ?: return null
+        val xpub = _state.value.xpub ?: return null
         return runCatching {
             val o = org.json.JSONObject(f.readText())
             val ra = o.getJSONArray("rows"); val ta = o.getJSONArray("txs")
@@ -804,10 +826,14 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 TxConf(t.getString("id"), t.getInt("cf"), t.getBoolean("p"),
                     if (t.isNull("a")) null else t.getLong("a"), if (t.isNull("v")) null else t.getBoolean("v"))
             }
-            if (rows.isEmpty()) return@runCatching false
-            updateIf(xpub, chain) { it.copy(phase = ScanPhase.Complete, rows = rows, transactions = txs, height = o.optInt("h"), stale = true) }
-            true
-        }.getOrDefault(false)
+            Snapshot(xpub, rows, txs, o.optInt("h")).takeIf { rows.isNotEmpty() }
+        }.getOrNull()
+    }
+
+    private fun restoreSnapshot(chain: Chain, snap: Snapshot?): Boolean {
+        if (snap == null || snap.xpub != _state.value.xpub) return false
+        updateIf(snap.xpub, chain) { it.copy(phase = ScanPhase.Complete, rows = snap.rows, transactions = snap.txs, height = snap.height, stale = true) }
+        return true
     }
 
     /** Forget what this phone remembers about past looks (a wallet is forgotten). */

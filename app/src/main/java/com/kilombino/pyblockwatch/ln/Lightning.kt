@@ -376,8 +376,12 @@ object Lightning {
         poller?.cancel(); poller = null
         if (!on) return
         poller = scope.launch {
-            // One failed look must not end the loop (the screen would wait for good).
-            while (isActive) { runCatching { refresh() }; delay(5_000) }
+            // One failed look must not end the loop (the screen would wait for good). With the
+            // app in the background nobody sees the figures: no calls to the node until it's back.
+            while (isActive) {
+                if (com.kilombino.pyblockwatch.ui.AppVisible.value) runCatching { refresh() }
+                delay(5_000)
+            }
         }
     }
 }
