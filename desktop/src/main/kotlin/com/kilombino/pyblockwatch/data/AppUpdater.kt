@@ -32,6 +32,8 @@ object AppUpdater {
         object NeedsPermission : State()
         object Installing : State()
         data class Failed(val message: String) : State()
+        /** A .deb checked and saved at [path]: the dialog offers the commands to install it. */
+        data class Saved(val path: String, val sha256: String) : State()
     }
 
     val state = MutableStateFlow<State>(State.Idle)
@@ -113,10 +115,9 @@ object AppUpdater {
                 val out = File(dir, f.name)
                 f.copyTo(out, overwrite = true); f.delete()
                 val sum = sha256(out)
-                // Shown as the outcome: the user installs it in a terminal, after checking the hash.
-                state.value = State.Failed("Checked and saved: ${out.path}\nSHA-256 $sum\n" +
-                    "Install it in a terminal (check the hash first with sha256sum):\nsudo apt install ${out.path}\n" +
-                    "then open Kilowallet again.")
+                // Shown as the outcome: the user installs it in a terminal, after checking the hash,
+                // with the two commands the dialog lets them copy.
+                state.value = State.Saved(out.path, sum)
             }
             "msi" -> {
                 com.kilombino.kilowallet.desktop.SingleInstance.release()
