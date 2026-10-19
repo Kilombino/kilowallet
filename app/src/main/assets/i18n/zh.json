@@ -1967,5 +1967,6 @@
 "Checked and saved:": "已校验并保存：",
 "1. Check its hash in a terminal (it must say OK):": "1. 在终端中校验哈希（应显示 OK）：",
 "2. Install it:": "2. 安装：",
-"Then open Kilowallet again.": "然后重新打开 Kilowallet。"
+"Then open Kilowallet again.": "然后重新打开 Kilowallet。",
+"COPIED ✓": "已复制 ✓"
 }

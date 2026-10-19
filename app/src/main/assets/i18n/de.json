@@ -1979,5 +1979,6 @@
 "Checked and saved:": "Geprüft und gespeichert:",
 "1. Check its hash in a terminal (it must say OK):": "1. Prüfe den Hash im Terminal (es muss OK erscheinen):",
 "2. Install it:": "2. Installiere es:",
-"Then open Kilowallet again.": "Öffne Kilowallet danach erneut."
+"Then open Kilowallet again.": "Öffne Kilowallet danach erneut.",
+"COPIED ✓": "KOPIERT ✓"
 }
