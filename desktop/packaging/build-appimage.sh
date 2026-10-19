@@ -14,7 +14,7 @@ APP="$DESKTOP/build/compose/binaries/main/app/Kilowallet"
 DIR=$(mktemp -d)/Kilowallet.AppDir
 mkdir -p "$DIR/usr/lib"
 cp -a "$APP" "$DIR/usr/lib/kilowallet"
-cp "$DESKTOP/../app/src/main/res/mipmap-xxxhdpi/ic_launcher_full.png" "$DIR/kilowallet.png"
+cp "$DESKTOP/packaging/icons/kilowallet.png" "$DIR/kilowallet.png"
 cat > "$DIR/kilowallet.desktop" <<DESK
 [Desktop Entry]
 Type=Application

@@ -24,10 +24,10 @@ object R {
 
     /** Where each drawable is in the jar. */
     internal val paths = mapOf(
-        drawable.nodex_logo to "res/drawable-nodpi/nodex_logo.png",
-        drawable.widget_preview to "res/drawable-nodpi/widget_preview.jpg",
-        drawable.xbt_coin to "res/drawable-nodpi/xbt_coin.png",
-        mipmap.ic_launcher_full to "res/mipmap-xxxhdpi/ic_launcher_full.png",
-        mipmap.ic_launcher to "res/mipmap-xxxhdpi/ic_launcher.png",
+        drawable.nodex_logo to "res/drawable-nodpi/nodex_logo.webp",
+        drawable.widget_preview to "res/drawable-nodpi/widget_preview.webp",
+        drawable.xbt_coin to "res/drawable-nodpi/xbt_coin.webp",
+        mipmap.ic_launcher_full to "res/mipmap-xxxhdpi/ic_launcher_full.webp",
+        mipmap.ic_launcher to "res/mipmap-xxxhdpi/ic_launcher.webp",
     )
 }

@@ -82,7 +82,7 @@ tasks.named<ProcessResources>("processResources") {
     // The language tables and anything else in the app's assets.
     from("../app/src/main/assets") { into("assets") }
     from("../app/src/main/res") {
-        include("drawable-nodpi/*.png", "drawable-nodpi/*.jpg", "mipmap-xxxhdpi/*.png")
+        include("drawable-nodpi/*.webp", "mipmap-xxxhdpi/*.webp")
         into("res")
     }
 }
@@ -131,7 +131,8 @@ compose.desktop {
                 debMaintainer = "kilombino@proton.me"
                 menuGroup = "Office;Finance"
                 appCategory = "Finance"
-                iconFile.set(project.file("../app/src/main/res/mipmap-xxxhdpi/ic_launcher_full.png"))
+                // jpackage wants a PNG; the app's images are WebP since 1.1.7 (the same pixels).
+                iconFile.set(project.file("packaging/icons/kilowallet.png"))
                 installationPath = "/opt"
             }
             windows {
