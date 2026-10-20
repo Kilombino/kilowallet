@@ -59,7 +59,12 @@ object JamWatch {
      * JoinMarket), when it confirmed (block time, kept once known) and whether the address was
      * ever used. One connection, the unspent lists in one batch.
      */
-    fun bondStates(e: JoinMarket.Export, rows: List<AddressRow>, endpoint: NodeEndpoint, pin: String?, store: Store): List<JoinMarket.BondState> {
+    fun bondStates(e: JoinMarket.Export, rows: List<AddressRow>, endpoint: NodeEndpoint, pin: String?, store: Store): List<JoinMarket.BondState> =
+        bondStates(e, rows, endpoint, pin, store::confTime, store::setConfTime)
+
+    /** The same, with the confirmation-time cache passed in (tests have no [Store]). */
+    fun bondStates(e: JoinMarket.Export, rows: List<AddressRow>, endpoint: NodeEndpoint, pin: String?,
+                   confTime: (String) -> Long?, setConfTime: (String, Long) -> Unit): List<JoinMarket.BondState> {
         val scripts = JoinMarket.bondScripts(e)
         if (scripts.isEmpty()) return emptyList()
         val used = rows.filter { it.chainIndex == JoinMarket.BOND_BRANCH && it.isUsed }.map { it.scriptHash }.toSet()
@@ -69,7 +74,7 @@ object JamWatch {
             client.listUnspentMany(scripts.map { it.scriptHash }).zip(scripts).map { (utxos, s) ->
                 val best = utxos.maxByOrNull { it.value }
                 val time = best?.takeIf { it.height > 0 }?.let { u ->
-                    store.confTime(u.txid) ?: runCatching { blockTime(client.blockHeader(u.height)) }.getOrNull()?.also { store.setConfTime(u.txid, it) }
+                    confTime(u.txid) ?: runCatching { blockTime(client.blockHeader(u.height)) }.getOrNull()?.also { setConfTime(u.txid, it) }
                 }
                 JoinMarket.BondState(s, value = best?.value, txid = best?.let { "${it.txid}:${it.vout}" }, height = best?.height ?: 0,
                     confirmationTime = time, extraValue = utxos.sumOf { it.value } - (best?.value ?: 0),
@@ -78,6 +83,27 @@ object JamWatch {
         } finally {
             client.close()
         }
+    }
+
+    /**
+     * The spend of bond [s] that Kilowallet hands to SeedSigner: the whole bond, with the
+     * transaction that created it ([prevTxHex], checked against the bond), to [destination] less
+     * the fee at [feeRate] sat/vB. Nothing here holds a key.
+     */
+    fun bondSpend(e: JoinMarket.Export, s: JoinMarket.BondState, prevTxHex: String, destination: String, feeRate: Double):
+        Pair<com.kilombino.pyblockwatch.crypto.BondPsbt.Bond, List<com.kilombino.pyblockwatch.crypto.TxBuilder.Output>> {
+        val value = s.value ?: throw IllegalArgumentException("This bond holds no coins.")
+        val (txid, vout) = (s.txid ?: throw IllegalArgumentException("This bond holds no coins.")).split(":").let { it[0] to it[1].toInt() }
+        val out = runCatching { JoinMarket.scriptPubKey(e, destination) }
+            .getOrElse { throw IllegalArgumentException("That destination address is not valid.") }
+        val tn = s.bond.timenumber
+        val pub = JoinMarket.bondPubkey(JoinMarket.parseKey(e.xpubs[0]), tn)
+        val bond = com.kilombino.pyblockwatch.crypto.BondPsbt.Bond(txid, vout, value, pub, s.locktime, JoinMarket.bondScript(pub, s.locktime),
+            JoinMarket.bondOrigin(e, tn), com.kilombino.pyblockwatch.crypto.Hashes.hexToBytes(prevTxHex))
+        val probe = listOf(com.kilombino.pyblockwatch.crypto.TxBuilder.Output(out, value))
+        val fee = kotlin.math.ceil(com.kilombino.pyblockwatch.crypto.BondPsbt.vbytes(bond, probe) * feeRate).toLong()
+        require(value - fee >= 1000) { "The fee would take the whole bond." }
+        return bond to listOf(com.kilombino.pyblockwatch.crypto.TxBuilder.Output(out, value - fee))
     }
 
     /** A block header's time (bytes 68–71, little-endian), 80- or 164-byte headers alike. */

@@ -243,23 +243,14 @@ class JamViewModel(app: Application) : AndroidViewModel(app) {
             runCatching {
                 require(canSpend(d.state)) { "This bond is still locked: it can be spent from ${JoinMarket.date(d.state.locktime)}." }
                 require(d.feeRate >= 1.0 && d.feeRate <= 1000.0) { "The fee rate must be between 1 and 1000 sat/vB." }
-                val out = runCatching { JoinMarket.scriptPubKey(e, d.destination) }
-                    .getOrElse { throw IllegalArgumentException("That destination address is not valid.") }
-                val (txid, vout) = d.state.txid!!.split(":").let { it[0] to it[1].toInt() }
+                val txid = d.state.txid!!.substringBefore(":")
                 val endpoint = store.endpoint(Chain.BLAKE2B)
                 val prev = withContext(Dispatchers.IO) {
                     val c = ElectrumClient(endpoint, store.pinnedFingerprint(endpoint))
                     try { c.connect(); c.transaction(txid) } finally { c.close() }
                 }
-                val tn = d.state.bond.timenumber
-                val md0 = JoinMarket.parseKey(e.xpubs[0])
-                val pub = JoinMarket.bondPubkey(md0, tn)
-                val bond = BondPsbt.Bond(txid, vout, d.state.value!!, pub, d.state.locktime, JoinMarket.bondScript(pub, d.state.locktime),
-                    JoinMarket.bondOrigin(e, tn), com.kilombino.pyblockwatch.crypto.Hashes.hexToBytes(prev))
-                val probe = listOf(TxBuilder.Output(out, bond.value))
-                val fee = kotlin.math.ceil(BondPsbt.vbytes(bond, probe) * d.feeRate).toLong()
-                require(bond.value - fee >= 1000) { "The fee would take the whole bond." }
-                val outputs = listOf(TxBuilder.Output(out, bond.value - fee))
+                val (bond, outputs) = JamWatch.bondSpend(e, d.state, prev, d.destination, d.feeRate)
+                val fee = bond.value - outputs.sumOf { it.value }
                 BondSpend.AwaitingSignature(d.state, bond, outputs, d.destination.trim(), fee, BondPsbt.create(bond, outputs))
             }.onSuccess { a -> _state.update { it.copy(bondSpend = a) } }
              .onFailure { err -> _state.update { it.copy(bondSpend = d.copy(working = false, error = err.message ?: "Could not make the PSBT.")) } }
