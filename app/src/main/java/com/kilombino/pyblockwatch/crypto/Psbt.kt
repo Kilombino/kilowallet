@@ -187,7 +187,7 @@ object Psbt {
 
     // --------------------------------------------------------------------------- finishing
 
-    private fun der(sig: ByteArray): Ecdsa.Signature {
+    internal fun der(sig: ByteArray): Ecdsa.Signature {
         // Strict DER: 30 len 02 rlen r 02 slen s.
         require(sig.size >= 8 && sig[0] == 0x30.toByte() && (sig[1].toInt() and 0xff) == sig.size - 2) { "bad signature encoding" }
         var o = 2
@@ -200,7 +200,7 @@ object Psbt {
         return Ecdsa.Signature(r, s)
     }
 
-    private fun readWitness(v: ByteArray): List<ByteArray> {
+    internal fun readWitness(v: ByteArray): List<ByteArray> {
         var o = 0
         fun varint(): Int { val n = v[o++].toInt() and 0xff; require(n < 0xfd); return n }
         return List(varint()) { val l = varint(); v.copyOfRange(o, o + l).also { o += l } }

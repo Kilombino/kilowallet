@@ -109,7 +109,7 @@ fun JamScreen(vm: WalletViewModel, jvm: JamViewModel, onToggleNotifications: (Bo
             Spacer(Modifier.width(10.dp))
             Column {
                 Text("JOINMARKET · READ-ONLY", style = MaterialTheme.typography.labelSmall, color = accent)
-                Text("This wallet cannot send or sign: it has no keys. To spend, fidelity bonds included, use Jam.",
+                Text("This wallet has no keys. To spend, use Jam; an unlocked fidelity bond can also be spent from here with SeedSigner.",
                     style = MaterialTheme.typography.bodySmall, color = TextSoft)
             }
         }
@@ -170,7 +170,8 @@ fun JamScreen(vm: WalletViewModel, jvm: JamViewModel, onToggleNotifications: (Bo
             }
         }
 
-        BondsCard(js, accent)
+        BondsCard(js, jvm, accent)
+        BondSpendDialog(jvm, accent)
 
         if (js.txs.isNotEmpty()) MovementsCard(js.txs, accent, vm.explorerFor(Chain.BLAKE2B), vm, isHot = false, balance = js.total)
 
@@ -193,7 +194,7 @@ fun JamScreen(vm: WalletViewModel, jvm: JamViewModel, onToggleNotifications: (Bo
 
 /** Every bond of the export: amount, unlock date and what to do about it. */
 @Composable
-private fun BondsCard(js: JamUi, accent: Color) {
+private fun BondsCard(js: JamUi, jvm: JamViewModel, accent: Color) {
     Panel(accent = accent) {
         SectionLabel("Fidelity bonds", accent)
         Spacer(Modifier.height(6.dp))
@@ -237,6 +238,10 @@ private fun BondsCard(js: JamUi, accent: Color) {
             if ((st?.extraValue ?: 0) > 0) Text(street("Plus ${groupSats(st!!.extraValue)} sats sent again to the same address: locked too, but they add nothing to the bond."),
                 style = MaterialTheme.typography.bodySmall, color = Warn)
             Text("${shortAddress(s.address)}  ·  ${s.path}", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+            if (st != null && jvm.canSpend(st, now) && (status == JoinMarket.Status.UNLOCKED || status == JoinMarket.Status.VALUE_ZERO))
+                TextButton(onClick = { jvm.startBondSpend(st) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                    Text("SPEND WITH SEEDSIGNER", color = accent, style = MaterialTheme.typography.bodySmall)
+                }
         }
     }
 }

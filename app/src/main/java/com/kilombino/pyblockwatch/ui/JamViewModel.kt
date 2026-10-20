@@ -4,6 +4,9 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kilombino.pyblockwatch.chain.Chain
+import com.kilombino.pyblockwatch.chain.ElectrumClient
+import com.kilombino.pyblockwatch.crypto.BondPsbt
+import com.kilombino.pyblockwatch.crypto.TxBuilder
 import com.kilombino.pyblockwatch.data.AddressRow
 import com.kilombino.pyblockwatch.data.BalanceWatch
 import com.kilombino.pyblockwatch.data.JamWatch
@@ -38,6 +41,8 @@ data class JamUi(
     val refreshing: Boolean = false,
     val fingerprintChanged: Boolean = false,
     val fingerprint: String? = null,
+    /** A fidelity bond being spent through SeedSigner, step by step; null when none. */
+    val bondSpend: BondSpend? = null,
 ) {
     val confirmed: Long get() = rows.sumOf { it.confirmed }
     val unconfirmed: Long get() = rows.sumOf { it.unconfirmed }
@@ -45,6 +50,25 @@ data class JamUi(
     fun jarRows(jar: Int) = rows.filter { it.jar == jar && it.chainIndex != JoinMarket.BOND_BRANCH }
     fun jarTotal(jar: Int) = jarRows(jar).sumOf { it.total }
     val bondTotal: Long get() = rows.filter { it.chainIndex == JoinMarket.BOND_BRANCH }.sumOf { it.total }
+}
+
+/**
+ * Spending an unlocked fidelity bond with a signer that holds Jam's seed (our SeedSigner fork),
+ * by QR both ways: [Draft] (where to, what fee) → [AwaitingSignature] (the PSBT as an animated QR,
+ * waiting for the signed one) → [Review] (checked and assembled, nothing sent yet) →
+ * [Broadcasting] → [Sent]. This wallet still holds no key: the PSBT carries none.
+ */
+sealed class BondSpend {
+    abstract val state: JoinMarket.BondState
+    data class Draft(override val state: JoinMarket.BondState, val destination: String, val feeRate: Double,
+                     val error: String? = null, val working: Boolean = false) : BondSpend()
+    data class AwaitingSignature(override val state: JoinMarket.BondState, val bond: BondPsbt.Bond,
+                                 val outputs: List<TxBuilder.Output>, val destination: String, val fee: Long,
+                                 val psbt: ByteArray, val error: String? = null) : BondSpend()
+    data class Review(override val state: JoinMarket.BondState, val destination: String, val amount: Long, val fee: Long,
+                      val signed: TxBuilder.Signed, val back: AwaitingSignature, val error: String? = null) : BondSpend()
+    data class Broadcasting(override val state: JoinMarket.BondState) : BondSpend()
+    data class Sent(override val state: JoinMarket.BondState, val txid: String) : BondSpend()
 }
 
 /**
@@ -179,6 +203,93 @@ class JamViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(bonds = states) }
         JamWatch.alerts(store, notifier, states)
         withContext(Dispatchers.IO) { saveSnapshot() }
+    }
+
+    // ------------------------------------------------------------------ spending a bond (SeedSigner, by QR)
+
+    /** A bond can be spent once its locktime has passed and it holds coins. */
+    fun canSpend(b: JoinMarket.BondState, now: Long = System.currentTimeMillis() / 1000): Boolean =
+        b.value != null && b.txid != null && b.height > 0 && now >= b.locktime
+
+    /** A fresh receive address of jar 0 (Apricot): by default the bond goes back into Jam. */
+    fun freshJarAddress(): String? {
+        val e = _state.value.export ?: return null
+        val used = _state.value.rows.filter { it.jar == 0 && it.chainIndex == 0 && it.isUsed }.maxOfOrNull { it.index } ?: -1
+        val key = com.kilombino.pyblockwatch.crypto.Bip32.derivePath(JoinMarket.parseKey(e.xpubs[0]), 0, used + 1).pubkey()
+        return com.kilombino.pyblockwatch.crypto.Bech32.encodeSegwit(e.hrp, 0, com.kilombino.pyblockwatch.crypto.Hashes.hash160(key))
+    }
+
+    fun startBondSpend(b: JoinMarket.BondState) {
+        _state.update { it.copy(bondSpend = BondSpend.Draft(b, freshJarAddress() ?: "", 1.0)) }
+        viewModelScope.launch {
+            val endpoint = store.endpoint(Chain.BLAKE2B)
+            val rate = withContext(Dispatchers.IO) { scanner.suggestedFeeRate(endpoint, store.pinnedFingerprint(endpoint)) } ?: return@launch
+            _state.update { st -> (st.bondSpend as? BondSpend.Draft)?.let { st.copy(bondSpend = it.copy(feeRate = kotlin.math.ceil(rate))) } ?: st }
+        }
+    }
+
+    fun cancelBondSpend() = _state.update { it.copy(bondSpend = null) }
+
+    fun editBondDraft(destination: String, feeRate: Double) = _state.update { st ->
+        (st.bondSpend as? BondSpend.Draft)?.let { st.copy(bondSpend = it.copy(destination = destination, feeRate = feeRate, error = null)) } ?: st
+    }
+
+    /** Builds the PSBT: the bond (with its previous transaction, fetched and checked) to one address. */
+    fun makeBondPsbt() {
+        val d = _state.value.bondSpend as? BondSpend.Draft ?: return
+        val e = _state.value.export ?: return
+        _state.update { it.copy(bondSpend = d.copy(working = true, error = null)) }
+        viewModelScope.launch {
+            runCatching {
+                require(canSpend(d.state)) { "This bond is still locked: it can be spent from ${JoinMarket.date(d.state.locktime)}." }
+                require(d.feeRate >= 1.0 && d.feeRate <= 1000.0) { "The fee rate must be between 1 and 1000 sat/vB." }
+                val out = runCatching { JoinMarket.scriptPubKey(e, d.destination) }
+                    .getOrElse { throw IllegalArgumentException("That destination address is not valid.") }
+                val (txid, vout) = d.state.txid!!.split(":").let { it[0] to it[1].toInt() }
+                val endpoint = store.endpoint(Chain.BLAKE2B)
+                val prev = withContext(Dispatchers.IO) {
+                    val c = ElectrumClient(endpoint, store.pinnedFingerprint(endpoint))
+                    try { c.connect(); c.transaction(txid) } finally { c.close() }
+                }
+                val tn = d.state.bond.timenumber
+                val md0 = JoinMarket.parseKey(e.xpubs[0])
+                val pub = JoinMarket.bondPubkey(md0, tn)
+                val bond = BondPsbt.Bond(txid, vout, d.state.value!!, pub, d.state.locktime, JoinMarket.bondScript(pub, d.state.locktime),
+                    JoinMarket.bondOrigin(e, tn), com.kilombino.pyblockwatch.crypto.Hashes.hexToBytes(prev))
+                val probe = listOf(TxBuilder.Output(out, bond.value))
+                val fee = kotlin.math.ceil(BondPsbt.vbytes(bond, probe) * d.feeRate).toLong()
+                require(bond.value - fee >= 1000) { "The fee would take the whole bond." }
+                val outputs = listOf(TxBuilder.Output(out, bond.value - fee))
+                BondSpend.AwaitingSignature(d.state, bond, outputs, d.destination.trim(), fee, BondPsbt.create(bond, outputs))
+            }.onSuccess { a -> _state.update { it.copy(bondSpend = a) } }
+             .onFailure { err -> _state.update { it.copy(bondSpend = d.copy(working = false, error = err.message ?: "Could not make the PSBT.")) } }
+        }
+    }
+
+    /** The signed PSBT is back (from the animated QR, or pasted): check it and assemble the transaction. */
+    fun bondSigned(psbt: ByteArray) {
+        val a = _state.value.bondSpend as? BondSpend.AwaitingSignature ?: return
+        runCatching { BondPsbt.finish(a.psbt, psbt, a.bond, a.outputs) }
+            .onSuccess { tx -> _state.update { it.copy(bondSpend = BondSpend.Review(a.state, a.destination, a.outputs[0].value, a.fee, tx, a)) } }
+            .onFailure { err -> _state.update { it.copy(bondSpend = a.copy(error = err.message ?: "Could not use that PSBT.")) } }
+    }
+
+    fun bondSignedText(text: String) = runCatching { com.kilombino.pyblockwatch.crypto.Psbt.decodeText(text) }
+        .onSuccess { bondSigned(it) }
+        .onFailure { _ -> _state.update { st -> (st.bondSpend as? BondSpend.AwaitingSignature)?.let { st.copy(bondSpend = it.copy(error = "That is not a PSBT (base64 or hex).")) } ?: st } }
+
+    fun bondBackToQr() = _state.update { st -> (st.bondSpend as? BondSpend.Review)?.let { st.copy(bondSpend = it.back.copy(error = null)) } ?: st }
+
+    /** Sends the reviewed transaction. */
+    fun broadcastBond() {
+        val r = _state.value.bondSpend as? BondSpend.Review ?: return
+        _state.update { it.copy(bondSpend = BondSpend.Broadcasting(r.state)) }
+        viewModelScope.launch {
+            val endpoint = store.endpoint(Chain.BLAKE2B)
+            runCatching { withContext(Dispatchers.IO) { scanner.broadcast(r.signed.rawHex, endpoint, store.pinnedFingerprint(endpoint)) } }
+                .onSuccess { txid -> _state.update { it.copy(bondSpend = BondSpend.Sent(r.state, txid)) }; refresh() }
+                .onFailure { err -> _state.update { it.copy(bondSpend = r.copy(error = err.message ?: "The broadcast failed.")) } }
+        }
     }
 
     // ------------------------------------------------------------------ the last look, kept

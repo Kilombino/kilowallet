@@ -103,6 +103,10 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // A debuggable build (never a published one) also watches JoinMarket wallets of the test
+        // networks, so a fidelity bond can be spent end to end against a regtest node.
+        com.kilombino.pyblockwatch.data.JoinMarket.testNetworksAllowed =
+            (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
         com.kilombino.pyblockwatch.data.OpenTab.from(intent)
         // A coinjoin round left running (app killed, updated, phone restarted) picks up again.
         // Looked for off the main thread: it opens each round's key from the Keystore.

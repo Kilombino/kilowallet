@@ -47,7 +47,15 @@ import java.util.concurrent.Executors
  * ZXing spend real effort per frame. We ask CameraX for ~1280×720 and turn on TRY_HARDER.
  */
 @Composable
-fun QrScannerDialog(onResult: (String) -> Unit, onDismiss: () -> Unit) {
+fun QrScannerDialog(onResult: (String) -> Unit, onDismiss: () -> Unit) = QrScannerDialog(onResult, onDismiss, null, null)
+
+/**
+ * The scanner for an animated QR (a UR such as a signed PSBT from SeedSigner): every new frame
+ * goes to [onFrame], which returns true once the message is whole; then [onResult] gets "".
+ * [progress] is shown under the preview while frames come in.
+ */
+@Composable
+fun QrScannerDialog(onResult: (String) -> Unit, onDismiss: () -> Unit, onFrame: ((String) -> Boolean)?, progress: String?) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
     val executor = remember { Executors.newSingleThreadExecutor() }
@@ -80,13 +88,16 @@ fun QrScannerDialog(onResult: (String) -> Unit, onDismiss: () -> Unit) {
                             .setResolutionSelector(resolution)
                             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                             .build()
-                        analysis.setAnalyzer(executor, QrAnalyzer { text ->
+                        analysis.setAnalyzer(executor, QrAnalyzer(continuous = onFrame != null) { text ->
                             // CameraX must be touched on the main thread; doing unbind + the
                             // callback here (not on the analyzer's worker thread) is what makes
                             // the dialog actually close and hand the result back.
                             ContextCompat.getMainExecutor(ctx).execute {
-                                runCatching { provider.unbindAll() }
-                                onResult(text)
+                                val whole = onFrame?.let { f -> runCatching { f(text) }.getOrDefault(false) } ?: true
+                                if (whole) {
+                                    runCatching { provider.unbindAll() }
+                                    onResult(if (onFrame != null) "" else text)
+                                }
                             }
                         })
                         provider.unbindAll()
@@ -103,7 +114,7 @@ fun QrScannerDialog(onResult: (String) -> Unit, onDismiss: () -> Unit) {
                 Text("close", color = Color.White)
             }
             Text(
-                "Point the camera at a QR",
+                progress ?: "Point the camera at a QR",
                 color = Color.White,
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.align(Alignment.BottomCenter).padding(40.dp),
@@ -115,7 +126,8 @@ fun QrScannerDialog(onResult: (String) -> Unit, onDismiss: () -> Unit) {
 /** Decodes one QR per frame. Uses ImageProxy.toBitmap() so the YUV→RGB conversion is the
  *  platform's (correct on every device), rotates by the reported sensor rotation so the QR is
  *  upright, and reads with ZXing over an RGB luminance source. */
-private class QrAnalyzer(private val onFound: (String) -> Unit) : ImageAnalysis.Analyzer {
+private class QrAnalyzer(private val continuous: Boolean = false, private val onFound: (String) -> Unit) : ImageAnalysis.Analyzer {
+    @Volatile private var lastText: String? = null
     private val hints = mapOf(
         DecodeHintType.TRY_HARDER to true,
         DecodeHintType.POSSIBLE_FORMATS to listOf(com.google.zxing.BarcodeFormat.QR_CODE),
@@ -132,7 +144,10 @@ private class QrAnalyzer(private val onFound: (String) -> Unit) : ImageAnalysis.
                 android.graphics.Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, m, true)
             } else raw
             val text = decode(upright) ?: decode(raw)
-            if (text != null) { done = true; onFound(text) }
+            if (text != null) {
+                if (!continuous) { done = true; onFound(text) }
+                else if (text != lastText) { lastText = text; onFound(text) }   // each new frame once
+            }
         } catch (_: Exception) {
             // no QR in this frame — keep looking
         } finally {

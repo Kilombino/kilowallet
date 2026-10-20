@@ -120,6 +120,27 @@ class JoinMarketTest {
         assertEquals("bcrt1qpxqaeuandampp5n2zlyfd2set6qc898c8lzktgkem4uk7r4aduysaeda8s", JoinMarket.bondAddress(ws, "bcrt"))
     }
 
+    /** Network and the optional master fingerprint: what a bond PSBT's key origin is made of. */
+    @Test fun networkCoinTypeAndFingerprint() {
+        val main = JoinMarket.parse(line())
+        assertEquals(0, main.coinType); assertEquals("bc", main.hrp); assertEquals(null, main.fingerprint)
+        assertEquals("[00000000/84'/0'/0'/2/82]".let { com.kilombino.pyblockwatch.crypto.Psbt.Origin.parse(it)!!.bytes().toList() },
+            JoinMarket.bondOrigin(main, 82).bytes().toList())
+        assertEquals("m/84'/0'/0'/2/82", JoinMarket.bondScripts(main)[0].path)
+        val withFp = JoinMarket.parse(line().removeSuffix("}") + ",\"f\":\"C47272BB\"}")
+        assertEquals("c47272bb", withFp.fingerprint)
+        assertEquals(withFp, JoinMarket.parse(withFp.encode()))
+        assertThrows(IllegalArgumentException::class.java) { JoinMarket.parse(line().removeSuffix("}") + ",\"f\":\"xyz\"}") }
+        val reg = JoinMarket.parse(line(n = "regtest").removeSuffix("}") + ",\"f\":\"c47272bb\"}", allowTestNetworks = true)
+        assertEquals(1, reg.coinType); assertEquals("bcrt", reg.hrp)
+        assertEquals(com.kilombino.pyblockwatch.crypto.Psbt.Origin.parse("[c47272bb/84'/1'/0'/2/82]")!!.bytes().toList(),
+            JoinMarket.bondOrigin(reg, 82).bytes().toList())
+        assertTrue(JoinMarket.bondScripts(reg)[0].address.startsWith("bcrt1q"))
+        assertEquals("00143a0b72fbc9d6cc43acec4ababfa90fce58426901",
+            hex(JoinMarket.scriptPubKey(reg, "bcrt1q8g9h977f6mxy8t8vf2atl2g0eevyy6gpne8l0k")))
+        assertThrows(IllegalArgumentException::class.java) { JoinMarket.scriptPubKey(reg, "bc1q8g9h977f6mxy8t8vf2atl2g0eevyy6gpne8l0k") }
+    }
+
     /** jmcore.bond_calc.calculate_timelocked_fidelity_bond_value for the same inputs. */
     @Test fun bondValueMatchesJoinMarket() {
         val conf = 1792515000L; val lt = 1793491200L

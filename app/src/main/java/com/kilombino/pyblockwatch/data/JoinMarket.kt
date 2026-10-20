@@ -45,13 +45,25 @@ object JoinMarket {
 
     data class Bond(val timenumber: Int, val locktime: Long)
 
-    data class Export(val network: String, val xpubs: List<String>, val bonds: List<Bond>) {
+    /**
+     * [fingerprint]: the master key fingerprint (8 hex digits), when the export carries it in
+     * the optional "f" field. A zpub cannot tell it, and signers need it to find their key in a
+     * PSBT; without it the PSBT says 00000000, which SeedSigner fills in from its seed.
+     */
+    data class Export(val network: String, val xpubs: List<String>, val bonds: List<Bond>, val fingerprint: String? = null) {
         /** The same line Jam shows (compact JSON). */
         fun encode(): String = PREFIX + JSONObject()
             .put("n", network)
             .put("x", JSONArray(xpubs))
             .put("b", JSONArray(bonds.map { JSONArray().put(it.timenumber).put(it.locktime) }))
+            .apply { fingerprint?.let { put("f", it) } }
             .toString()
+
+        /** BIP-44 coin type of the keys: 0 on mainnet, 1 on JoinMarket's test networks. */
+        val coinType: Int get() = if (network == MAINNET) 0 else 1
+
+        /** The bech32 prefix of this network's addresses. */
+        val hrp: String get() = when (network) { MAINNET -> "bc"; "regtest" -> "bcrt"; else -> "tb" }
 
         /** The account keys, ready for derivation (P2WPKH whatever their prefix). */
         fun accounts(): List<Bip32.ExtendedPubKey> = xpubs.map { parseKey(it) }
@@ -64,7 +76,14 @@ object JoinMarket {
      * Reads an export (as scanned or pasted). Throws with a readable message on anything that
      * is not one. Only XBT mainnet is accepted unless [allowTestNetworks] (tests).
      */
-    fun parse(text: String, allowTestNetworks: Boolean = false): Export {
+    /**
+     * Whether exports of a test network (regtest, testnet, signet) are accepted. Off in the
+     * published app; a debuggable build turns it on (MainActivity) so a bond can be spent end to
+     * end against a regtest node.
+     */
+    @Volatile var testNetworksAllowed = false
+
+    fun parse(text: String, allowTestNetworks: Boolean = testNetworksAllowed): Export {
         val t = text.trim()
         require(t.startsWith(PREFIX)) {
             if (t.startsWith("kilowallet-jm:")) "This export comes from a newer Jam: update Kilowallet."
@@ -89,7 +108,9 @@ object JoinMarket {
             require(tn in 0 until TIMENUMBER_COUNT && lockTime(tn) == lt) { "A fidelity bond in the export is not valid." }
             Bond(tn, lt)
         }.distinctBy { it.timenumber }.sortedBy { it.timenumber }
-        return Export(network, xpubs, bonds)
+        val fp = o.optString("f", "").trim().lowercase().takeIf { it.isNotEmpty() }
+        require(fp == null || (fp.length == 8 && fp.all { it in "0123456789abcdef" })) { "The JoinMarket export is damaged: copy it again." }
+        return Export(network, xpubs, bonds, fp)
     }
 
     /**
@@ -148,9 +169,24 @@ object JoinMarket {
         val md0 = parseKey(export.xpubs[0])
         return export.bonds.map { b ->
             val ws = bondScript(bondPubkey(md0, b.timenumber), b.locktime)
-            BondScript(b, bondAddress(ws), com.kilombino.pyblockwatch.crypto.Address.electrumScriptHash(p2wsh(ws)),
-                "m/84'/0'/0'/$BOND_BRANCH/${b.timenumber}")
+            BondScript(b, bondAddress(ws, export.hrp), com.kilombino.pyblockwatch.crypto.Address.electrumScriptHash(p2wsh(ws)),
+                "m/84'/${export.coinType}'/0'/$BOND_BRANCH/${b.timenumber}")
         }
+    }
+
+    /** Where a bond's key sits: m/84'/coin'/0'/2/timenumber under the master (fingerprint 00000000 when unknown). */
+    fun bondOrigin(export: Export, timenumber: Int): com.kilombino.pyblockwatch.crypto.Psbt.Origin =
+        com.kilombino.pyblockwatch.crypto.Psbt.Origin(
+            Hashes.hexToBytes(export.fingerprint ?: "00000000"),
+            listOf(0x80000054L, 0x80000000L + export.coinType, 0x80000000L, BOND_BRANCH.toLong(), timenumber.toLong()))
+
+    /** An address of this export's network as a scriptPubKey (SegWit/Taproot on test networks). */
+    fun scriptPubKey(export: Export, address: String): ByteArray {
+        val a = address.trim()
+        if (export.network == MAINNET) return com.kilombino.pyblockwatch.crypto.Address.decodeToScriptPubKey(a)
+        val sw = Bech32.decodeSegwit(export.hrp, a) ?: throw IllegalArgumentException("Not a valid ${export.hrp}1 address.")
+        val op = if (sw.witnessVersion == 0) 0x00 else (0x50 + sw.witnessVersion)
+        return byteArrayOf(op.toByte(), sw.program.size.toByte()) + sw.program
     }
 
     /** A script number push (CScriptNum, minimal, little-endian with a sign bit). */
