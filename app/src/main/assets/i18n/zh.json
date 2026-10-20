@@ -1968,5 +1968,19 @@
 "1. Check its hash in a terminal (it must say OK):": "1. 在终端中校验哈希（应显示 OK）：",
 "2. Install it:": "2. 安装：",
 "Then open Kilowallet again.": "然后重新打开 Kilowallet。",
-"COPIED ✓": "已复制 ✓"
+"COPIED ✓": "已复制 ✓",
+"mixed outputs per person (1–{0})": "每人混合输出数（1–{0}）",
+"Each person gets {0} mixed outputs of the amount below, each to an unused address of their own. Only Kilowallet 1.2.0 or newer (Kilojoin v4) sees this pool.": "每人获得 {0} 个下方金额的混合输出，各自发往自己未使用的地址。只有 Kilowallet 1.2.0 或更新版本（Kilojoin v4）能看到此池。",
+"One mixed output each: every Kilojoin v3 wallet can join it.": "每人一个混合输出：任何 Kilojoin v3 钱包都能加入。",
+"amount of each output (sats)": "每个输出的金额（sats）",
+"{0} sats per person in all": "每人共 {0} sats",
+"Mixed outputs per person: 1 to {0}.": "每人混合输出：1 到 {0}。",
+"{0} outputs each (v4)": "每人 {0} 个输出（v4）",
+"The leftover comes back to a fresh change address; ": "余额退回到新的找零地址；",
+"change address; ": "找零地址；",
+"each of your {0} mixed outputs of {1} sats goes to its own fresh address of this wallet.": "你的 {0} 个 {1} sats 混合输出各自发往本钱包的一个新地址。",
+"{0} sats, {1} of them yours; ": "{0} sats，其中 {1} 个是你的；",
+"Done: your {0} mixed coins of {1} sats are in your wallet.": "完成：你的 {0} 枚 {1} sats 混合币已在钱包中。",
+"its outputs changed": "其输出数已更改",
+"this pool gives {0} mixed outputs each": "此池每人给出 {0} 个混合输出"
 }

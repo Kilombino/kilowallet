@@ -53,28 +53,32 @@ object CoinjoinTx {
     }
 
     /**
-     * What each participant pays the miners: their [inputs], their mix output, their change and
-     * half the transaction overhead (the share in a pool of two, the most anyone can owe).
-     * Fixed per person and known at join time, so the change can be signed there and then.
+     * What each participant pays the miners: their [inputs], their [outputs] mix outputs (one
+     * before v4), their change and half the transaction overhead (the share in a pool of two, the
+     * most anyone can owe). Fixed per person and known at join time, so the change can be signed
+     * there and then.
      */
-    fun feeShare(feeRate: Double, withChange: Boolean = true, inputs: Int = 1, type: ScriptType = ScriptType.P2WPKH): Long =
-        ceil(feeRate * (inputVb(type) * inputs + outputVb(type) + (if (withChange) outputVb(type) else 0.0) + OVERHEAD_VB / 2)).toLong()
+    fun feeShare(feeRate: Double, withChange: Boolean = true, inputs: Int = 1, type: ScriptType = ScriptType.P2WPKH, outputs: Int = 1): Long =
+        ceil(feeRate * (inputVb(type) * inputs + outputVb(type) * outputs + (if (withChange) outputVb(type) else 0.0) + OVERHEAD_VB / 2)).toLong()
 
     /**
      * The change for [inputValue] (all of a person's coins together) in a pool of [amount] at
      * [feeRate], or 0 when it would be dust (the dust then goes to the fee). Null if the coins
      * are too small for the pool.
      */
-    fun change(inputValue: Long, amount: Long, feeRate: Double, inputs: Int = 1, type: ScriptType = ScriptType.P2WPKH): Long? {
-        val withChange = inputValue - amount - feeShare(feeRate, true, inputs, type)
+    fun change(inputValue: Long, amount: Long, feeRate: Double, inputs: Int = 1, type: ScriptType = ScriptType.P2WPKH, outputs: Int = 1): Long? {
+        val withChange = inputValue - amount * outputs - feeShare(feeRate, true, inputs, type, outputs)
         if (withChange > DUST) return withChange
-        val without = inputValue - amount - feeShare(feeRate, false, inputs, type)
+        val without = inputValue - amount * outputs - feeShare(feeRate, false, inputs, type, outputs)
         return if (without >= 0) 0L else null
     }
 
-    /** The smallest single coin that can join a pool: the amount plus the fee share without change. */
-    fun minimumCoin(amount: Long, feeRate: Double, type: ScriptType = ScriptType.P2WPKH): Long =
-        amount + feeShare(feeRate, false, 1, type)
+    /**
+     * The smallest single coin that can join a pool (its perfect coin): [outputs] times the amount
+     * plus the fee share without change.
+     */
+    fun minimumCoin(amount: Long, feeRate: Double, type: ScriptType = ScriptType.P2WPKH, outputs: Int = 1): Long =
+        amount * outputs + feeShare(feeRate, false, 1, type, outputs)
 
     data class Plan(
         val coins: List<Coin>,
@@ -90,12 +94,15 @@ object CoinjoinTx {
     private fun cmp(a: ByteArray, b: ByteArray): Int = a.toHex().compareTo(b.toHex())
 
     /**
-     * The canonical transaction: [mixScripts] get [amount] each, every (script, value) in
-     * [changes] its change. Throws if the pieces do not add up to a sane coinjoin.
+     * The canonical transaction: [mixScripts] get [amount] each ([perPerson] of them for each
+     * person, v4), every (script, value) in [changes] its change. Throws if the pieces do not add
+     * up to a sane coinjoin.
      */
-    fun plan(coins: List<Coin>, mixScripts: List<ByteArray>, changes: List<TxBuilder.Output>, amount: Long): Plan {
-        require(mixScripts.size >= 2) { "a coinjoin needs at least two people" }
-        require(coins.size >= mixScripts.size) { "every person brings at least one coin" }
+    fun plan(coins: List<Coin>, mixScripts: List<ByteArray>, changes: List<TxBuilder.Output>, amount: Long, perPerson: Int = 1): Plan {
+        require(perPerson >= 1 && mixScripts.size % perPerson == 0) { "every person gets the same number of mixed outputs" }
+        val people = mixScripts.size / perPerson
+        require(people >= 2) { "a coinjoin needs at least two people" }
+        require(coins.size >= people) { "every person brings at least one coin" }
         require(coins.map { it.outpoint }.toSet().size == coins.size) { "the same coin was registered twice" }
         // One address type for everything: a P2WPKH coin or output in a Taproot round (or the
         // other way round) would point at its owner.
@@ -156,19 +163,27 @@ object CoinjoinTx {
      * is exactly what we expect, and the fee is in a sane range for the pool's rate.
      */
     fun checkOurs(plan: Plan, mixScript: ByteArray, change: TxBuilder.Output?, amount: Long, feeRate: Double,
-                  seatInputs: List<Int> = plan.coins.map { 1 }): String? {
+                  seatInputs: List<Int> = plan.coins.map { 1 }): String? =
+        checkOurs(plan, listOf(mixScript), change, amount, feeRate, seatInputs, 1)
+
+    /** The same for a v4 round: each of our [mixScripts] once, [perPerson] mixed outputs for every seat. */
+    fun checkOurs(plan: Plan, mixScripts: List<ByteArray>, change: TxBuilder.Output?, amount: Long, feeRate: Double,
+                  seatInputs: List<Int>, perPerson: Int): String? {
         val type = plan.coins.first().type
         val people = seatInputs.size
-        val mix = plan.outputs.count { it.scriptPubKey.contentEquals(mixScript) && it.value == amount }
-        if (mix != 1) return "our mixed output is missing"
-        if (plan.outputs.count { it.value == amount } < people) return "the mixed outputs are not all equal"
+        if (mixScripts.size != perPerson || mixScripts.map { it.toHex() }.toSet().size != perPerson) return "our mixed outputs are wrong"
+        for (mixScript in mixScripts) {
+            val mix = plan.outputs.count { it.scriptPubKey.contentEquals(mixScript) && it.value == amount }
+            if (mix != 1) return "our mixed output is missing"
+        }
+        if (plan.outputs.count { it.value == amount } < people * perPerson) return "the mixed outputs are not all equal"
         if (seatInputs.sum() != plan.coins.size) return "the coins do not match the seats"
         if (change != null && plan.outputs.none { it.scriptPubKey.contentEquals(change.scriptPubKey) && it.value == change.value })
             return "our change is missing or wrong"
         val vb = OVERHEAD_VB + inputVb(type) * plan.coins.size + outputVb(type) * plan.outputs.size
         if (plan.fee < kotlin.math.floor(feeRate * vb * 0.95)) return "the fee is too low"
         // Each person's fixed share, plus any dust folded into the fee; past that is a mistake.
-        if (plan.fee > seatInputs.sumOf { feeShare(feeRate, true, it, type) } + (DUST + 1) * people) return "the fee is too high"
+        if (plan.fee > seatInputs.sumOf { feeShare(feeRate, true, it, type, perPerson) } + (DUST + 1) * people) return "the fee is too high"
         return null
     }
 

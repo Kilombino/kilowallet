@@ -50,6 +50,14 @@ import org.json.JSONObject
  *  - The roster carries each seat's join key and ownership proofs, and every member checks
  *    them against the chain, not only the creator.
  * Older wallets don't list v3 pools (they only accept `v` 1 or 2).
+ *
+ * Kilojoin v4 (Kilowallet 1.2.0): everything as in v3, and each person gets `outputs` (2 to
+ * [MAX_OUTPUTS]) mixed outputs of the pool's amount, to as many unused addresses of their own.
+ * The perfect coin is then `outputs` times the amount plus the fee share. Each of a member's
+ * outputs is signed blindly (one `blind` carries them all) and handed in on its own: its own
+ * fresh key, its own connection, its own random wait, so not even the creator can tell which
+ * outputs belong to the same person. A pool of one output each is still announced as v3, so
+ * every v3 wallet can join it; wallets before v4 don't list v4 pools.
  */
 object Protocol {
     const val RELAY = "wss://relay.kilombino.com"
@@ -64,6 +72,10 @@ object Protocol {
     const val VERSION = 2
     /** v3 pools: blinded outputs and the creator's own key. Newest; v1 and v2 pools still join as before. */
     const val V3 = 3
+    /** v4 pools: v3 with several mixed outputs per person. */
+    const val V4 = 4
+    /** Most mixed outputs one person may get in a v4 pool. */
+    const val MAX_OUTPUTS = 5
     const val V1 = 1
     /** Most coins one person may bring to a v2 pool. */
     const val MAX_INPUTS = 10
@@ -120,8 +132,12 @@ object Protocol {
         val creatorPub: String? = null,
         /** v3: the RSA key the creator signs mixed outputs blindly with ([BlindRsa.PublicKey.encode]). */
         val blindKey: String? = null,
+        /** v4: mixed outputs each person gets, every one of [amount] (1 before v4). */
+        val outputs: Int = 1,
     ) {
         val v3: Boolean get() = version >= V3
+        /** What each person puts into the mix: [outputs] × [amount]. */
+        val mixTotal: Long get() = amount * outputs
         fun toJson(): JSONObject = JSONObject()
             .put("v", version).put("app", "kilowallet").put("network", NETWORK)
             .put("id", id).put("public_key", poolPub).put("denomination", amount)
@@ -129,12 +145,13 @@ object Protocol {
             .put("timeout", expiresAt).put("state", state).put("peers", peers)
             .also { if (version >= 2) it.put("script", scriptName(script)).put("max_inputs", maxInputs) }
             .also { if (version >= V3) it.put("creator", creatorPub).put("blind_key", blindKey) }
+            .also { if (version >= V4) it.put("outputs", outputs) }
 
         companion object {
             fun parse(ev: NostrEvent): Terms? = runCatching {
                 val o = JSONObject(ev.content)
                 val v = o.getInt("v")
-                if (v != V1 && v != VERSION && v != V3 || o.getString("network") != NETWORK) return null
+                if (v != V1 && v != VERSION && v != V3 && v != V4 || o.getString("network") != NETWORK) return null
                 val t = Terms(
                     id = o.getString("id"), poolPub = o.getString("public_key"),
                     amount = o.getLong("denomination"), feeRate = o.getDouble("fee_rate"),
@@ -146,7 +163,10 @@ object Protocol {
                     maxInputs = if (v == V1) 1 else o.getInt("max_inputs"),
                     creatorPub = if (v >= V3) o.getString("creator") else null,
                     blindKey = if (v >= V3) o.getString("blind_key") else null,
+                    outputs = if (v >= V4) o.getInt("outputs") else 1,
                 )
+                // A v4 pool always has several outputs each; one each is announced as v3.
+                if (v >= V4 && t.outputs !in 2..MAX_OUTPUTS) return null
                 if (t.v3) {
                     if (!t.creatorPub!!.matches(Regex("[0-9a-f]{64}")) || t.creatorPub == t.poolPub) return null
                     BlindRsa.PublicKey.decode(t.blindKey!!)

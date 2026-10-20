@@ -1980,5 +1980,19 @@
 "1. Check its hash in a terminal (it must say OK):": "1. Controlla l'hash in un terminale (deve dire OK):",
 "2. Install it:": "2. Installalo:",
 "Then open Kilowallet again.": "Poi riapri Kilowallet.",
-"COPIED ✓": "COPIATO ✓"
+"COPIED ✓": "COPIATO ✓",
+"mixed outputs per person (1–{0})": "output mescolati per persona (1–{0})",
+"Each person gets {0} mixed outputs of the amount below, each to an unused address of their own. Only Kilowallet 1.2.0 or newer (Kilojoin v4) sees this pool.": "Ogni persona riceve {0} output mescolati dell'importo qui sotto, ciascuno a un proprio indirizzo non usato. Solo Kilowallet 1.2.0 o successivo (Kilojoin v4) vede questo pool.",
+"One mixed output each: every Kilojoin v3 wallet can join it.": "Un output mescolato a testa: qualsiasi wallet Kilojoin v3 può unirsi.",
+"amount of each output (sats)": "importo di ogni output (sats)",
+"{0} sats per person in all": "{0} sats a persona in tutto",
+"Mixed outputs per person: 1 to {0}.": "Output mescolati per persona: da 1 a {0}.",
+"{0} outputs each (v4)": "{0} output a testa (v4)",
+"The leftover comes back to a fresh change address; ": "Il resto torna a un nuovo indirizzo di resto; ",
+"change address; ": "nuovo indirizzo di resto; ",
+"each of your {0} mixed outputs of {1} sats goes to its own fresh address of this wallet.": "ciascuno dei tuoi {0} output mescolati da {1} sats va a un proprio nuovo indirizzo di questo wallet.",
+"{0} sats, {1} of them yours; ": "{0} sats, {1} delle quali tuoi; ",
+"Done: your {0} mixed coins of {1} sats are in your wallet.": "Fatto: le tue {0} monete mescolate da {1} sats sono nel tuo wallet.",
+"its outputs changed": "sono cambiati i suoi output",
+"this pool gives {0} mixed outputs each": "questo pool dà {0} output mescolati a persona"
 }

@@ -20,7 +20,7 @@ object MixedCoins {
         val kept = prefs(ctx).getStringSet("scripts", emptySet())!!
         val live = CoinjoinHub.states.value
             .filter { it.phase == PoolSession.Phase.BROADCAST || it.phase == PoolSession.Phase.CONFIRMED }
-            .map { it.mixScript.toHex() }
+            .flatMap { st -> st.mixScripts.map { it.toHex() } }
         return kept + live
     }
 
@@ -42,8 +42,9 @@ object MixedCoins {
 
     /**
      * True when output [vout] of [rawHex] is one of a Kilojoin round's mixed outputs: two or more
-     * outputs of its exact (round) amount, at least as many inputs, at most one change each, and
-     * every input signed with the unified sighash 0x21 that Kilojoin always uses.
+     * outputs of its exact (round) amount, two or more inputs, at most one change per input (v4
+     * gives each person several mixed outputs, so they may outnumber the inputs), and every input
+     * signed with the unified sighash 0x21 that Kilojoin always uses.
      */
     fun looksMixed(rawHex: String, vout: Int): Boolean = runCatching {
         val tx = TxParse.parse(rawHex)
@@ -51,7 +52,7 @@ object MixedCoins {
         val v = mine.value
         if (v < 10_000 || v % 1000 != 0L) return false
         val equal = tx.outputs.count { it.value == v }
-        if (equal < 2 || tx.inputs.size < equal || tx.outputs.size - equal > equal) return false
+        if (equal < 2 || tx.inputs.size < 2 || tx.outputs.size - equal > tx.inputs.size) return false
         if (tx.outputs.any { it.scriptPubKey.size != mine.scriptPubKey.size || it.scriptPubKey[0] != mine.scriptPubKey[0] }) return false
         tx.inputs.all { i -> i.witness.isNotEmpty() && i.witness[0].size >= 64 && (i.witness[0].last().toInt() and 0xFF) == 0x21 }
     }.getOrDefault(false)

@@ -301,7 +301,7 @@ class CoinjoinE2ETest {
         // Each member got exactly one blind signature, and the creator's list holds three outputs.
         assertEquals(2, a.state.blindSigs.size)
         assertEquals(3, a.state.regOutputs.size)
-        assertTrue(b.state.outSig != null && c.state.outSig != null)
+        assertTrue(b.state.outSigs.size == 1 && c.state.outSigs.size == 1)
         val txid = CoinjoinTx.txid(a.plan()!!)
         assertEquals(txid, CoinjoinTx.txid(b.plan()!!)); assertEquals(txid, CoinjoinTx.txid(c.plan()!!))
 
@@ -310,6 +310,73 @@ class CoinjoinE2ETest {
         rpc("generatetoaddress", 1, rpc("getnewaddress") as String)
         waitFor("confirmed", 60) { listOf(a, b, c).all { it.state.phase == PoolSession.Phase.CONFIRMED } }
         println("v3 txid ${a.state.txid}")
+        a.stop(); b.stop(); c.stop()
+    }
+    /**
+     * Kilojoin v4 for real: a pool of 4 outputs of 100 000 each. A (the creator) brings its perfect
+     * coin and gets no change, B one big coin with change, C two coins. Every member gets its four
+     * outputs to its own four addresses and its change back; the transaction is mined on the
+     * BLAKE2b regtest. KILOJOIN_E2E_V4=<coins file>: "seed txid vout value" for A, B, C1, C2.
+     */
+    @Test fun v4SeveralOutputsEach() {
+        val path = System.getenv("KILOJOIN_E2E_V4") ?: return
+        Protocol.NETWORK = "blake2b-regtest"
+        val coins = java.io.File(path).readLines().filter { it.isNotBlank() }.map { it.trim().split(" ") }
+            .map { (seed, txid, vout, value) -> seed.toInt() to CoinjoinTx.Coin(txid, vout.toInt(), value.toLong(), pub(key(seed.toInt()))) }
+        val salt = System.nanoTime() % 1_000_000
+        val k = 4
+        val np = PoolSession.newPool(100_000, 3.0, 5, 1, minPeers = 3, maxInputs = 2, v3 = true, outputs = k)
+        assertEquals(Protocol.V4, np.terms.version)
+        fun mixes(base: Long) = (0 until k).map { script(base + salt + it) }
+        val mixA = mixes(80_000); val mixB = mixes(81_000); val mixC = mixes(82_000)
+        val chB = script(83_000 + salt); val chC = script(84_000 + salt)
+        val a = PoolSession(Env("A"), PoolSession.newState(np.terms, true, np.secret, listOf(coins[0].second), listOf(key(coins[0].first)),
+            listOf("a"), mixA, script(85_000 + salt), creatorSecret = np.creatorSecret, blindPriv = np.blindPriv))
+        assertEquals(0L, a.state.seat.changeValue) // the perfect coin
+        a.start(); waitFor("A open") { a.state.phase == PoolSession.Phase.OPEN }
+
+        val found = java.util.concurrent.CompletableFuture<Protocol.Terms>()
+        val r = RelayClient(Protocol.RELAY, { _, ev -> Protocol.Terms.parse(ev)?.let { if (it.id == np.terms.id) found.complete(it) } })
+        r.connect(); r.subscribe("p", listOf(JSONObject().put("kinds", JSONArray().put(Protocol.KIND_POOL)).put("#d", JSONArray().put(np.terms.id))))
+        val seen = found.get(30, java.util.concurrent.TimeUnit.SECONDS); r.close()
+        assertEquals(k, seen.outputs)
+
+        val b = PoolSession(Env("B"), PoolSession.newState(seen, false, null, listOf(coins[1].second), listOf(key(coins[1].first)),
+            listOf("b"), mixB, chB))
+        b.start(); waitFor("B welcomed") { b.state.phase == PoolSession.Phase.OPEN && b.state.seats.size >= 2 }
+        val c = PoolSession(Env("C"), PoolSession.newState(seen, false, null, listOf(coins[2].second, coins[3].second),
+            listOf(key(coins[2].first), key(coins[3].first)), listOf("c1", "c2"), mixC, chC))
+        c.start(); waitFor("C welcomed") { c.state.phase == PoolSession.Phase.OPEN && c.state.seats.size == 3 }
+        waitFor("everyone sees three") { a.state.seats.size == 3 && b.state.seats.size == 3 }
+
+        b.requestClose()
+        waitFor("vote opened by the creator") { a.state.phase == PoolSession.Phase.VOTING && c.state.phase == PoolSession.Phase.VOTING }
+        a.vote(true); c.vote(true)
+        waitFor("all signing", 300) { listOf(a, b, c).all { it.state.phase == PoolSession.Phase.SIGNING } }
+        // One blind request per member, four signatures in it; the creator's list holds 12 outputs.
+        assertEquals(2, a.state.blindSigs.size)
+        assertTrue(a.state.blindSigs.values.all { it.split(",").size == k })
+        assertEquals(3 * k, a.state.regOutputs.size)
+        assertTrue(b.state.outSigs.size == k && c.state.outSigs.size == k)
+        val txid = CoinjoinTx.txid(a.plan()!!)
+        assertEquals(txid, CoinjoinTx.txid(b.plan()!!)); assertEquals(txid, CoinjoinTx.txid(c.plan()!!))
+
+        a.sign(key(coins[0].first)); b.sign(key(coins[1].first)); c.sign(listOf(key(coins[2].first), key(coins[3].first)))
+        waitFor("broadcast") { listOf(a, b, c).all { it.state.txid != null } }
+        // What went out, read back from the node: every output where it belongs.
+        val tx = rpc("getrawtransaction", a.state.txid!!, true) as JSONObject
+        val outs = tx.getJSONArray("vout").let { v -> (0 until v.length()).map { v.getJSONObject(it) } }
+            .map { it.getJSONObject("scriptPubKey").getString("hex") to Math.round(it.getDouble("value") * 1e8) }
+        fun hex(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
+        for ((who, mix) in listOf("A" to mixA, "B" to mixB, "C" to mixC))
+            for (m in mix) assertEquals("$who's output", 1, outs.count { it.first == hex(m) && it.second == 100_000L })
+        assertEquals(1, outs.count { it.first == hex(chB) && it.second == b.state.seat.changeValue })
+        assertEquals(1, outs.count { it.first == hex(chC) && it.second == c.state.seat.changeValue })
+        assertEquals(3 * k + 2, outs.size)
+        assertEquals(4, tx.getJSONArray("vin").length())
+        rpc("generatetoaddress", 1, rpc("getnewaddress") as String)
+        waitFor("confirmed", 60) { listOf(a, b, c).all { it.state.phase == PoolSession.Phase.CONFIRMED } }
+        println("v4 txid ${a.state.txid} vsize ${tx.getInt("vsize")}")
         a.stop(); b.stop(); c.stop()
     }
 }

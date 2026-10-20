@@ -152,10 +152,10 @@ object CoinjoinHub {
     /** One of our coins for a seat, with the key that spends it. */
     class PickCoin(val txid: String, val vout: Int, val value: Long, val coinKey: Bip32Priv.ExtendedPrivKey, val coinPath: String)
 
-    /** Our coins (all of [type]), with fresh addresses of that type for the round. */
+    /** Our coins (all of [type]), with fresh addresses of that type for the round: one per mixed output, and the change. */
     class Pick(
         val coins: List<PickCoin>, val type: ScriptType,
-        val mixScript: ByteArray, val changeScript: ByteArray,
+        val mixScripts: List<ByteArray>, val changeScript: ByteArray,
     ) {
         fun txCoins(): List<CoinjoinTx.Coin> = coins.map { CoinjoinTx.Coin(it.txid, it.vout, it.value, it.coinKey.publicKey(), type) }
     }
@@ -214,12 +214,14 @@ object CoinjoinHub {
     fun create(
         ctx: Context, pick: Pick, amount: Long, feeRate: Double, maxPeers: Int, hours: Int,
         minPeers: Int = Protocol.MIN_PEERS, password: String? = null, maxInputs: Int = 1, auto: Boolean = false,
+        outputs: Int = 1,
     ): PoolSession.State {
-        // New pools are v3 (outputs registered blindly); older wallets keep joining v1 and v2 ones.
+        // New pools are v3 (outputs registered blindly), v4 with several outputs each; older
+        // wallets keep joining v1 and v2 ones.
         val np = PoolSession.newPool(amount, feeRate, maxPeers, hours, minPeers, !password.isNullOrEmpty(),
-            pick.type, maxInputs, v3 = true)
+            pick.type, maxInputs, v3 = true, outputs = outputs)
         val st = PoolSession.newState(np.terms, true, np.secret, pick.txCoins(), pick.coins.map { it.coinKey.key }, pick.coins.map { it.coinPath },
-            pick.mixScript, pick.changeScript, password?.ifEmpty { null }, np.creatorSecret, np.blindPriv)
+            pick.mixScripts, pick.changeScript, password?.ifEmpty { null }, np.creatorSecret, np.blindPriv)
         add(ctx, st, if (auto) pick.coins.map { it.coinKey.key } else null)
         CoinjoinAlerts.follow(ctx, st)
         return st
@@ -227,8 +229,9 @@ object CoinjoinHub {
 
     fun join(ctx: Context, terms: Protocol.Terms, pick: Pick, password: String? = null, auto: Boolean = false): PoolSession.State {
         require(pick.type == terms.script) { "these coins are not of the pool's address type" }
+        require(pick.mixScripts.size == terms.outputs) { "this pool gives ${terms.outputs} mixed outputs each" }
         val st = PoolSession.newState(terms, false, null, pick.txCoins(), pick.coins.map { it.coinKey.key }, pick.coins.map { it.coinPath },
-            pick.mixScript, pick.changeScript, password?.ifEmpty { null })
+            pick.mixScripts, pick.changeScript, password?.ifEmpty { null })
         add(ctx, st, if (auto) pick.coins.map { it.coinKey.key } else null)
         return st
     }
@@ -273,7 +276,7 @@ object CoinjoinHub {
         val open = fetchPools().filter { it.amount >= Protocol.MIN_AMOUNT && !it.private && it.id !in ours }
         open.maxOfOrNull { it.createdAt }?.let { prefs(ctx).edit().putLong(KEY_LAST_POOL_SEEN, it).apply() }
         open.firstOrNull()?.let { t -> notify(ctx, t.id.hashCode(), "Coinjoin pool open now",
-            "${sats(t.amount)} sats${kind(t)} · ${t.peers}/${t.maxPeers} people · ${t.feeRate} sat/vB") }
+            "${amountOf(t)} sats${kind(t)} · ${t.peers}/${t.maxPeers} people · ${t.feeRate} sat/vB") }
     }
 
     /** For the background watcher: notify pools opened since the last look, other than ours. */
@@ -290,7 +293,7 @@ object CoinjoinHub {
         }
         pools.maxOfOrNull { it.createdAt }?.let { p.edit().putLong(KEY_LAST_POOL_SEEN, it).apply() }
         for (t in pools.take(3)) notify(ctx, t.id.hashCode(), "New coinjoin pool" + if (t.amount < Protocol.MIN_AMOUNT) " (test)" else "",
-            "${sats(t.amount)} sats${kind(t)} · ${t.peers}/${t.maxPeers} people · ${t.feeRate} sat/vB")
+            "${amountOf(t)} sats${kind(t)} · ${t.peers}/${t.maxPeers} people · ${t.feeRate} sat/vB")
     }
 
     // ------------------------------------------------------------------------------- environment
@@ -330,12 +333,14 @@ object CoinjoinHub {
     private fun sats(v: Long): String = "%,d".format(v).replace(',', ' ')
     /** " · Taproot" for a Taproot pool (bc1p coins only); nothing for the usual bc1q ones. */
     private fun kind(t: Protocol.Terms): String = if (t.script == ScriptType.P2TR) " · Taproot" else ""
+    /** "4 × 1 000 000" for a v4 pool, the plain amount otherwise. */
+    private fun amountOf(t: Protocol.Terms): String = if (t.outputs > 1) "${t.outputs} × ${sats(t.amount)}" else sats(t.amount)
 
     private fun onEvent(ctx: Context, st: PoolSession.State, e: PoolSession.Event) {
         alert(ctx, st, e)
         if (e is PoolSession.Event.Broadcast || e is PoolSession.Event.Confirmed) runCatching { MixedCoins.keep(ctx) }
         val id = ("cj" + st.poolId).hashCode()
-        val pool = "${sats(st.terms.amount)} sats pool"
+        val pool = "${amountOf(st.terms)} sats pool"
         when (e) {
             is PoolSession.Event.Changed -> return
             is PoolSession.Event.Welcomed -> notify(ctx, id, "Coinjoin: you are in", "$pool · waiting for more people")

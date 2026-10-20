@@ -26,7 +26,7 @@ object PerfectCoin {
 
     class Waiting(
         val txid: String, val vout: Int, val value: Long, val type: ScriptType, val path: String,
-        val script: ByteArray, val mixScript: ByteArray, val changeScript: ByteArray,
+        val script: ByteArray, val mixScripts: List<ByteArray>, val changeScript: ByteArray,
         /** Join this pool… */
         val poolId: String?, val poolPassword: String?,
         /** …or open one with these terms. */
@@ -37,14 +37,17 @@ object PerfectCoin {
     ) {
         val key get() = "exact:$txid"
         fun toJson(): JSONObject = JSONObject().put("txid", txid).put("vout", vout).put("value", value).put("type", type.name)
-            .put("path", path).put("script", script.toHex()).put("mix", mixScript.toHex()).put("change", changeScript.toHex())
+            .put("path", path).put("script", script.toHex()).put("mix", mixScripts.first().toHex())
+            .put("mixes", JSONArray(mixScripts.map { it.toHex() })).put("change", changeScript.toHex())
             .put("pool", poolId ?: "").put("poolPassword", poolPassword ?: "").put("create", create ?: JSONObject.NULL).put("since", since)
             .put("terms", terms ?: JSONObject.NULL)
 
         companion object {
             private fun hex(s: String) = ByteArray(s.length / 2) { s.substring(2 * it, 2 * it + 2).toInt(16).toByte() }
             fun parse(o: JSONObject) = Waiting(o.getString("txid"), o.getInt("vout"), o.getLong("value"), ScriptType.valueOf(o.getString("type")),
-                o.getString("path"), hex(o.getString("script")), hex(o.getString("mix")), hex(o.getString("change")),
+                o.getString("path"), hex(o.getString("script")),
+                o.optJSONArray("mixes")?.let { a -> (0 until a.length()).map { hex(a.getString(it)) } } ?: listOf(hex(o.getString("mix"))),
+                hex(o.getString("change")),
                 o.optString("pool").ifEmpty { null }, o.optString("poolPassword").ifEmpty { null }, o.optJSONObject("create"), o.optLong("since"),
                 o.optJSONObject("terms"))
         }
@@ -53,6 +56,7 @@ object PerfectCoin {
     /** What the user agreed to when choosing [t]: the parts of the pool's terms that decide what is signed. */
     fun agreed(t: Protocol.Terms): JSONObject = JSONObject().put("pub", t.poolPub).put("amount", t.amount).put("feeRate", t.feeRate)
         .put("script", t.script.name).put("version", t.version).put("maxInputs", t.maxInputs).put("maxPeers", t.maxPeers)
+        .put("outputs", t.outputs)
 
     /**
      * Why the pool as it reads now is not the one the user agreed to, or null. Joining on its own
@@ -69,6 +73,7 @@ object PerfectCoin {
             a.optDouble("feeRate") != now.feeRate -> "its fee changed"
             a.optString("script") != now.script.name || a.optInt("version") != now.version -> "its kind changed"
             a.optInt("maxInputs") != now.maxInputs || a.optInt("maxPeers") != now.maxPeers -> "its size changed"
+            a.optInt("outputs", 1) != now.outputs -> "its outputs changed"
             now.state != "open" -> "it is no longer open"
             else -> null
         }
@@ -134,10 +139,11 @@ object PerfectCoin {
             if (k == null) { CoinjoinHub.notifyPublic(app, "Perfect coin ready", "${w.value} sats confirmed. Join a pool with it in COINJOIN."); continue }
             runCatching {
                 val node = Bip32Priv.ExtendedPrivKey(k, ByteArray(32), 5)
-                val pick = CoinjoinHub.Pick(listOf(CoinjoinHub.PickCoin(w.txid, w.vout, w.value, node, w.path)), w.type, w.mixScript, w.changeScript)
+                val pick = CoinjoinHub.Pick(listOf(CoinjoinHub.PickCoin(w.txid, w.vout, w.value, node, w.path)), w.type, w.mixScripts, w.changeScript)
                 val c = w.create
                 if (c != null) CoinjoinHub.create(app, pick, c.getLong("amount"), c.getDouble("feeRate"), c.getInt("maxPeers"), c.getInt("hours"),
-                    c.getInt("minPeers"), c.optString("password").ifEmpty { null }, c.optInt("maxInputs", 1), auto = true)
+                    c.getInt("minPeers"), c.optString("password").ifEmpty { null }, c.optInt("maxInputs", 1), auto = true,
+                    outputs = c.optInt("outputs", 1))
                 else {
                     val t = CoinjoinHub.fetchPools().firstOrNull { it.id == w.poolId } ?: error("that pool is no longer open")
                     changed(w.terms, t)?.let { error("the pool is not the one you chose ($it)") }

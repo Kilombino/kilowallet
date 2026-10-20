@@ -54,7 +54,7 @@ object CoinjoinAlerts {
     /** Start following a pool we created or were welcomed into. */
     fun follow(ctx: Context, st: PoolSession.State) {
         val t = st.terms
-        send(ctx, "/follow", JSONObject().put("pool", st.poolId).put("amount", t.amount).put("fee", t.feeRate)
+        send(ctx, "/follow", JSONObject().put("pool", st.poolId).put("amount", t.amount).put("outputs", t.outputs).put("fee", t.feeRate)
             .put("max", t.maxPeers).put("min", t.minPeers).put("expires", t.expiresAt).put("peers", st.seats.size))
     }
 
