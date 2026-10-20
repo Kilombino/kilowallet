@@ -27,6 +27,20 @@ class I18nTest {
         I18n.lang.value = I18n.ES
     }
 
+    /** The JoinMarket wallet's texts, as the code builds them (values, upper-case labels, " · " pieces). */
+    @Test fun joinMarketTexts() {
+        I18n.lang.value = I18n.ES
+        assertEquals("El fidelity bond se desbloquea en 7 días", I18n.tr("Fidelity bond unlocks in 7 days"))
+        assertEquals("JoinMarket · Fidelity bond desbloqueado", I18n.tr("JoinMarket · Fidelity bond unlocked"))
+        assertEquals("🔒 Bloqueado hasta el 2026-11-01 (dentro de 12 días)", I18n.tr("🔒 Locked until 2026-11-01 (in 12 days)"))
+        assertEquals("MONEDERO JOINMARKET · TOTAL", I18n.tr("JOINMARKET WALLET · TOTAL"))
+        assertEquals("JOINMARKET · SOLO LECTURA", I18n.tr("JOINMARKET · READ-ONLY"))
+        assertEquals("bote #2 · m/84'/0'/2'", I18n.tr("jar #2 · m/84'/0'/2'"))
+        I18n.lang.value = I18n.ZH
+        assertEquals("忠诚保证金已解锁", I18n.tr("Fidelity bond unlocked"))
+        I18n.lang.value = I18n.ES
+    }
+
     @Test fun templatesUpperCaseAndListItems() {
         I18n.lang.value = I18n.ES
         assertEquals("\"pato\" no es una palabra de recuperación.", I18n.tr("\"pato\" is not a seed word."))

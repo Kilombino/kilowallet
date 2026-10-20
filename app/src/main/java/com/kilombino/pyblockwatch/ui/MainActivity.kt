@@ -125,8 +125,8 @@ class MainActivity : FragmentActivity() {
                 // notification, stop. One already running is left alone: restarting it on every
                 // opening repeated all its network work right next to the app's own first look.
                 // It reads a changed interval itself, within a minute.
-                LaunchedEffect(state.hasWallet, state.notificationsEnabled, state.refreshBackgroundMinutes) {
-                    if (state.hasWallet && state.notificationsEnabled) {
+                LaunchedEffect(state.hasWallet, state.jamView, state.notificationsEnabled, state.refreshBackgroundMinutes) {
+                    if ((state.hasWallet || vm.hasJamWallet()) && state.notificationsEnabled) {
                         if (state.refreshBackgroundMinutes > 0) toggleNotifications(vm, true)
                         else stopService(Intent(this@MainActivity, WatchService::class.java))
                     }
@@ -315,7 +315,11 @@ class MainActivity : FragmentActivity() {
                                 onDecline = { vm.answerCoinjoin(false); askCoinjoin = false })
                         }
                     }
-                    if (state.showWallet) {
+                    if (state.jamView && !state.setupMode) {
+                        // The JoinMarket wallet (Jam, read-only): its own screen, no simple mode.
+                        val jvm: JamViewModel = viewModel()
+                        JamScreen(vm, jvm, onToggleNotifications = { on -> toggleNotifications(vm, on) })
+                    } else if (state.showWallet) {
                         // Simple / Advanced: chosen once, switchable from the top of either screen.
                         when (state.uiMode) {
                             null -> ModeChooser(vm)
@@ -475,6 +479,23 @@ private fun OnboardingScreen(state: UiState, vm: WalletViewModel) {
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("WATCH BOTH CHAINS", style = MaterialTheme.typography.titleMedium) }
+        }
+
+        // A Jam (JoinMarket) wallet, read-only: the third wallet.
+        var importJam by remember { mutableStateOf(false) }
+        val jvm: JamViewModel = viewModel()
+        if (importJam) JamImportDialog(jvm, JamTeal, onImported = { importJam = false; vm.viewJam() }, onClose = { importJam = false })
+        Panel(accent = JamTeal) {
+            SectionLabel("JoinMarket wallet (Jam)", JamTeal)
+            Spacer(Modifier.height(8.dp))
+            Explain("Follow your Jam wallet from the phone, read-only: its five jars, their movements and your fidelity " +
+                "bonds, with a warning before a bond unlocks. In Jam: Settings › View in Kilowallet (read-only).")
+            Spacer(Modifier.height(10.dp))
+            Button(
+                onClick = { importJam = true },
+                colors = ButtonDefaults.buttonColors(containerColor = JamTeal, contentColor = Ink),
+                shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
+            ) { Text("WATCH A JAM WALLET", style = MaterialTheme.typography.titleMedium) }
         }
 
         // The home-screen widget, for those who only want the price.
@@ -823,7 +844,7 @@ private fun BalanceCard(
 }
 
 @Composable
-private fun ScanStatus(cs: ChainState, accent: Color, onRetry: () -> Unit) {
+internal fun ScanStatus(cs: ChainState, accent: Color, onRetry: () -> Unit) {
     Panel(accent = accent) {
         AnimatedContent(
             targetState = cs.phase,

@@ -185,6 +185,8 @@ data class UiState(
     val taprootXpub: String? = null,
     /** Hot wallet: new receive and change addresses are Taproot (bc1p). */
     val receiveTaproot: Boolean = false,
+    /** The JoinMarket wallet (read-only, from Jam) is on screen instead of the hot/watch-only one. */
+    val jamView: Boolean = false,
 ) {
     val current: ChainState get() = chains[selected] ?: ChainState()
     val hasWallet: Boolean get() = !xpub.isNullOrBlank()
@@ -259,6 +261,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 market = com.kilombino.pyblockwatch.data.MarketFeed.cached(app),
                 taprootXpub = store.taprootXpub.takeIf { seedVault.hasSeed() && store.activeWallet != Store.WATCH },
                 receiveTaproot = store.receiveTaproot,
+                jamView = store.jamView && hasJamWallet(),
             )
         }
         // 0.19.0 had coinjoin without the opt-in: whoever already took part keeps it on.
@@ -917,7 +920,28 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         switchTo(Store.HOT)
     }
 
+    /** A JoinMarket wallet (Jam's read-only export) is imported on this phone. */
+    fun hasJamWallet(): Boolean = Store(getApplication(), Store.JM).jmExport != null
+
+    /** Show the JoinMarket wallet (import it first: see [hasJamWallet]). */
+    fun viewJam() {
+        if (!hasJamWallet()) return
+        store.jamView = true
+        _state.update { it.copy(jamView = true, sendPhase = SendPhase.Editing) }
+    }
+
+    /** The JoinMarket wallet was forgotten: back to the hot or watch-only one. */
+    fun leaveJam() {
+        store.jamView = false
+        _state.update { it.copy(jamView = false) }
+    }
+
+    /** The user agreed, since the app opened, to read BTC from Kilombino's server. */
+    fun btcConsented(): Boolean = btcConsent
+
     private fun switchTo(wallet: String) {
+        store.jamView = false
+        _state.update { it.copy(jamView = false) }
         jobs.values.forEach(Job::cancel); jobs.clear()
         store = Store(getApplication(), wallet)
         store.activeWallet = wallet
