@@ -1976,10 +1976,10 @@
 "{0} sats per person in all": "每人共 {0} sats",
 "Mixed outputs per person: 1 to {0}.": "每人混合输出：1 到 {0}。",
 "{0} outputs each (v4)": "每人 {0} 个输出（v4）",
-"The leftover comes back to a fresh change address; ": "余额退回到新的找零地址；",
-"change address; ": "找零地址；",
+"The leftover comes back to a fresh change address; ": "余额退回到新的找零地址； ",
+"change address; ": "找零地址； ",
 "each of your {0} mixed outputs of {1} sats goes to its own fresh address of this wallet.": "你的 {0} 个 {1} sats 混合输出各自发往本钱包的一个新地址。",
-"{0} sats, {1} of them yours; ": "{0} sats，其中 {1} 个是你的；",
+"{0} sats, {1} of them yours; ": "{0} sats，其中 {1} 个是你的； ",
 "Done: your {0} mixed coins of {1} sats are in your wallet.": "完成：你的 {0} 枚 {1} sats 混合币已在钱包中。",
 "its outputs changed": "其输出数已更改",
 "this pool gives {0} mixed outputs each": "此池每人给出 {0} 个混合输出"
