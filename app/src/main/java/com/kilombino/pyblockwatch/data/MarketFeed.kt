@@ -46,12 +46,25 @@ data class MarketData(
     val difficultyRemainingBlocks: Long? = null,
     /** Estimated time of the next retarget (Unix ms). */
     val difficultyRetargetMs: Long? = null,
+    /** Units of each currency per US dollar (ECB daily reference and others), from the server. */
+    val fiatPerUsd: Map<String, Double>? = null,
 ) {
-    /** Fiat value of [sats] XBT, or null when there is no price yet. */
-    fun fiatValue(sats: Long, fiat: String): Double? {
-        val px = if (fiat == "EUR") xbtEur else xbtUsd
-        return px?.let { it * sats / 1e8 }
+    /** Price of one XBT in [fiat] (a [Fiat] code), or null when there is no price or rate. */
+    fun xbtIn(fiat: String): Double? = when (fiat) {
+        "USD" -> xbtUsd
+        "EUR" -> xbtEur ?: fiatPerUsd?.get("EUR")?.let { r -> xbtUsd?.times(r) }
+        else -> fiatPerUsd?.get(fiat)?.let { r -> xbtUsd?.times(r) }
     }
+
+    /** How many units of [fiat] one US dollar is (1 for USD), or null without a rate. */
+    fun perUsd(fiat: String): Double? = when {
+        fiat == "USD" -> 1.0
+        fiat == "EUR" && xbtEur != null && xbtUsd != null && xbtUsd > 0 -> xbtEur / xbtUsd
+        else -> fiatPerUsd?.get(fiat)
+    }
+
+    /** Fiat value of [sats] XBT, or null when there is no price yet. */
+    fun fiatValue(sats: Long, fiat: String): Double? = xbtIn(fiat)?.let { it * sats / 1e8 }
 }
 
 /**
@@ -172,6 +185,9 @@ object MarketFeed {
             difficultyChangePct = o.num("difficultyChangePct"),
             difficultyRemainingBlocks = o.num("difficultyRemainingBlocks")?.toLong(),
             difficultyRetargetMs = o.num("difficultyRetargetDate")?.toLong(),
+            fiatPerUsd = o.optJSONObject("fiatPerUsd")?.let { r ->
+                r.keys().asSequence().mapNotNull { k -> r.optDouble(k).takeIf { it.isFinite() && it > 0 }?.let { k to it } }.toMap()
+            }?.takeIf { it.isNotEmpty() },
         )
     }
 }

@@ -67,7 +67,7 @@ import java.util.Locale
 
 /*
  * Simple mode: the "Wallet of Satoshi" face of the wallet. One chain (BLAKE2b / XBT),
- * a big balance with its value in USD or EUR, and Send / Receive. Everything else lives
+ * a big balance with its value in the chosen currency, and Send / Receive. Everything else lives
  * in Advanced mode, which is the wallet exactly as it was. Ark will plug into Simple mode
  * as a second tab once it is validated; until then the tab explains what to expect.
  */
@@ -88,7 +88,7 @@ fun ModeChooser(vm: WalletViewModel) {
         ModeCard(
             title = "Simple",
             lines = listOf(
-                "Your BTC and Spamcoin balances, with their value in dollars or euros",
+                "Your BTC and Spamcoin balances, with their value in your currency",
                 "Send and Receive, nothing else in the way",
             ),
             accent = Purple,
@@ -347,16 +347,13 @@ private fun SimpleBalance(
         Spacer(Modifier.height(10.dp))
         val px = fiatPerCoin(chain, market, fiat)
         val value = px?.let { it * cs.total / 1e8 }
-        val sym = if (fiat == "EUR") "€" else "$"
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                street(if (value == null) "≈ $sym –" else "≈ $sym" + String.format(Locale.US, "%,.2f", value)),
+                street("≈ " + (value?.let { com.kilombino.pyblockwatch.data.Fiat.format(it, fiat) } ?: com.kilombino.pyblockwatch.data.Fiat.missing(fiat))),
                 style = MaterialTheme.typography.headlineSmall, color = TextMain,
                 modifier = Modifier.weight(1f),
             )
-            FiatChip("USD", fiat == "USD", accent) { onFiat("USD") }
-            Spacer(Modifier.width(6.dp))
-            FiatChip("EUR", fiat == "EUR", accent) { onFiat("EUR") }
+            FiatPicker(fiat, market, accent, onFiat)
         }
         if (cs.unconfirmed != 0L) {
             Spacer(Modifier.height(4.dp))
@@ -367,7 +364,8 @@ private fun SimpleBalance(
         val ch = market?.changePct.takeIf { btc }
         Text(
             if (px == null) "Price not available yet"
-            else "1 $unit = $sym" + String.format(Locale.US, if (btc) "%,.2f" else "%,.4f", px) +
+            else "1 $unit = " + (if (btc) com.kilombino.pyblockwatch.data.Fiat.format(px, fiat)
+                else com.kilombino.pyblockwatch.data.Fiat.of(fiat).let { c -> String.format(Locale.US, "%,.4f", px).let { n -> c.symbol?.let { it + n } ?: "$n ${c.code}" } }) +
                 (ch?.let { (if (it >= 0) "  ▲ " else "  ▼ ") + String.format(Locale.US, "%.2f%% 24h", kotlin.math.abs(it)) } ?: ""),
             style = MaterialTheme.typography.bodySmall,
             color = when { ch == null -> TextFaint; ch >= 0 -> Good; else -> Bad },
@@ -389,6 +387,68 @@ internal fun FiatChip(label: String, selected: Boolean, accent: Color, onClick: 
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 5.dp),
     ) { Text(label, style = MaterialTheme.typography.bodySmall, color = if (selected) accent else TextSoft) }
+}
+
+/**
+ * The amount in the chosen currency, under a sats box: typing here fills the sats (at the feed's
+ * price), and typing sats (or MAX) fills this. Disabled while there is no price.
+ */
+@Composable
+internal fun FiatAmountField(
+    sats: String, onSats: (String) -> Unit, modifier: Modifier = Modifier.fillMaxWidth(),
+    chain: com.kilombino.pyblockwatch.chain.Chain = com.kilombino.pyblockwatch.chain.Chain.BLAKE2B,
+    market: com.kilombino.pyblockwatch.data.MarketData? = null, fiat: String? = null,
+) {
+    val ctx = LocalContext.current
+    val m = market ?: remember { com.kilombino.pyblockwatch.data.MarketFeed.cached(ctx) }
+    val code = fiat ?: remember { com.kilombino.pyblockwatch.data.Store(ctx).fiat }
+    val per = fiatPerCoin(chain, m, code)
+    var text by remember { mutableStateOf("") }
+    var emitted by remember { mutableStateOf<String?>(null) }
+    // Sats typed in their own box (or set by MAX) take over again.
+    LaunchedEffect(sats) { if (sats != emitted) emitted = null }
+    val shown = if (emitted != null) text
+        else sats.toLongOrNull()?.let { s -> per?.let { com.kilombino.pyblockwatch.data.Fiat.plain(it * s / 1e8, code) } } ?: ""
+    OutlinedTextField(
+        value = shown,
+        onValueChange = { t ->
+            text = t.filter { it.isDigit() || it == '.' || it == ',' }
+            val s = com.kilombino.pyblockwatch.data.Fiat.toSats(text, per)?.toString() ?: ""
+            emitted = s
+            onSats(s)
+        },
+        enabled = per != null,
+        label = { Text(if (per == null) "≈ $code (no price yet)" else "≈ $code", style = MaterialTheme.typography.bodySmall) },
+        textStyle = MaterialTheme.typography.bodySmall, singleLine = true,
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal),
+        modifier = modifier,
+    )
+}
+
+/**
+ * USD and EUR at hand, and every other currency the feed has a rate for behind a third chip
+ * (it shows the one chosen when it is neither). One choice for the whole app and the widget.
+ */
+@Composable
+internal fun FiatPicker(fiat: String, market: com.kilombino.pyblockwatch.data.MarketData?, accent: Color, onFiat: (String) -> Unit) {
+    var open by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    FiatChip("USD", fiat == "USD", accent) { onFiat("USD") }
+    Spacer(Modifier.width(6.dp))
+    FiatChip("EUR", fiat == "EUR", accent) { onFiat("EUR") }
+    Spacer(Modifier.width(6.dp))
+    Box {
+        val other = fiat != "USD" && fiat != "EUR"
+        FiatChip(if (other) "$fiat ▾" else "▾", other, accent) { open = true }
+        androidx.compose.material3.DropdownMenu(expanded = open, onDismissRequest = { open = false },
+            containerColor = PanelBg) {
+            com.kilombino.pyblockwatch.data.Fiat.available(market).forEach { c ->
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text(c.code + (c.symbol?.let { "  $it" } ?: ""), style = MaterialTheme.typography.bodyMedium,
+                        color = if (c.code == fiat) accent else TextMain) },
+                    onClick = { open = false; onFiat(c.code) })
+            }
+        }
+    }
 }
 
 /**

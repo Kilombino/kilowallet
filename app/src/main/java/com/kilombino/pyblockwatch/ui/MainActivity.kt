@@ -817,16 +817,13 @@ private fun BalanceCard(
         Text(street("%.8f ₿".format(cs.total / 100_000_000.0)),
              style = MaterialTheme.typography.bodySmall, color = TextFaint)
 
-        // Value in dollars or euros, the same choice as in simple mode and Ark.
+        // Value in the chosen currency, the same choice as in simple mode and Ark.
         Spacer(Modifier.height(8.dp))
-        val sym = if (fiat == "EUR") "€" else "$"
         val value = fiatPerCoin(chain, market, fiat)?.let { it * cs.total / 1e8 }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(street(if (value == null) "≈ $sym –" else "≈ $sym" + String.format(java.util.Locale.US, "%,.2f", value)),
+            Text(street("≈ " + (value?.let { com.kilombino.pyblockwatch.data.Fiat.format(it, fiat) } ?: com.kilombino.pyblockwatch.data.Fiat.missing(fiat))),
                  style = MaterialTheme.typography.headlineSmall, color = TextMain, modifier = Modifier.weight(1f))
-            FiatChip("USD", fiat == "USD", accent) { onFiat("USD") }
-            Spacer(Modifier.width(6.dp))
-            FiatChip("EUR", fiat == "EUR", accent) { onFiat("EUR") }
+            FiatPicker(fiat, market, accent, onFiat)
         }
         if (cs.unconfirmed != 0L) {
             Spacer(Modifier.height(4.dp))

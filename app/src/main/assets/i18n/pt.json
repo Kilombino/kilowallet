@@ -1240,7 +1240,7 @@
 "Your Ark balance after: ": "Seu saldo Ark depois: ",
 "Your Ark wallet": "Sua carteira Ark",
 "Your Ark wallet changed since the last backup file. Save a new one.": "Sua carteira Ark mudou desde o último arquivo de backup. Salve um novo.",
-"Your BTC and Spamcoin balances, with their value in dollars or euros": "Seus saldos de BTC e Spamcoin, com o valor em dólares ou euros",
+"Your BTC and Spamcoin balances, with their value in your currency": "Os teus saldos de BTC e Spamcoin, com o seu valor na tua moeda",
 "Your BTC server's block headers don't verify, so the Ark engine's chain data can't be checked against it.": "Os cabeçalhos de bloco do seu servidor BTC não se verificam, então os dados de cadeia do motor do Ark não podem ser conferidos com eles.",
 "Your coin is still in your wallet — it hasn't left.": "Sua moeda continua na sua carteira — ela não saiu.",
 "Your coin left in the group transaction. Waiting for a block.": "Sua moeda saiu na transação do grupo. Esperando um bloco.",
@@ -2094,5 +2094,18 @@
 "A QR frame was misread (checksum). Keep the camera on the code.": "Um fotograma do QR foi mal lido (checksum). Mantém a câmara sobre o código.",
 "The QR code is not complete yet.": "O código QR ainda não está completo.",
 "This QR code is not a PSBT (it is ur:{0}).": "Este código QR não é um PSBT (é ur:{0}).",
-"Not a valid {0}1 address.": "Não é um endereço {0}1 válido."
+"Not a valid {0}1 address.": "Não é um endereço {0}1 válido.",
+"≈ {0} (no price yet)": "≈ {0} (ainda sem preço)",
+"Pay this invoice?": "Pagar esta fatura?",
+"This invoice has no amount: say how much to pay.": "Esta fatura não tem valor: diga quanto pagar.",
+"Mixed outputs go to": "As saídas misturadas vão para",
+"{0} (default)": "{0} (padrão)",
+"Unused receive addresses of that wallet; the change, if any, comes back here. Nobody in the round can tell: an output is just an address of the pool's type.": "Endereços de receção não usados dessa carteira; o troco, se houver, volta para aqui. Ninguém na ronda consegue saber: uma saída é só um endereço do tipo do pool.",
+"mixed outputs go to: {0}": "as saídas misturadas vão para: {0}",
+"That wallet has too many addresses waiting for rounds: finish or cancel some first, or its own scan would not see the next ones.": "Essa carteira tem demasiados endereços à espera de rondas: termine ou cancele algumas primeiro, ou a sua própria leitura não veria as seguintes.",
+"There is no watch-only wallet any more.": "Já não há carteira só de leitura.",
+"There is no JoinMarket wallet any more.": "Já não há carteira JoinMarket.",
+"The watch-only wallet's addresses are not of this pool's type.": "Os endereços da carteira só de leitura não são do tipo deste pool.",
+"JoinMarket's addresses are native SegWit (bc1q): they only fit a bc1q pool.": "Os endereços do JoinMarket são SegWit nativo (bc1q): só servem para um pool bc1q.",
+"could not find unused addresses": "não foram encontrados endereços não usados"
 }

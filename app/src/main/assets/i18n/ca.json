@@ -1240,7 +1240,7 @@
 "Your Ark balance after: ": "El teu saldo Ark després: ",
 "Your Ark wallet": "El teu moneder Ark",
 "Your Ark wallet changed since the last backup file. Save a new one.": "El teu moneder Ark ha canviat des de l'últim fitxer de còpia. Desa'n un de nou.",
-"Your BTC and Spamcoin balances, with their value in dollars or euros": "Els teus saldos de BTC i Spamcoin, amb el seu valor en dòlars o euros",
+"Your BTC and Spamcoin balances, with their value in your currency": "Els teus saldos de BTC i Spamcoin, amb el seu valor en la teva moneda",
 "Your BTC server's block headers don't verify, so the Ark engine's chain data can't be checked against it.": "Les capçaleres de bloc del teu servidor BTC no es verifiquen, així que no s'hi poden contrastar les dades de cadena del motor d'Ark.",
 "Your coin is still in your wallet — it hasn't left.": "La teva moneda continua al teu moneder: no ha sortit.",
 "Your coin left in the group transaction. Waiting for a block.": "La teva moneda ha sortit a la transacció de grup. Esperant un bloc.",
@@ -2094,5 +2094,18 @@
 "A QR frame was misread (checksum). Keep the camera on the code.": "Un fotograma del QR s'ha llegit malament (checksum). Mantén la càmera sobre el codi.",
 "The QR code is not complete yet.": "El codi QR encara no és complet.",
 "This QR code is not a PSBT (it is ur:{0}).": "Aquest codi QR no és un PSBT (és ur:{0}).",
-"Not a valid {0}1 address.": "No és una adreça {0}1 vàlida."
+"Not a valid {0}1 address.": "No és una adreça {0}1 vàlida.",
+"≈ {0} (no price yet)": "≈ {0} (encara sense preu)",
+"Pay this invoice?": "Pagar aquesta factura?",
+"This invoice has no amount: say how much to pay.": "Aquesta factura no porta import: indica quant pagar.",
+"Mixed outputs go to": "Les sortides barrejades van a",
+"{0} (default)": "{0} (predeterminat)",
+"Unused receive addresses of that wallet; the change, if any, comes back here. Nobody in the round can tell: an output is just an address of the pool's type.": "Adreces de recepció sense fer servir d'aquest moneder; el canvi, si n'hi ha, torna aquí. Ningú a la ronda ho pot saber: una sortida és només una adreça del tipus del pool.",
+"mixed outputs go to: {0}": "les sortides barrejades van a: {0}",
+"That wallet has too many addresses waiting for rounds: finish or cancel some first, or its own scan would not see the next ones.": "Aquest moneder té massa adreces esperant rondes: acaba o cancel·la'n alguna abans, o el seu propi escaneig no veuria les següents.",
+"There is no watch-only wallet any more.": "Ja no hi ha moneder de només lectura.",
+"There is no JoinMarket wallet any more.": "Ja no hi ha moneder JoinMarket.",
+"The watch-only wallet's addresses are not of this pool's type.": "Les adreces del moneder de només lectura no són del tipus d'aquest pool.",
+"JoinMarket's addresses are native SegWit (bc1q): they only fit a bc1q pool.": "Les adreces de JoinMarket són SegWit natiu (bc1q): només serveixen per a un pool bc1q.",
+"could not find unused addresses": "no s'han trobat adreces sense fer servir"
 }

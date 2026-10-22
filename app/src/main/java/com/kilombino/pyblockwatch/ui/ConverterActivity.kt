@@ -52,14 +52,22 @@ class ConverterActivity : ComponentActivity() {
     }
 }
 
-private enum class Denom(val label: String, val decimals: Int) {
-    XBT("XBT", 8), SATS("sats", 0), POOLCOINS("Poolcoins", 8), EUR("EUR", 2), USD("USD", 2)
+/** A box of the converter: XBT, sats, Poolcoins, or a fiat currency ([fiat] its code). */
+private data class Denom(val label: String, val decimals: Int, val fiat: String? = null) {
+    companion object {
+        val XBT = Denom("XBT", 8); val SATS = Denom("sats", 0); val POOLCOINS = Denom("Poolcoins", 8)
+        /** EUR and USD always, and the currency chosen in the wallet when it is another one. */
+        fun all(chosen: String): List<Denom> = listOf(XBT, SATS, POOLCOINS) +
+            (listOf("EUR", "USD") + listOfNotNull(chosen.takeIf { it != "EUR" && it != "USD" }))
+                .map { Denom(it, com.kilombino.pyblockwatch.data.Fiat.of(it).decimals, it) }
+    }
 }
 
 @Composable
 private fun Converter(onClose: () -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current.applicationContext
     var market by remember { mutableStateOf(MarketFeed.cached(ctx)) }
+    val chosen = remember { com.kilombino.pyblockwatch.data.Store(ctx).fiat }
     LaunchedEffect(true) {
         withContext(Dispatchers.IO) { runCatching { MarketFeed.refresh(ctx) }.getOrNull() }?.let { market = it }
     }
@@ -82,7 +90,7 @@ private fun Converter(onClose: () -> Unit) {
             Text("No price yet. Check the connection and open the converter again.",
                  style = MaterialTheme.typography.bodySmall, color = Warn)
         }
-        for (u in Denom.entries) {
+        for (u in Denom.all(chosen)) {
             val shown = if (editing == u) editText else xbt?.let { format(fromXbt(it, u, m), u) } ?: ""
             OutlinedTextField(
                 value = shown,
@@ -104,6 +112,7 @@ private fun Converter(onClose: () -> Unit) {
             val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(it.fetchedMs))
             Text("1 XBT = $" + String.format(Locale.US, "%,.2f", it.xbtUsd ?: 0.0) +
                 " · €" + String.format(Locale.US, "%,.2f", it.xbtEur ?: 0.0) +
+                (if (chosen != "USD" && chosen != "EUR") it.xbtIn(chosen)?.let { p -> " · " + com.kilombino.pyblockwatch.data.Fiat.format(p, chosen) } ?: "" else "") +
                 (it.xbtPoolsats?.let { p -> " · " + String.format(Locale.US, "%,d", p) + " Poolsats" } ?: ""),
                 style = MaterialTheme.typography.bodySmall, color = TextFaint)
             Text("Prices from ${MarketFeed.SOURCE}, updated $time. Poolcoins are the units of the " +
@@ -121,8 +130,7 @@ private fun perXbt(u: Denom, m: MarketData?): BigDecimal? = when (u) {
     Denom.XBT -> BigDecimal.ONE
     Denom.SATS -> BigDecimal(100_000_000)
     Denom.POOLCOINS -> m?.xbtPoolsats?.let { BigDecimal(it).movePointLeft(8) }
-    Denom.EUR -> m?.xbtEur?.let { BigDecimal(it) }
-    Denom.USD -> m?.xbtUsd?.let { BigDecimal(it) }
+    else -> u.fiat?.let { m?.xbtIn(it) }?.let { BigDecimal(it) }
 }
 
 private fun toXbt(v: BigDecimal, u: Denom, m: MarketData?): BigDecimal? =

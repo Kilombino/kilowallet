@@ -95,10 +95,11 @@ private val LocalFiat = androidx.compose.runtime.compositionLocalOf { FiatCtx(nu
 private fun fiatOf(sats: Long): String? {
     val f = LocalFiat.current
     val v = f.market?.fiatValue(sats, f.code) ?: return null
-    val sym = if (f.code == "EUR") "€" else "$"
-    // Ark amounts are often cents: keep a third decimal below one unit.
+    val c = com.kilombino.pyblockwatch.data.Fiat.of(f.code)
+    // Ark amounts are often cents: keep a third decimal below one unit (of a currency that has cents).
     val abs = kotlin.math.abs(v)
-    return (if (v < 0) "≈ −$sym" else "≈ $sym") + String.format(Locale.US, if (abs < 1) "%.3f" else "%,.2f", abs)
+    val n = String.format(Locale.US, if (abs < 1 && c.decimals > 0) "%.3f" else "%,.${c.decimals}f", abs)
+    return (if (v < 0) "≈ −" else "≈ ") + (c.symbol?.let { it + n } ?: "$n ${c.code}")
 }
 
 @Composable
@@ -333,14 +334,12 @@ private fun ArkBalancePanel(b: Ark.Balance?, expiry: Int?, boardConfs: Int?, acc
             Spacer(Modifier.width(8.dp))
             Text("sats", style = MaterialTheme.typography.titleLarge, color = accent.copy(alpha = 0.7f))
         }
-        // The same USD/EUR choice as the XBT tab and the widget.
+        // The same currency choice as the XBT tab and the widget.
         val code = LocalFiat.current.code
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(street(fiatOf(total) ?: "≈ –"), style = MaterialTheme.typography.headlineSmall, color = TextMain,
                  modifier = Modifier.weight(1f))
-            FiatChip("USD", code == "USD", accent) { onFiat("USD") }
-            Spacer(Modifier.width(6.dp))
-            FiatChip("EUR", code == "EUR", accent) { onFiat("EUR") }
+            FiatPicker(code, LocalFiat.current.market, accent, onFiat)
         }
         if (b == null) { Text("Loading…", style = MaterialTheme.typography.bodySmall, color = TextFaint); return@Panel }
         if (b.pendingBoard > 0) Text("entering Ark: ${street(groupSats(b.pendingBoard) + " sats")} · " +
@@ -593,6 +592,8 @@ private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, L
         OutlinedTextField(value = amount, onValueChange = { amount = it.filter(Char::isDigit); review = null },
             label = { Text("sats (empty: the invoice's amount, or everything to an XBT address)") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+        FiatAmountField(amount, { amount = it; review = null },
+            market = LocalFiat.current.market, fiat = LocalFiat.current.code)
         Spacer(Modifier.height(8.dp))
         val r = review
         if (r == null) {

@@ -1228,7 +1228,7 @@
 "Your Ark balance after: ": "之后你的 Ark 余额： ",
 "Your Ark wallet": "你的 Ark 钱包",
 "Your Ark wallet changed since the last backup file. Save a new one.": "自上次备份文件以来，你的 Ark 钱包有变化。请保存新的备份。",
-"Your BTC and Spamcoin balances, with their value in dollars or euros": "你的 BTC 和 Spamcoin 余额，以及对应的美元或欧元价值",
+"Your BTC and Spamcoin balances, with their value in your currency": "你的 BTC 和 Spamcoin 余额，以及它们以你所选货币计的价值",
 "Your BTC server's block headers don't verify, so the Ark engine's chain data can't be checked against it.": "你的 BTC 服务器的区块头验证失败，因此无法用它核对 Ark 引擎的链数据。",
 "Your coin is still in your wallet — it hasn't left.": "你的币仍在你的钱包里，没有转出。",
 "Your coin left in the group transaction. Waiting for a block.": "你的币已进入群组交易。等待区块。",
@@ -2082,5 +2082,18 @@
 "A QR frame was misread (checksum). Keep the camera on the code.": "某一帧二维码读取有误（校验和）。请让相机对准二维码。",
 "The QR code is not complete yet.": "二维码尚未读完。",
 "This QR code is not a PSBT (it is ur:{0}).": "此二维码不是 PSBT（它是 ur:{0}）。",
-"Not a valid {0}1 address.": "不是有效的 {0}1 地址。"
+"Not a valid {0}1 address.": "不是有效的 {0}1 地址。",
+"≈ {0} (no price yet)": "≈ {0}（暂无价格）",
+"Pay this invoice?": "支付这张发票？",
+"This invoice has no amount: say how much to pay.": "这张发票没有金额：请填写要支付的金额。",
+"Mixed outputs go to": "混合输出发送到",
+"{0} (default)": "{0}（默认）",
+"Unused receive addresses of that wallet; the change, if any, comes back here. Nobody in the round can tell: an output is just an address of the pool's type.": "使用该钱包未用过的收款地址；如有找零，则返回此处。轮次中没人能看出来：输出只是一个与池类型相同的地址。",
+"mixed outputs go to: {0}": "混合输出发送到：{0}",
+"That wallet has too many addresses waiting for rounds: finish or cancel some first, or its own scan would not see the next ones.": "该钱包有太多地址在等待轮次：请先完成或取消一些，否则它自己的扫描将看不到后面的地址。",
+"There is no watch-only wallet any more.": "已经没有只读钱包了。",
+"There is no JoinMarket wallet any more.": "已经没有 JoinMarket 钱包了。",
+"The watch-only wallet's addresses are not of this pool's type.": "只读钱包的地址与此池的类型不符。",
+"JoinMarket's addresses are native SegWit (bc1q): they only fit a bc1q pool.": "JoinMarket 的地址是原生 SegWit（bc1q）：只适用于 bc1q 池。",
+"could not find unused addresses": "找不到未使用的地址"
 }

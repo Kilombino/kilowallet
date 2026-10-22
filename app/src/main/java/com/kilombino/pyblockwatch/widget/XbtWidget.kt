@@ -196,10 +196,11 @@ class XbtWidget : AppWidgetProvider() {
             v.setViewVisibility(R.id.refresh_icon, if (spinning) View.GONE else View.VISIBLE)
             v.setViewVisibility(R.id.refresh_spin, if (spinning) View.VISIBLE else View.GONE)
 
-            val sym = if (fiat == "EUR") "€" else "$"
-            val px = if (fiat == "EUR") m?.xbtEur else m?.xbtUsd
-            // High/low come in USD; convert with the same rate as the price.
-            val rate = if (fiat == "EUR" && m?.xbtUsd != null && m.xbtEur != null && m.xbtUsd > 0) m.xbtEur / m.xbtUsd else 1.0
+            val sym = fiat
+            val px = m?.xbtIn(fiat)
+            // High/low and the mining figures come in USD; convert with the same rate as the price
+            // (none for a currency whose rate is missing: those show "–" rather than dollars).
+            val rate = m?.perUsd(fiat) ?: Double.NaN
             v.setTextViewText(R.id.price, money(sym, px))
             val ch = m?.changePct
             v.setTextViewText(R.id.change, if (ch == null) (if (m == null) "Loading…" else "")
@@ -306,7 +307,8 @@ class XbtWidget : AppWidgetProvider() {
             return String.format(Locale.US, "%.2f %s", hps / f, u)
         }
 
-        private fun money(sym: String, v: Double?): String =
-            if (v == null) "–" else sym + String.format(Locale.US, "%,.2f", v)
+        /** [code]: the chosen currency; "–" with no value (or no rate to convert it). */
+        private fun money(code: String, v: Double?): String =
+            if (v == null || v.isNaN()) "–" else com.kilombino.pyblockwatch.data.Fiat.format(v, code)
     }
 }

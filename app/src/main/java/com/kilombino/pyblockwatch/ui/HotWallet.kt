@@ -729,6 +729,9 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                         modifier = Modifier.weight(1f),
                     )
                 }
+                // The same amount in the wallet's currency: either box fills the other.
+                FiatAmountField(amount, { amount = it }, Modifier.fillMaxWidth(0.66f),
+                    chain = state.selected, market = state.market, fiat = state.fiat)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(if (extraTo.isEmpty()) "fee 0.1–1000 sat/vB · MAX sends everything minus fee" else "fee 0.1–1000 sat/vB",
                          style = MaterialTheme.typography.bodySmall, color = TextFaint,

@@ -583,12 +583,17 @@ object Lnd {
             Lndmobile.addInvoice(Pb().string(1, memo).int(5, sats).int(11, expirySeconds).bool(15, true).build(), it)
         }.string(2)
 
-    /** Pays [invoice] (routerrpc.SendPaymentV2); returns the preimage, or throws with why it failed. */
-    suspend fun pay(invoice: String, feeLimitSats: Long, timeoutSeconds: Int = 60, outgoingChanId: Long? = null): String =
+    /**
+     * Pays [invoice] (routerrpc.SendPaymentV2); returns the preimage, or throws with why it failed.
+     * [amountSats]: only for an invoice without an amount (LND refuses it on one that has its own).
+     */
+    suspend fun pay(invoice: String, feeLimitSats: Long, timeoutSeconds: Int = 60, outgoingChanId: Long? = null,
+                    amountSats: Long? = null): String =
         suspendCancellableCoroutine { cont ->
-            // routerrpc.SendPaymentRequest: payment_request=5, timeout_seconds=6, fee_limit_sat=7,
+            // routerrpc.SendPaymentRequest: amt=2, payment_request=5, timeout_seconds=6, fee_limit_sat=7,
             // outgoing_chan_ids=19 (only through that channel).
             val b = Pb().string(5, invoice.trim()).int(6, timeoutSeconds).int(7, feeLimitSats)
+            amountSats?.let { b.int(2, it) }
             outgoingChanId?.let { b.int(19, it) }
             val req = b.build()
             stream({ Lndmobile.routerSendPaymentV2(req, it) }, onMsg = { p ->

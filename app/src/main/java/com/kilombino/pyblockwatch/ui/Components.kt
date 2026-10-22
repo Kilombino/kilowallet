@@ -277,7 +277,7 @@ fun quitApp(activity: android.app.Activity) {
 
 /** Fiat per whole coin: BTC from the market feed, Spamcoin through its XBT/Poolsats rate. */
 fun fiatPerCoin(chain: com.kilombino.pyblockwatch.chain.Chain, market: com.kilombino.pyblockwatch.data.MarketData?, fiat: String): Double? {
-    val xbtPx = if (fiat == "EUR") market?.xbtEur else market?.xbtUsd
+    val xbtPx = market?.xbtIn(fiat)
     return if (chain == com.kilombino.pyblockwatch.chain.Chain.BLAKE2B) xbtPx
     else market?.xbtPoolsats?.takeIf { it > 0 }?.let { ps -> xbtPx?.let { it * 1e8 / ps } }
 }
