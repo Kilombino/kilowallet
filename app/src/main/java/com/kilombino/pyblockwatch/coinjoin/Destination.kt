@@ -121,14 +121,29 @@ object Destination {
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("coinjoin_dest", Context.MODE_PRIVATE)
 
+    /**
+     * Which wallet of that kind it is, as the card shows it: the watch-only wallet's name, else the
+     * start of its key; for Jam, the start of Apricot's key. Changing the watch-only wallet later
+     * leaves a round already going on the old one, so the card must say which.
+     */
+    fun which(ctx: Context, kind: Kind): String? = when (kind) {
+        Kind.HOT -> null
+        Kind.WATCH -> Store(ctx, Store.WATCH).let { w -> w.label.trim().ifEmpty { null } ?: w.xpub?.take(12)?.plus("…") }
+        Kind.JAM -> jamExport(ctx)?.xpubs?.get(0)?.take(12)?.plus("…")
+    }
+
     /** Notes on this phone (only) where a pool's mixed outputs go, for its card. The hot wallet is not noted. */
     fun remember(ctx: Context, poolId: String, kind: Kind) {
-        if (kind != Kind.HOT) prefs(ctx).edit().putString(poolId, kind.name).apply()
+        if (kind != Kind.HOT) prefs(ctx).edit().putString(poolId, kind.name + "|" + (which(ctx, kind) ?: "")).apply()
     }
 
     /** Where [poolId]'s mixed outputs go: [Kind.HOT] unless noted otherwise. */
     fun of(ctx: Context, poolId: String): Kind =
-        prefs(ctx).getString(poolId, null)?.let { n -> Kind.entries.firstOrNull { it.name == n } } ?: Kind.HOT
+        prefs(ctx).getString(poolId, null)?.substringBefore('|')?.let { n -> Kind.entries.firstOrNull { it.name == n } } ?: Kind.HOT
+
+    /** That wallet's name or key start, as noted when the round began (older notes have none). */
+    fun whichOf(ctx: Context, poolId: String): String? =
+        prefs(ctx).getString(poolId, null)?.substringAfter('|', "")?.ifEmpty { null }
 
     /** The gap limit of Kilowallet's own scan and of JoinMarket-NG (both 20). */
     private const val GAP = 20

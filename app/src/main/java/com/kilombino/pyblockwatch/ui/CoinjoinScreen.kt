@@ -446,7 +446,8 @@ private fun CoinPicker(
                     val c = if (dest == d) accent else TextMain
                     Text(if (dest == d) "●" else "○", color = c, style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.width(6.dp))
-                    Text(Destination.label(d) + if (d == Destination.Kind.HOT) " (default)" else "",
+                    Text(Destination.label(d) + (if (d == Destination.Kind.HOT) " (default)" else "") +
+                        (Destination.which(ctx, d)?.let { " · $it" } ?: ""),
                         color = c, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
                 }
             }
@@ -707,7 +708,8 @@ private fun MyPoolCard(
             style = MaterialTheme.typography.bodySmall, color = TextFaint)
         // Only on this phone: where the mixed outputs go when it is not this wallet.
         val goesTo = remember(st.poolId) { Destination.of(ctx, st.poolId) }
-        if (goesTo != Destination.Kind.HOT) Text("mixed outputs go to: " + Destination.label(goesTo),
+        val which = remember(st.poolId) { Destination.whichOf(ctx, st.poolId) }
+        if (goesTo != Destination.Kind.HOT) Text("mixed outputs go to: " + Destination.label(goesTo) + (which?.let { " · $it" } ?: ""),
             style = MaterialTheme.typography.bodySmall, color = accent)
         if (CoinjoinHub.isAuto(st.poolId) && st.phase in setOf(PoolSession.Phase.OPEN, PoolSession.Phase.VOTING,
                 PoolSession.Phase.CLOSING, PoolSession.Phase.SIGNING)) {
