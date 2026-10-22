@@ -114,6 +114,23 @@ class Notifier(private val context: Context, private val titlePrefix: String = "
         post(idFor(chain, "sent", ""), "Sent",
              "${chain.display} · ${sats(amount)} sats · confirmed", tabFor(chain))
 
+    // ---------------------------------------------------------------- JoinMarket fidelity bonds
+
+    private fun bondId(key: String): Int = ("jmbond:$key").hashCode()
+    private fun day(epochSeconds: Long) = JoinMarket.date(epochSeconds)
+
+    fun bondUnlocksSoon(amount: Long, locktime: Long, days: Int, key: String) =
+        post(bondId(key), if (days == 1) "Fidelity bond unlocks tomorrow" else "Fidelity bond unlocks in $days days",
+             "${sats(amount)} sats locked until ${day(locktime)}. Then spend or renew it from Jam.", OpenTab.BTC)
+
+    fun bondUnlocked(amount: Long, locktime: Long, key: String) =
+        post(bondId(key), "Fidelity bond unlocked",
+             "${sats(amount)} sats, locked until ${day(locktime)}: spend or renew it from Jam.", OpenTab.BTC)
+
+    fun bondValueZero(amount: Long, key: String) =
+        post(bondId(key), "Fidelity bond no longer counts",
+             "${sats(amount)} sats: its value is now zero. Renew it from Jam to keep being picked as a maker.", OpenTab.BTC)
+
     // ---------------------------------------------------------------- Ark
 
     private fun arkId(event: String, key: String): Int = ("ark:$event:$key").hashCode()

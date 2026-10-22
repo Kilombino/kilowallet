@@ -729,6 +729,9 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                         modifier = Modifier.weight(1f),
                     )
                 }
+                // The same amount in the wallet's currency: either box fills the other.
+                FiatAmountField(amount, { amount = it }, Modifier.fillMaxWidth(0.66f),
+                    chain = state.selected, market = state.market, fiat = state.fiat)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(if (extraTo.isEmpty()) "fee 0.1–1000 sat/vB · MAX sends everything minus fee" else "fee 0.1–1000 sat/vB",
                          style = MaterialTheme.typography.bodySmall, color = TextFaint,
@@ -984,6 +987,8 @@ fun ReceiveSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
     var index by remember(walletKey) { mutableStateOf(vm.nextReceiveIndex()) }
     val pair = remember(walletKey, index) { vm.receiveAddress(index) }
     var sweeping by remember { mutableStateOf(false) }
+    // An optional amount to ask for: the QR and COPY then carry a BIP-21 request (bitcoin:…?amount=…).
+    var askSats by remember { mutableStateOf("") }
     if (sweeping) {
         SweepSheet(vm, accent) { sweeping = false; vm.resetSweep() }
         return
@@ -1002,6 +1007,9 @@ fun ReceiveSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
             Text("No wallet.", color = Bad, style = MaterialTheme.typography.bodySmall)
         } else {
             val (address, path) = pair
+            val asked = askSats.toLongOrNull()?.takeIf { it > 0 }
+            // BIP-21: the amount in BTC, as wallets read it.
+            val request = asked?.let { "bitcoin:$address?amount=" + java.math.BigDecimal(it).movePointLeft(8).stripTrailingZeros().toPlainString() } ?: address
             Column(
                 Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -1009,8 +1017,8 @@ fun ReceiveSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                 // A tap on the QR or the address copies it, and says so.
                 Box(
                     Modifier.clip(RoundedCornerShape(10.dp))
-                        .background(Color.White).clickable { copier.copy(address) }.padding(10.dp),
-                ) { QrImage(address, 200) }
+                        .background(Color.White).clickable { copier.copy(request) }.padding(10.dp),
+                ) { QrImage(request, 200) }
                 Spacer(Modifier.height(10.dp))
                 Text(address, style = MaterialTheme.typography.bodyMedium,
                      fontFamily = FontFamily.Monospace, color = TextMain, modifier = Modifier.clickable { copier.copy(address) })
@@ -1019,10 +1027,23 @@ fun ReceiveSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                 Text("unused · $path" + (if (pos >= 0) " · ${pos + 1} of ${unused.size}" else ""),
                     style = MaterialTheme.typography.bodySmall, color = TextFaint)
             }
+            Spacer(Modifier.height(8.dp))
+            // How much to ask for, in sats or in the chosen currency (optional).
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = askSats, onValueChange = { askSats = it.filter(Char::isDigit) },
+                    label = { Text("amount to ask (sats, optional)", style = MaterialTheme.typography.bodySmall) },
+                    textStyle = MaterialTheme.typography.bodySmall, singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    modifier = Modifier.weight(1f),
+                )
+                FiatAmountField(askSats, { askSats = it }, Modifier.weight(1f),
+                    chain = st.selected, market = st.market, fiat = st.fiat)
+            }
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    onClick = { copier.copy(address) },
+                    onClick = { copier.copy(request) },
                     colors = ButtonDefaults.buttonColors(containerColor = if (copier.copied) Good else accent, contentColor = Ink),
                     shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f),
                 ) { Text(if (copier.copied) "COPIED ✓" else "COPY", style = MaterialTheme.typography.titleMedium) }

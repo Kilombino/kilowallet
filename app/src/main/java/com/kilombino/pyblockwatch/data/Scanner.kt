@@ -26,6 +26,8 @@ data class AddressRow(
     val txCount: Int = 0,
     /** Set for an address of the hot wallet's second account (Taproot); null = the wallet's own type. */
     val type: ScriptType? = null,
+    /** A JoinMarket wallet's jar (mixdepth 0–4); null for every other wallet. */
+    val jar: Int? = null,
 ) {
     val total: Long get() = confirmed + unconfirmed
     val isUsed: Boolean get() = txCount > 0 || total > 0
@@ -75,6 +77,14 @@ class Scanner(
     /** A second account walked after the main one; its rows carry [type]. */
     data class Extra(val xpub: String, val type: ScriptType)
 
+    /** An account walked with the gap limit: [tag] is set on its rows, [jar] for a JoinMarket jar. */
+    data class Account(val xpub: String, val type: ScriptType, val tag: ScriptType? = null,
+                       val accountIndex: Int = 0, val jar: Int? = null)
+
+    /** A script asked about as it is, with no gap walk (a JoinMarket fidelity bond). */
+    data class Fixed(val address: String, val scriptHash: String, val path: String,
+                     val chainIndex: Int, val index: Int, val jar: Int? = null)
+
     fun scan(
         xpub: String,
         chain: Chain,
@@ -84,12 +94,28 @@ class Scanner(
         gap: Int = gapLimit,
         extra: Extra? = null,
         quick: Boolean = false,
+    ): Flow<ScanEvent> = scanAccounts(
+        // The main account, then (for a hot wallet with Taproot on) its BIP-86 account.
+        listOf(Account(xpub, scriptType)) + listOfNotNull(extra?.let { Account(it.xpub, it.type, it.type) }),
+        emptyList(), endpoint, pinnedFingerprint, gap, quick,
+    )
+
+    /**
+     * Walks every account in [accounts] (receive then change, each to [gap] empty addresses),
+     * then asks about each [fixed] script; the statuses go out in batches, as for one account.
+     * Fixed scripts are always in the result, used or not.
+     */
+    fun scanAccounts(
+        accounts: List<Account>,
+        fixed: List<Fixed>,
+        endpoint: NodeEndpoint,
+        pinnedFingerprint: String?,
+        gap: Int = gapLimit,
+        quick: Boolean = false,
     ): Flow<ScanEvent> = flow {
         val txHeights = HashMap<String, Int>()
-        // The main account, then (for a hot wallet with Taproot on) its BIP-86 account.
-        val accounts = try {
-            listOf(Triple(Bip32.parseExtendedPubKey(xpub), scriptType, null as ScriptType?)) +
-                listOfNotNull(extra?.let { Triple(Bip32.parseExtendedPubKey(it.xpub), it.type, it.type) })
+        val parsedAccounts = try {
+            accounts.map { it to Bip32.parseExtendedPubKey(it.xpub).let { k -> if (it.jar != null) k.copy(scriptType = it.type) else k } }
         } catch (e: IllegalArgumentException) {
             emit(ScanEvent.Failed(e.message ?: "Invalid extended key")); return@flow
         }
@@ -115,7 +141,8 @@ class Scanner(
 
             // Receive chain then change chain. Both are scanned: a wallet's balance
             // lives on both, and showing only the receive side under-reports funds.
-            for ((parsed, type, tag) in accounts) for (chainIndex in 0..1) {
+            for ((acc, parsed) in parsedAccounts) for (chainIndex in 0..1) {
+                val type = acc.type; val tag = acc.tag
                 val purpose = purposeFor(type)
                 val branch = Bip32.deriveChild(parsed, chainIndex)
                 val accountTag = accountTag(parsed, type)
@@ -140,7 +167,7 @@ class Scanner(
                     var stop = false
                     for ((k, entry) in batch.withIndex()) {
                         val (i, address, scriptHash) = entry
-                        val path = "m/$purpose'/0'/0'/$chainIndex/$i"
+                        val path = "m/$purpose'/0'/${acc.accountIndex}'/$chainIndex/$i"
                         emit(ScanEvent.Deriving(chainIndex, i, path))
                         // Every address is asked about (one status: a hash of its whole history,
                         // null when unused), except, on a quick look, the spent and settled ones.
@@ -151,6 +178,7 @@ class Scanner(
                             chainIndex = chainIndex, index = i, address = address,
                             path = path, scriptHash = scriptHash,
                             confirmed = bal.confirmed, unconfirmed = bal.unconfirmed, txCount = hist.size, type = tag,
+                            jar = acc.jar,
                         )
                         index = i + 1
                         if (row.isUsed) {
@@ -165,6 +193,21 @@ class Scanner(
                         }
                     }
                     if (stop) break
+                }
+            }
+            if (fixed.isNotEmpty()) {
+                val known = fixed.map { f -> if (quick) settled(endpoint, f.scriptHash, height) else null }
+                val ask = fixed.indices.filter { known[it] == null }
+                val asked = client.statuses(ask.map { fixed[it].scriptHash })
+                val status = HashMap<Int, String?>().apply { ask.forEachIndexed { j, k -> put(k, asked[j]) } }
+                for ((k, f) in fixed.withIndex()) {
+                    val (hist, bal) = known[k] ?: resolve(client, endpoint, f.scriptHash, status[k])
+                    val row = AddressRow(chainIndex = f.chainIndex, index = f.index, address = f.address, path = f.path,
+                        scriptHash = f.scriptHash, confirmed = bal.confirmed, unconfirmed = bal.unconfirmed,
+                        txCount = hist.size, jar = f.jar)
+                    rows += row
+                    hist.forEach { txHeights[it.txid] = it.height }
+                    if (row.isUsed) emit(ScanEvent.Found(row))
                 }
             }
             val t1 = System.currentTimeMillis()
@@ -543,6 +586,17 @@ class Scanner(
                     Address.encode(pub, type) to Address.scriptHashFor(pub, type)
                 }
             }
+        }
+
+        /**
+         * What [txid] did to the scripts in [ours] (+ in, − out), from the transactions a look
+         * already fetched; null when it is not at hand. Splits a wallet's movements by jar.
+         */
+        fun cachedNet(txid: String, ours: Set<String>): Long? {
+            val tx = txCache[txid] ?: return null
+            fun mine(o: TxParse.Out?) = o != null && Address.electrumScriptHash(o.scriptPubKey) in ours
+            return tx.outputs.filter { mine(it) }.sumOf { it.value } -
+                tx.inputs.sumOf { i -> txCache[i.txid]?.outputs?.getOrNull(i.vout)?.takeIf { mine(it) }?.value ?: 0L }
         }
 
         /** Read the remembered statuses again (a backup file just put them back). */

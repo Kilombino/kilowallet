@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import com.kilombino.pyblockwatch.coinjoin.CoinjoinHub
 import com.kilombino.pyblockwatch.coinjoin.CoinjoinTx
+import com.kilombino.pyblockwatch.coinjoin.Destination
 import com.kilombino.pyblockwatch.coinjoin.PoolSession
 import com.kilombino.pyblockwatch.coinjoin.Protocol
 import com.kilombino.pyblockwatch.data.Scanner
@@ -195,29 +196,38 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
         CoinPicker(vm, accent, "Join · ${poolAmount(t)} sats${poolKind(t)}", t.amount, t.feeRate, t.script, t.maxInputs, t.outputs,
             exactFor = WalletViewModel.ExactFor(t.id, joinPassword.ifEmpty { null }, null, com.kilombino.pyblockwatch.coinjoin.PerfectCoin.agreed(t)),
             onCancel = { joining = null; joinPassword = "" },
-            onPicked = { u ->
+            onPicked = { u, dest ->
                 if (t.private && joinPassword.isEmpty()) { message = "Type the pool's password first."; return@CoinPicker }
-                unlockAndPick(activity, vm, u, t.outputs, "Join coinjoin", "Unlock to prove you own the coins",
-                    onPick = { pick ->
-                        scope.launch {
-                            runCatching { withContext(Dispatchers.Default) { CoinjoinHub.join(ctx, t, pick, joinPassword, CoinjoinHub.autoDefault(ctx)) } }
-                                .onSuccess { tab = 1 }.onFailure { message = it.message }
-                            joining = null; joinPassword = ""
-                        }
-                    }, onError = { message = it })
+                scope.launch {
+                    val scripts = runCatching { destinationScripts(ctx, dest, t.script, t.outputs) }
+                        .getOrElse { message = it.message ?: "could not find unused addresses"; return@launch }
+                    unlockAndPick(activity, vm, u, t.outputs, "Join coinjoin", "Unlock to prove you own the coins", scripts,
+                        onPick = { pick ->
+                            scope.launch {
+                                runCatching { withContext(Dispatchers.Default) { CoinjoinHub.join(ctx, t, pick, joinPassword, CoinjoinHub.autoDefault(ctx)) } }
+                                    .onSuccess { Destination.remember(ctx, t.id, dest); tab = 1 }.onFailure { message = it.message }
+                                joining = null; joinPassword = ""
+                            }
+                        }, onError = { message = it })
+                }
             })
         return
     }
     if (creating) {
-        CreatePool(vm, accent, testPools, onCancel = { creating = false }) { amount, rate, minPeers, peers, hours, password, maxInputs, outputs, u ->
-            unlockAndPick(activity, vm, u, outputs, "Open a coinjoin pool", "Unlock to put your coins in",
-                onPick = { pick ->
-                    scope.launch {
-                        runCatching { withContext(Dispatchers.Default) { CoinjoinHub.create(ctx, pick, amount, rate, peers, hours, minPeers, password, maxInputs, CoinjoinHub.autoDefault(ctx), outputs) } }
-                            .onSuccess { creating = false; tab = 1; reloadPools() }
-                            .onFailure { message = it.message }
-                    }
-                }, onError = { message = it })
+        CreatePool(vm, accent, testPools, onCancel = { creating = false }) { amount, rate, minPeers, peers, hours, password, maxInputs, outputs, u, dest ->
+            scope.launch {
+                val type = if (u.first().type == ScriptType.P2TR) ScriptType.P2TR else ScriptType.P2WPKH
+                val scripts = runCatching { destinationScripts(ctx, dest, type, outputs) }
+                    .getOrElse { message = it.message ?: "could not find unused addresses"; return@launch }
+                unlockAndPick(activity, vm, u, outputs, "Open a coinjoin pool", "Unlock to put your coins in", scripts,
+                    onPick = { pick ->
+                        scope.launch {
+                            runCatching { withContext(Dispatchers.Default) { CoinjoinHub.create(ctx, pick, amount, rate, peers, hours, minPeers, password, maxInputs, CoinjoinHub.autoDefault(ctx), outputs) } }
+                                .onSuccess { st -> Destination.remember(ctx, st.poolId, dest); creating = false; tab = 1; reloadPools() }
+                                .onFailure { message = it.message }
+                        }
+                    }, onError = { message = it })
+            }
         }
         return
     }
@@ -353,9 +363,17 @@ private fun poolTypeLine(t: Protocol.Terms): String =
         (if (t.maxInputs > 1) " · up to ${t.maxInputs} coins each" else " · one coin each") +
         (if (t.outputs > 1) " · ${t.outputs} outputs each (v4)" else if (t.v3) " · blind outputs (v3)" else "")
 
+/**
+ * The mixed outputs' scripts for [dest]: null for the hot wallet (its own fresh addresses, picked
+ * with the keys), else unused addresses of that wallet, asked to the server (off the main thread).
+ */
+private suspend fun destinationScripts(ctx: android.content.Context, dest: Destination.Kind, type: ScriptType, outputs: Int): List<ByteArray>? =
+    if (dest == Destination.Kind.HOT) null
+    else withContext(Dispatchers.IO) { Destination.scripts(ctx, dest, type, outputs) }
+
 private fun unlockAndPick(
     activity: FragmentActivity, vm: WalletViewModel, u: List<Scanner.SpendableUtxo>, outputs: Int, title: String, subtitle: String,
-    onPick: (CoinjoinHub.Pick) -> Unit, onError: (String) -> Unit,
+    mixScripts: List<ByteArray>?, onPick: (CoinjoinHub.Pick) -> Unit, onError: (String) -> Unit,
 ) {
     runCatching { vm.seedDecryptCipher() }.onSuccess { cipher ->
         Biometric.authenticate(activity, title, subtitle, cipher,
@@ -363,7 +381,7 @@ private fun unlockAndPick(
             // slow phone showed "app isn't responding" here.
             onSuccess = { authed ->
                 activity.lifecycleScope.launch {
-                    runCatching { withContext(Dispatchers.Default) { vm.coinjoinPick(authed, u, outputs) } }
+                    runCatching { withContext(Dispatchers.Default) { vm.coinjoinPick(authed, u, outputs, mixScripts) } }
                         .onSuccess(onPick).onFailure { onError(it.message ?: "could not unlock") }
                 }
             },
@@ -379,9 +397,13 @@ private fun CoinPicker(
     outputs: Int,
     /** The pool a perfect coin made here is for: it joins (or opens) it by itself once confirmed. */
     exactFor: WalletViewModel.ExactFor,
-    onCancel: () -> Unit, onPicked: (List<Scanner.SpendableUtxo>) -> Unit,
+    onCancel: () -> Unit, onPicked: (List<Scanner.SpendableUtxo>, Destination.Kind) -> Unit,
 ) {
     val tag = if (type == ScriptType.P2TR) ScriptType.P2TR else null
+    val ctx = LocalContext.current
+    // Where the mixed outputs go: this wallet by default; another one only when set up here and of the pool's type.
+    val dests = remember(type) { Destination.options(ctx, type) }
+    var dest by remember(type) { mutableStateOf(Destination.Kind.HOT) }
     val kind = if (type == ScriptType.P2TR) "Taproot (bc1p)" else "native SegWit (bc1q)"
     var coins by remember { mutableStateOf<List<Scanner.SpendableUtxo>?>(null) }
     val chosen = remember { mutableStateListOf<Scanner.SpendableUtxo>() }
@@ -409,7 +431,7 @@ private fun CoinPicker(
             "which needs one confirmation before it can join.") },
         confirmButton = { TextButton(onClick = { offerPerfect = false; vm.resetSend(); making = true }) {
             Text("MAKE THE PERFECT COIN", color = accent) } },
-        dismissButton = { TextButton(onClick = { offerPerfect = false; onPicked(chosen.toList()) }) {
+        dismissButton = { TextButton(onClick = { offerPerfect = false; onPicked(chosen.toList(), dest) }) {
             Text("NOT NEEDED, CONTINUE", color = TextSoft) } },
         containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
     )
@@ -417,11 +439,33 @@ private fun CoinPicker(
     Panel(accent = accent) {
         SectionLabel(title, accent)
         Spacer(Modifier.height(8.dp))
+        if (dests.size > 1) {
+            Text("Mixed outputs go to", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+            dests.forEach { d ->
+                TextButton(onClick = { dest = d }, enabled = !making, modifier = Modifier.fillMaxWidth()) {
+                    val c = if (dest == d) accent else TextMain
+                    Text(if (dest == d) "●" else "○", color = c, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.width(6.dp))
+                    Text(Destination.label(d) + if (d == Destination.Kind.HOT) " (default)" else "",
+                        color = c, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                }
+            }
+            if (dest != Destination.Kind.HOT) Text("Unused receive addresses of that wallet; the change, if any, comes back here. " +
+                "Nobody in the round can tell: an output is just an address of the pool's type.",
+                color = TextFaint, style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(8.dp))
+        }
         if (making) {
-            ExactCoinPanel(vm, accent, exact, tag, exactFor) { sent -> making = false; reload++; if (sent) onCancel() }
+            ExactCoinPanel(vm, accent, exact, tag, exactFor, dest, outputs) { sent -> making = false; reload++; if (sent) onCancel() }
             return@Panel
         }
-        Explain(if (maxInputs > 1)
+        if (dest != Destination.Kind.HOT) Explain((if (maxInputs > 1)
+            "Pick up to $maxInputs confirmed $kind coins that together make at least ${groupSats(mixTotal)} sats plus your fee. " +
+                "The leftover comes back to a fresh change address."
+            else "Pick ONE confirmed $kind coin of at least ${groupSats(min)} sats. Its leftover comes back to a fresh change address.") +
+            "\n\n" + (if (outputs > 1) "Each of your $outputs mixed outputs of ${groupSats(amount)} sats goes to its own unused address of the wallet chosen above."
+                else "The mixed output goes to an unused address of the wallet chosen above."))
+        else Explain(if (maxInputs > 1)
             "Pick up to $maxInputs confirmed $kind coins that together make at least ${groupSats(mixTotal)} sats plus your fee. " +
                 "The leftover comes back to a fresh change address; " +
                 (if (outputs > 1) "each of your $outputs mixed outputs of ${groupSats(amount)} sats goes to its own fresh address of this wallet."
@@ -496,7 +540,7 @@ private fun CoinPicker(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onCancel, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = TextSoft),
                 shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text("CANCEL") }
-            Button(onClick = { if ((change ?: 0) > 0) offerPerfect = true else onPicked(chosen.toList()) },
+            Button(onClick = { if ((change ?: 0) > 0) offerPerfect = true else onPicked(chosen.toList(), dest) },
                 enabled = change != null,
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
                 shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
@@ -510,7 +554,7 @@ private fun CoinPicker(
 private fun CreatePool(
     vm: WalletViewModel, accent: Color, allowTest: Boolean, onCancel: () -> Unit,
     onCreate: (amount: Long, rate: Double, minPeers: Int, maxPeers: Int, hours: Int, password: String, maxInputs: Int,
-               outputs: Int, coins: List<Scanner.SpendableUtxo>) -> Unit,
+               outputs: Int, coins: List<Scanner.SpendableUtxo>, dest: Destination.Kind) -> Unit,
 ) {
     var taproot by remember { mutableStateOf(false) }
     var outputsText by remember { mutableStateOf("1") }
@@ -546,8 +590,8 @@ private fun CreatePool(
         val exactFor = WalletViewModel.ExactFor(null, null, org.json.JSONObject().put("amount", amount!!).put("feeRate", rate!!)
             .put("maxPeers", peers!!).put("hours", hours!!).put("minPeers", minPeers!!).put("password", password).put("maxInputs", maxInputs!!)
             .put("outputs", outputs!!))
-        CoinPicker(vm, accent, "Your coins for the pool", amount, rate, type, maxInputs, outputs, exactFor, onCancel = { pickCoin = false }) { u ->
-            onCreate(amount, rate, minPeers!!, peers!!, hours!!, password, maxInputs, outputs, u)
+        CoinPicker(vm, accent, "Your coins for the pool", amount, rate, type, maxInputs, outputs, exactFor, onCancel = { pickCoin = false }) { u, dest ->
+            onCreate(amount, rate, minPeers!!, peers!!, hours!!, password, maxInputs, outputs, u, dest)
         }
         return
     }
@@ -661,6 +705,10 @@ private fun MyPoolCard(
             (if (st.seat.changeValue > 0) " + ${groupSats(st.seat.changeValue)} change" else "") +
             " · fee ${groupSats(st.seat.inputValue - st.terms.mixTotal - st.seat.changeValue)}",
             style = MaterialTheme.typography.bodySmall, color = TextFaint)
+        // Only on this phone: where the mixed outputs go when it is not this wallet.
+        val goesTo = remember(st.poolId) { Destination.of(ctx, st.poolId) }
+        if (goesTo != Destination.Kind.HOT) Text("mixed outputs go to: " + Destination.label(goesTo),
+            style = MaterialTheme.typography.bodySmall, color = accent)
         if (CoinjoinHub.isAuto(st.poolId) && st.phase in setOf(PoolSession.Phase.OPEN, PoolSession.Phase.VOTING,
                 PoolSession.Phase.CLOSING, PoolSession.Phase.SIGNING)) {
             // The switch above says it all; here only a quiet mark.
@@ -855,8 +903,10 @@ private fun askBatteryFree(ctx: android.content.Context) {
  */
 @Composable
 private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, tag: ScriptType?, exactFor: WalletViewModel.ExactFor,
-                           onDone: (sent: Boolean) -> Unit) {
+                           dest: Destination.Kind, outputs: Int, onDone: (sent: Boolean) -> Unit) {
     val activity = LocalContext.current as FragmentActivity
+    val destScope = rememberCoroutineScope()
+    var destError by remember { mutableStateOf<String?>(null) }
     val state by vm.state.collectAsState()
     var sources by remember { mutableStateOf<List<Scanner.SpendableUtxo>?>(null) }
     val picked = remember { mutableStateListOf<Scanner.SpendableUtxo>() }
@@ -931,11 +981,22 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, tag:
                 textStyle = MaterialTheme.typography.bodySmall,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
             val rate = rateText.toDoubleOrNull()?.takeIf { it in 0.1..1000.0 }
+            destError?.let { Text(it, color = Warn, style = MaterialTheme.typography.bodySmall) }
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { onDone(false) }, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = TextSoft),
                     shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text("CANCEL") }
-                Button(onClick = { rate?.let { vm.exactFor = exactFor; vm.prepareExactCoin(exact, it, tag, picked.toList()); started = true } },
+                Button(onClick = { rate?.let { r ->
+                    destScope.launch {
+                        destError = null
+                        // The mixed outputs' addresses in another wallet are found now, before paying: the
+                        // coin joins on its own later, when there may be no connection to ask.
+                        val scripts = runCatching { destinationScripts(activity.applicationContext, dest,
+                            if (tag == ScriptType.P2TR) ScriptType.P2TR else ScriptType.P2WPKH, outputs) }
+                            .getOrElse { destError = it.message ?: "could not find unused addresses"; return@launch }
+                        vm.exactFor = exactFor.withDest(scripts); vm.prepareExactCoin(exact, r, tag, picked.toList()); started = true
+                    }
+                } },
                     enabled = rate != null && sources != null && (picked.isEmpty() || picked.sumOf { it.value } >= exact),
                     colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
                     shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {

@@ -18,8 +18,8 @@ import com.kilombino.pyblockwatch.crypto.ScriptType
  */
 class Store(context: Context, private val profile: String = HOT) {
 
-    /** Per-wallet keys: the hot wallet keeps the original names, the watch-only one gets "w_". */
-    private fun k(key: String) = if (profile == WATCH) "w_$key" else key
+    /** Per-wallet keys: the hot wallet keeps the original names, the watch-only one gets "w_", JoinMarket "jm_". */
+    private fun k(key: String) = when (profile) { WATCH -> "w_$key"; JM -> "jm_$key"; else -> key }
 
     private val prefs = context.applicationContext
         .getSharedPreferences("pyblockwatch", Context.MODE_PRIVATE)
@@ -270,6 +270,27 @@ class Store(context: Context, private val profile: String = HOT) {
         get() = prefs.getString("active_wallet", HOT) ?: HOT
         set(v) = prefs.edit().putString("active_wallet", v).apply()
 
+    /**
+     * The JoinMarket wallet (read-only, from Jam's export) is on screen instead of [activeWallet].
+     * Global; [activeWallet] keeps the hot/watch-only one to go back to.
+     */
+    var jamView: Boolean
+        get() = prefs.getBoolean("jam_view", false)
+        set(v) = prefs.edit().putBoolean("jam_view", v).apply()
+
+    /** JoinMarket profile: Jam's export line (account keys and bonds), null when none is imported. */
+    var jmExport: String?
+        get() = prefs.getString(k("export"), null)
+        set(v) = prefs.edit().apply { if (v == null) remove(k("export")) else putString(k("export"), v) }.apply()
+
+    /** JoinMarket profile: a bond alert already given (key = bond utxo + kind), so it is given once. */
+    fun alerted(key: String): Boolean = prefs.getBoolean(k("alert_$key"), false)
+    fun setAlerted(key: String) = prefs.edit().putBoolean(k("alert_$key"), true).apply()
+
+    /** JoinMarket profile: block time of a bond's confirmation, by txid (it never changes). */
+    fun confTime(txid: String): Long? = prefs.getLong(k("conft_$txid"), -1L).takeIf { it > 0 }
+    fun setConfTime(txid: String, time: Long) = prefs.edit().putLong(k("conft_$txid"), time).apply()
+
     /** Simple/advanced was chosen for the hot wallet (watch-only never asks). */
     var hotModeChosen: Boolean
         get() = prefs.getBoolean("hot_mode_chosen", prefs.getString("ui_mode", null) != null && prefs.getString("xpub", null) != null)
@@ -308,6 +329,10 @@ class Store(context: Context, private val profile: String = HOT) {
     fun clearWallet() {
         prefs.edit().apply {
             remove(k(KEY_XPUB)); remove(k(KEY_LABEL)); remove(k("taproot_xpub")); remove(k("receive_taproot"))
+            if (profile == JM) {
+                remove(k("export"))
+                prefs.all.keys.filter { it.startsWith(k("alert_")) || it.startsWith(k("conft_")) || it.startsWith(k("full_look_")) }.forEach { remove(it) }
+            }
             Chain.entries.forEach {
                 remove(k(keyTotal(it))); remove(k(keyConf(it))); remove(k(keyUnconf(it)))
                 remove(k(keyNotConf(it))); remove(k(keyNotUnconf(it))); remove(k(keyPending(it)))
@@ -330,6 +355,8 @@ class Store(context: Context, private val profile: String = HOT) {
 
         const val HOT = "hot"
         const val WATCH = "watch"
+        /** The JoinMarket wallet, watched from Jam's export (never signs). */
+        const val JM = "joinmarket"
 
         /** Writes a typed key→value map into [p] (Boolean, Int, Long, Float, String, Set<String>). */
         fun importPrefs(p: android.content.SharedPreferences, values: Map<String, *>) {

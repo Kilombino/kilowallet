@@ -185,6 +185,8 @@ data class UiState(
     val taprootXpub: String? = null,
     /** Hot wallet: new receive and change addresses are Taproot (bc1p). */
     val receiveTaproot: Boolean = false,
+    /** The JoinMarket wallet (read-only, from Jam) is on screen instead of the hot/watch-only one. */
+    val jamView: Boolean = false,
 ) {
     val current: ChainState get() = chains[selected] ?: ChainState()
     val hasWallet: Boolean get() = !xpub.isNullOrBlank()
@@ -259,6 +261,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 market = com.kilombino.pyblockwatch.data.MarketFeed.cached(app),
                 taprootXpub = store.taprootXpub.takeIf { seedVault.hasSeed() && store.activeWallet != Store.WATCH },
                 receiveTaproot = store.receiveTaproot,
+                jamView = store.jamView && hasJamWallet(),
             )
         }
         // 0.19.0 had coinjoin without the opt-in: whoever already took part keeps it on.
@@ -917,7 +920,28 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         switchTo(Store.HOT)
     }
 
+    /** A JoinMarket wallet (Jam's read-only export) is imported on this phone. */
+    fun hasJamWallet(): Boolean = Store(getApplication(), Store.JM).jmExport != null
+
+    /** Show the JoinMarket wallet (import it first: see [hasJamWallet]). */
+    fun viewJam() {
+        if (!hasJamWallet()) return
+        store.jamView = true
+        _state.update { it.copy(jamView = true, sendPhase = SendPhase.Editing) }
+    }
+
+    /** The JoinMarket wallet was forgotten: back to the hot or watch-only one. */
+    fun leaveJam() {
+        store.jamView = false
+        _state.update { it.copy(jamView = false) }
+    }
+
+    /** The user agreed, since the app opened, to read BTC from Kilombino's server. */
+    fun btcConsented(): Boolean = btcConsent
+
     private fun switchTo(wallet: String) {
+        store.jamView = false
+        _state.update { it.copy(jamView = false) }
         jobs.values.forEach(Job::cancel); jobs.clear()
         store = Store(getApplication(), wallet)
         store.activeWallet = wallet
@@ -2153,14 +2177,16 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
      * hands them out — on either chain, as the same key gives the same address on both.
      */
     fun coinjoinPick(decryptCipher: javax.crypto.Cipher, u: Scanner.SpendableUtxo, outputs: Int = 1): com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.Pick =
-        coinjoinPick(decryptCipher, listOf(u), outputs)
+        coinjoinPick(decryptCipher, listOf(u), outputs, null)
 
     /**
      * Everything a seat needs, from the seed unlocked by [decryptCipher]: the keys of [coins] (all of
      * one address type) and fresh addresses of that same type: [outputs] for the mixed outputs
-     * (one before Kilojoin v4) and one for the change.
+     * (one before Kilojoin v4) and one for the change. [mixScripts]: the mixed outputs' scripts when
+     * they go to another wallet ([com.kilombino.pyblockwatch.coinjoin.Destination]); the change stays here.
      */
-    fun coinjoinPick(decryptCipher: javax.crypto.Cipher, coins: List<Scanner.SpendableUtxo>, outputs: Int = 1): com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.Pick {
+    fun coinjoinPick(decryptCipher: javax.crypto.Cipher, coins: List<Scanner.SpendableUtxo>, outputs: Int = 1,
+                     mixScripts: List<ByteArray>? = null): com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.Pick {
         require(coins.isNotEmpty()) { "pick a coin" }
         val tag = coins.first().type
         require(coins.all { it.type == tag }) { "all the coins of a seat must be of one address type" }
@@ -2179,7 +2205,10 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         val mixIndex = nextUnused(0, tag)
         val changeIndex = nextUnused(1, tag)
         val parsed = com.kilombino.pyblockwatch.crypto.Bip32.parseExtendedPubKey(xpub)
-        val mixes = (0 until outputs).map { j ->
+        val mixes = mixScripts?.also { m ->
+            require(m.size == outputs) { "this pool gives $outputs mixed outputs each" }
+            require(m.all { com.kilombino.pyblockwatch.coinjoin.CoinjoinTx.isType(it, type) }) { "the mixed outputs are not of the pool's address type" }
+        } ?: (0 until outputs).map { j ->
             com.kilombino.pyblockwatch.crypto.Address.scriptPubKey(
                 com.kilombino.pyblockwatch.crypto.Bip32.derivePath(parsed, 0, mixIndex + j).pubkey(), type)
         }
@@ -2251,7 +2280,11 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
      * payment to ourselves is signed, the coin's key goes to [com.kilombino.pyblockwatch.coinjoin.PerfectCoin],
      * which joins (or opens) the pool by itself at the first confirmation.
      */
-    class ExactFor(val poolId: String?, val poolPassword: String?, val create: org.json.JSONObject?, val terms: org.json.JSONObject? = null)
+    class ExactFor(val poolId: String?, val poolPassword: String?, val create: org.json.JSONObject?, val terms: org.json.JSONObject? = null,
+                   /** Where the mixed outputs go when not to this wallet (watch-only, Jam): found before the payment. */
+                   val destScripts: List<ByteArray>? = null) {
+        fun withDest(scripts: List<ByteArray>?) = ExactFor(poolId, poolPassword, create, terms, scripts)
+    }
     @Volatile var exactFor: ExactFor? = null
     /** The perfect coin in the review: its address index, account and amount. */
     private var exactPending: Triple<Int, ScriptType?, Long>? = null
@@ -2308,11 +2341,14 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         require(vout >= 0) { "the perfect coin is not in the transaction" }
         // One fresh address per mixed output the pool gives each person (v4: several).
         val outputs = f.create?.optInt("outputs", 1) ?: f.terms?.optInt("outputs", 1) ?: 1
-        val mixIndex = maxOf(nextUnused(0, tag), index + 1)
-        store.noteUsedTop(xpub, 0, mixIndex + outputs)
-        val mixes = (0 until outputs).map { j ->
-            com.kilombino.pyblockwatch.crypto.Address.scriptPubKey(
-                com.kilombino.pyblockwatch.crypto.Bip32.derivePath(parsed, 0, mixIndex + j).pubkey(), type)
+        // To another wallet (found before the payment), or fresh addresses of this one.
+        val mixes = f.destScripts?.takeIf { it.size == outputs } ?: run {
+            val mixIndex = maxOf(nextUnused(0, tag), index + 1)
+            store.noteUsedTop(xpub, 0, mixIndex + outputs)
+            (0 until outputs).map { j ->
+                com.kilombino.pyblockwatch.crypto.Address.scriptPubKey(
+                    com.kilombino.pyblockwatch.crypto.Bip32.derivePath(parsed, 0, mixIndex + j).pubkey(), type)
+            }
         }
         // One past what the payment itself may have used for its own change.
         val changeIndex = nextUnused(1, tag) + 1

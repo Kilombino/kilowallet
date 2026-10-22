@@ -4,6 +4,7 @@ import android.content.Context
 import com.kilombino.pyblockwatch.chain.Chain
 import com.kilombino.pyblockwatch.chain.ElectrumClient
 import com.kilombino.pyblockwatch.crypto.Address
+import com.kilombino.pyblockwatch.crypto.TxParse
 import com.kilombino.pyblockwatch.crypto.Bip32Priv
 import com.kilombino.pyblockwatch.crypto.Hashes.toHex
 import com.kilombino.pyblockwatch.crypto.ScriptType
@@ -36,6 +37,9 @@ object PerfectCoin {
         val terms: JSONObject? = null,
     ) {
         val key get() = "exact:$txid"
+        /** The same coin, now at [txid]:[vout] (its payment was replaced to speed it up). */
+        fun movedTo(txid: String, vout: Int) = Waiting(txid, vout, value, type, path, script, mixScripts, changeScript,
+            poolId, poolPassword, create, since, terms)
         fun toJson(): JSONObject = JSONObject().put("txid", txid).put("vout", vout).put("value", value).put("type", type.name)
             .put("path", path).put("script", script.toHex()).put("mix", mixScripts.first().toHex())
             .put("mixes", JSONArray(mixScripts.map { it.toHex() })).put("change", changeScript.toHex())
@@ -117,6 +121,15 @@ object PerfectCoin {
 
     fun hasWaiting(ctx: Context) = load(ctx).isNotEmpty()
 
+    /** [w]'s payment was replaced (RBF): follow the coin to its new transaction, key and all. */
+    @Synchronized
+    private fun follow(ctx: Context, w: Waiting, txid: String, vout: Int) {
+        val moved = w.movedTo(txid, vout)
+        AutoKeyVault.load(ctx, w.key)?.let { AutoKeyVault.save(ctx, moved.key, it) }
+        AutoKeyVault.remove(ctx, w.key)
+        save(ctx, load(ctx).map { if (it.txid == w.txid) moved else it })
+    }
+
     /**
      * Looks at each coin waiting; the confirmed ones join (or open) their pool on their own.
      * Called by the coinjoin service every minute.
@@ -124,15 +137,33 @@ object PerfectCoin {
     fun check(ctx: Context) {
         val app = ctx.applicationContext
         for (w in load(app)) {
+            // Its payment, or the one that replaced it: the coin's address is fresh, so whatever
+            // pays it is that payment (sped up with RBF, the transaction and its id change).
+            var replaced: Pair<String, TxParse.Out?>? = null
             val confirmed = runCatching {
                 val store = Store(app); val e = store.endpoint(Chain.BLAKE2B)
                 val c = ElectrumClient(e, store.pinnedFingerprint(e))
                 try {
                     c.connect()
-                    val h = c.history(Address.electrumScriptHash(w.script)).firstOrNull { it.txid == w.txid }
+                    val hist = c.history(Address.electrumScriptHash(w.script))
+                    val h = hist.firstOrNull { it.txid == w.txid }
+                    if (h == null) for (other in hist) {
+                        val outs = TxParse.parse(c.transaction(other.txid)).outputs
+                        val i = outs.indexOfFirst { it.scriptPubKey.contentEquals(w.script) }
+                        if (i >= 0) { replaced = "${other.txid}:$i" to outs[i]; break }
+                    }
                     h != null && h.height > 0
                 } finally { c.close() }
             }.getOrDefault(false)
+            replaced?.let { (at, out) ->
+                if (out != null && out.value == w.value) follow(app, w, at.substringBefore(':'), at.substringAfter(':').toInt())
+                else {
+                    // The speed-up took its fee from the coin itself: it is no longer the exact amount.
+                    cancel(app, w.txid)
+                    CoinjoinHub.notifyPublic(app, "Perfect coin changed", "Speeding it up changed its amount, so it no longer " +
+                        "fits the pool. It stays in your wallet: join a pool with it by hand in COINJOIN.")
+                }
+            }
             if (!confirmed) continue
             val k = AutoKeyVault.load(app, w.key)?.firstOrNull()
             cancel(app, w.txid)

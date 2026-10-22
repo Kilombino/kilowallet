@@ -88,6 +88,21 @@ class WatchService : Service() {
                     }
                 }
             }
+            // JoinMarket (read-only, from Jam's export): its jars and bonds like a watch-only
+            // wallet, plus the bond alerts (unlocks in 7 days, unlocked, no longer counts).
+            runCatching {
+                val js = Store(this, Store.JM)
+                val e = JamWatch.export(js) ?: return@runCatching
+                val chain = Chain.BLAKE2B
+                val endpoint = js.endpoint(chain)
+                val pin = store.pinnedFingerprint(endpoint)
+                val quick = !js.fullLookDue(chain)
+                val (updated, txs, _) = scanner.refreshDetails(JamWatch.knownRows(e, js, store.gapLimit), endpoint, pin, quick)
+                if (!quick) js.setLastFullLook(chain)
+                val nf = Notifier(this, JAM_PREFIX)
+                BalanceWatch.evaluate(js, nf, chain, updated.sumOf { it.confirmed }, updated.sumOf { it.unconfirmed }, txs)
+                JamWatch.alerts(js, nf, JamWatch.bondStates(e, updated, endpoint, pin, js))
+            }
             val notifier = Notifier(this)
             // Ark: while this watcher runs, keep the Ark engine up. Its own daemon renews coins
             // before they expire (4,320 blocks); without it the user would have to remember
@@ -191,7 +206,9 @@ class WatchService : Service() {
         )
     }
 
-    private companion object {
-        const val ONGOING_ID = 1
+    companion object {
+        private const val ONGOING_ID = 1
+        /** The JoinMarket wallet's notifications say so in their title. */
+        const val JAM_PREFIX = "JoinMarket · "
     }
 }

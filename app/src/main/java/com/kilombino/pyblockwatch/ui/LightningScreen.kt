@@ -640,6 +640,7 @@ private fun ReceiveLn(accent: Color, ready: Boolean) {
         if (!ready) Explain("You need an active channel, and can receive only up to what the other side holds in it (\"can receive\" under Channels). A new channel you opened starts with everything on your side.")
         OutlinedTextField(amount, { amount = it.filter(Char::isDigit) }, label = { Text("Sats") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+        FiatAmountField(amount, { amount = it })
         OutlinedTextField(memo, { memo = it }, label = { Text("Note (optional, the payer sees it)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Button(enabled = !busy && (amount.toLongOrNull() ?: 0) > 0, modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = accent), onClick = {
@@ -719,15 +720,19 @@ private fun PayLn(accent: Color, scanned: String?, channels: List<Lnd.Channel>, 
             onCancel = { viaBridge = null })
     }
     req?.let { r ->
-        val feeLimit = Lightning.feeLimit(ctx, r.sats)
+        // An invoice without an amount: the payer says how much (in sats or in their currency).
+        var askedText by remember(r) { mutableStateOf("") }
+        val asked = askedText.toLongOrNull()?.takeIf { it > 0 }
+        val payAmount = if (r.sats > 0) r.sats else asked ?: 0L
+        val feeLimit = Lightning.feeLimit(ctx, payAmount)
         AlertDialog(onDismissRequest = { if (!busy) req = null },
-            title = { Text("Pay ${groupSats(r.sats)} sats?") },
+            title = { Text(if (r.sats > 0) "Pay ${groupSats(r.sats)} sats?" else "Pay this invoice?") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (r.description.isNotBlank()) Text("“${r.description}”", style = MaterialTheme.typography.bodySmall)
                     Text("To ${r.destination.take(20)}…", style = MaterialTheme.typography.bodySmall, color = TextSoft)
                     Text("Routing fee at most ${groupSats(feeLimit)} sats (change it in settings).", style = MaterialTheme.typography.bodySmall, color = TextSoft)
-                    val usable = channels.filter { it.active && it.local > r.sats }
+                    val usable = channels.filter { it.active && it.local > payAmount }
                     if (usable.size > 1) {
                         Text("Pay through:", style = MaterialTheme.typography.bodySmall, color = TextSoft)
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -742,15 +747,21 @@ private fun PayLn(accent: Color, scanned: String?, channels: List<Lnd.Channel>, 
                             }
                         }
                     }
-                    if (r.sats == 0L) Text("This invoice has no amount: it is not supported yet.", color = Bad, style = MaterialTheme.typography.bodySmall)
+                    if (r.sats == 0L) {
+                        Text("This invoice has no amount: say how much to pay.", style = MaterialTheme.typography.bodySmall, color = TextSoft)
+                        OutlinedTextField(askedText, { askedText = it.filter(Char::isDigit) }, label = { Text("Sats") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                        FiatAmountField(askedText, { askedText = it })
+                    }
                 }
             },
             confirmButton = {
-                TextButton(enabled = !busy && r.sats > 0, onClick = {
+                TextButton(enabled = !busy && payAmount > 0, onClick = {
                     busy = true
                     scope.launch {
-                        runCatching { withContext(Dispatchers.IO) { Lnd.pay(text.removePrefix("lightning:"), feeLimit, outgoingChanId = via) } }
-                            .onSuccess { paidSats = r.sats; msg = null; text = ""; Lightning.refresh() }
+                        runCatching { withContext(Dispatchers.IO) { Lnd.pay(text.removePrefix("lightning:"), feeLimit, outgoingChanId = via,
+                            amountSats = if (r.sats > 0) null else payAmount) } }
+                            .onSuccess { paidSats = payAmount; msg = null; text = ""; Lightning.refresh() }
                             .onFailure { msg = Lnd.payError(it) to false }
                         busy = false; req = null
                     }
@@ -923,6 +934,7 @@ private fun PayOnchain(accent: Color, scanned: String?, onTx: (String) -> Unit) 
         TextButton(onClick = { clip.getText()?.text?.trim()?.removePrefix("bitcoin:")?.substringBefore('?')?.let { address = it } }) { Text("PASTE", color = accent) }
         OutlinedTextField(amount, { amount = it.filter(Char::isDigit) }, label = { Text("Sats (blank = all ticked: " + street(groupSats(total)) + ")") },
             singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+        FiatAmountField(amount, { amount = it })
         OutlinedTextField(fee, { fee = it.filter(Char::isDigit) }, label = { Text("Fee rate (sat/vB)") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
         Explain("With open anchor channels, LND keeps a reserve on-chain for fee bumping, so it may not let you send everything.")

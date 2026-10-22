@@ -36,7 +36,7 @@ import androidx.fragment.app.FragmentActivity
 import com.kilombino.pyblockwatch.chain.Chain
 
 /**
- * HOT WALLET | WATCH-ONLY, top left: two different wallets on one phone. The hot one is the
+ * HOT | WATCH | JM, top left: three different wallets on one phone (JM: a Jam wallet, read-only). The hot one is the
  * seed's; the watch-only one is a separate xpub, watched with its own notifications (one at
  * most). Going either way asks for the fingerprint; to hot with no seed it leads to
  * create/restore instead, and to watch-only the first time it asks for the xpub.
@@ -44,31 +44,43 @@ import com.kilombino.pyblockwatch.chain.Chain
 @Composable
 fun WalletModeSwitch(state: UiState, vm: WalletViewModel, accent: Color, modifier: Modifier = Modifier) {
     val activity = LocalContext.current as FragmentActivity
+    val jvm: JamViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     var setupWatch by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var setupJam by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     if (setupWatch) WatchWalletSetup(vm, accent) { setupWatch = false }
+    if (setupJam) JamImportDialog(jvm, JamTeal, onImported = { setupJam = false; vm.viewJam() }, onClose = { setupJam = false })
+    val hotOn = state.isHot && !state.jamView
+    val watchOn = !state.isHot && !state.jamView
     Row(modifier.clip(RoundedCornerShape(10.dp)).background(PanelSoft).padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         // Short, so the bar keeps room for ⚙, ⏻ and the logo in every language.
-        @Composable fun seg(label: String, on: Boolean, onClick: () -> Unit) = Text(label,
+        // Three wallets: the one on screen says its name, the other two only their emoji.
+        @Composable fun seg(label: String, on: Boolean, onClick: () -> Unit) = Text(if (on) label else label.substringBefore(' '),
             style = MaterialTheme.typography.labelSmall,
             color = if (on) Ink else TextFaint,
             maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             modifier = Modifier.clip(RoundedCornerShape(8.dp))
                 .background(if (on) accent else Color.Transparent)
-                .clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 6.dp))
-        seg("🔥 HOT", state.isHot) {
+                .clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 6.dp))
+        seg("🔥 HOT", hotOn) {
             when {
-                state.isHot -> {}
+                hotOn -> {}
                 state.hasSeed -> Biometric.confirm(activity, "Back to the hot wallet",
                     "Unlock to see and spend your hot wallet", onSuccess = { vm.viewAsHot() }, onError = {})
-                else -> vm.startSetup()   // no hot wallet yet: create or restore one
+                else -> { vm.leaveJam(); vm.startSetup() }   // no hot wallet yet: create or restore one
             }
         }
-        seg("👁 WATCH", !state.isHot) {
+        seg("👁 WATCH", watchOn) {
             // The watched wallet's balances and addresses are as private as the hot one's: the
             // fingerprint first, as going back to hot asks.
-            if (state.isHot) Biometric.confirm(activity, "Open the watch-only wallet",
+            if (!watchOn) Biometric.confirm(activity, "Open the watch-only wallet",
                 "Unlock to see the watched wallet", onSuccess = { if (vm.hasWatchWallet()) vm.viewAsWatchOnly() else setupWatch = true },
+                onError = {})
+        }
+        // The JoinMarket wallet (Jam, read-only): the fingerprint too, then its import the first time.
+        seg("🫙 JM", state.jamView) {
+            if (!state.jamView) Biometric.confirm(activity, "Open the JoinMarket wallet",
+                "Unlock to see the JoinMarket wallet", onSuccess = { if (vm.hasJamWallet()) vm.viewJam() else setupJam = true },
                 onError = {})
         }
     }

@@ -103,6 +103,10 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // A debuggable build (never a published one) also watches JoinMarket wallets of the test
+        // networks, so a fidelity bond can be spent end to end against a regtest node.
+        com.kilombino.pyblockwatch.data.JoinMarket.testNetworksAllowed =
+            (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
         com.kilombino.pyblockwatch.data.OpenTab.from(intent)
         // A coinjoin round left running (app killed, updated, phone restarted) picks up again.
         // Looked for off the main thread: it opens each round's key from the Keystore.
@@ -125,8 +129,8 @@ class MainActivity : FragmentActivity() {
                 // notification, stop. One already running is left alone: restarting it on every
                 // opening repeated all its network work right next to the app's own first look.
                 // It reads a changed interval itself, within a minute.
-                LaunchedEffect(state.hasWallet, state.notificationsEnabled, state.refreshBackgroundMinutes) {
-                    if (state.hasWallet && state.notificationsEnabled) {
+                LaunchedEffect(state.hasWallet, state.jamView, state.notificationsEnabled, state.refreshBackgroundMinutes) {
+                    if ((state.hasWallet || vm.hasJamWallet()) && state.notificationsEnabled) {
                         if (state.refreshBackgroundMinutes > 0) toggleNotifications(vm, true)
                         else stopService(Intent(this@MainActivity, WatchService::class.java))
                     }
@@ -315,7 +319,11 @@ class MainActivity : FragmentActivity() {
                                 onDecline = { vm.answerCoinjoin(false); askCoinjoin = false })
                         }
                     }
-                    if (state.showWallet) {
+                    if (state.jamView && !state.setupMode) {
+                        // The JoinMarket wallet (Jam, read-only): its own screen, no simple mode.
+                        val jvm: JamViewModel = viewModel()
+                        JamScreen(vm, jvm, onToggleNotifications = { on -> toggleNotifications(vm, on) })
+                    } else if (state.showWallet) {
                         // Simple / Advanced: chosen once, switchable from the top of either screen.
                         when (state.uiMode) {
                             null -> ModeChooser(vm)
@@ -475,6 +483,23 @@ private fun OnboardingScreen(state: UiState, vm: WalletViewModel) {
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("WATCH BOTH CHAINS", style = MaterialTheme.typography.titleMedium) }
+        }
+
+        // A Jam (JoinMarket) wallet, read-only: the third wallet.
+        var importJam by remember { mutableStateOf(false) }
+        val jvm: JamViewModel = viewModel()
+        if (importJam) JamImportDialog(jvm, JamTeal, onImported = { importJam = false; vm.viewJam() }, onClose = { importJam = false })
+        Panel(accent = JamTeal) {
+            SectionLabel("JoinMarket wallet (Jam)", JamTeal)
+            Spacer(Modifier.height(8.dp))
+            Explain("Follow your Jam wallet from the phone, read-only: its five jars, their movements and your fidelity " +
+                "bonds, with a warning before a bond unlocks. In Jam: Settings › View in Kilowallet (read-only).")
+            Spacer(Modifier.height(10.dp))
+            Button(
+                onClick = { importJam = true },
+                colors = ButtonDefaults.buttonColors(containerColor = JamTeal, contentColor = Ink),
+                shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
+            ) { Text("WATCH A JAM WALLET", style = MaterialTheme.typography.titleMedium) }
         }
 
         // The home-screen widget, for those who only want the price.
@@ -792,16 +817,13 @@ private fun BalanceCard(
         Text(street("%.8f ₿".format(cs.total / 100_000_000.0)),
              style = MaterialTheme.typography.bodySmall, color = TextFaint)
 
-        // Value in dollars or euros, the same choice as in simple mode and Ark.
+        // Value in the chosen currency, the same choice as in simple mode and Ark.
         Spacer(Modifier.height(8.dp))
-        val sym = if (fiat == "EUR") "€" else "$"
         val value = fiatPerCoin(chain, market, fiat)?.let { it * cs.total / 1e8 }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(street(if (value == null) "≈ $sym –" else "≈ $sym" + String.format(java.util.Locale.US, "%,.2f", value)),
+            Text(street("≈ " + (value?.let { com.kilombino.pyblockwatch.data.Fiat.format(it, fiat) } ?: com.kilombino.pyblockwatch.data.Fiat.missing(fiat))),
                  style = MaterialTheme.typography.headlineSmall, color = TextMain, modifier = Modifier.weight(1f))
-            FiatChip("USD", fiat == "USD", accent) { onFiat("USD") }
-            Spacer(Modifier.width(6.dp))
-            FiatChip("EUR", fiat == "EUR", accent) { onFiat("EUR") }
+            FiatPicker(fiat, market, accent, onFiat)
         }
         if (cs.unconfirmed != 0L) {
             Spacer(Modifier.height(4.dp))
@@ -823,7 +845,7 @@ private fun BalanceCard(
 }
 
 @Composable
-private fun ScanStatus(cs: ChainState, accent: Color, onRetry: () -> Unit) {
+internal fun ScanStatus(cs: ChainState, accent: Color, onRetry: () -> Unit) {
     Panel(accent = accent) {
         AnimatedContent(
             targetState = cs.phase,
@@ -1515,8 +1537,9 @@ private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, explore
     FlowOpenWhileShown()
     val sent = (vm.state.collectAsState().value.sendPhase as? SendPhase.Sent)?.txid
     if (sent != null) {
+        // With the wallet and its chain, so an explorer already chosen opens straight away.
         TxDetailDialog(sent, accent, explorer, status = (if (cpfp) "speed-up sent ✓" else "replacement sent ✓") + " · in mempool",
-            onSpeedUp = null, onClose = onClose)
+            onSpeedUp = null, onClose = onClose, vm = vm, chain = vm.state.collectAsState().value.selected)
         return
     }
     val state by vm.state.collectAsState()
@@ -1546,6 +1569,10 @@ private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, explore
                             Text("Fee: ${groupSats(d.replacedFee)} → ${groupSats(d.fee)} sats", style = MaterialTheme.typography.bodySmall, color = accent)
                             Text("Change: ${groupSats(d.change)} sats", style = MaterialTheme.typography.bodySmall)
                         }
+                        // A payment that makes a perfect coin: say what happens to its pool.
+                        if (com.kilombino.pyblockwatch.coinjoin.PerfectCoin.waiting.collectAsState().value.any { it.txid == txid })
+                            Text("This payment makes a perfect coin for a coinjoin pool. Speeding it up keeps it: the pool follows the " +
+                                "new transaction and opens (or joins) once it confirms.", style = MaterialTheme.typography.bodySmall, color = Warn)
                         feeConcern?.let { FeeGate(it, feeOk) { feeOk = !feeOk } }
                     }
                     is SendPhase.Sent -> Text((if (cpfp) "Speed-up sent ✓\n" else "Replacement sent ✓\n") + p.txid,
