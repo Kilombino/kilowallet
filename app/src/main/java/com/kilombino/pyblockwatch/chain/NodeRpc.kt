@@ -72,7 +72,15 @@ data class RpcNode(val conns: List<RpcConn>, val accountKey: String, val type: S
 class NodeRpcBackend(private val node: RpcNode) {
     private var conn: RpcConn? = null
     private val descKey by lazy { toVersion(node.accountKey, 0x0488B21E) }
-    val walletName by lazy { "kilowallet-" + Hashes.sha256(descKey.toByteArray()).toHex().take(10) }
+    /**
+     * One node wallet per key AND address type: the descriptors are imported only when the wallet
+     * is made, so a key first read as bc1q and then switched to Taproot used to keep the bc1q
+     * wallet, and every bc1p address looked unused. Native SegWit keeps its old name.
+     */
+    val walletName by lazy {
+        val tag = if (node.type == ScriptType.P2WPKH) "" else ":" + node.type.name
+        "kilowallet-" + Hashes.sha256((descKey + tag).toByteArray()).toHex().take(10)
+    }
 
     private val history = HashMap<String, MutableSet<Pair<String, Int>>>()
     /** TLS: the pin the current request must match ("" = record whatever comes, for TEST). */
