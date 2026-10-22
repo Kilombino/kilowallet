@@ -374,6 +374,7 @@ private fun OnboardingScreen(state: UiState, vm: WalletViewModel) {
     }
 
     var xpub by remember { mutableStateOf("") }
+    var picked by remember { mutableStateOf<ScriptType?>(null) }
     var label by remember { mutableStateOf("") }
     var showScanner by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -459,6 +460,7 @@ private fun OnboardingScreen(state: UiState, vm: WalletViewModel) {
                 modifier = Modifier.fillMaxWidth(),
             )
             state.inputError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Bad) }
+            XpubTypeChoice(xpub, picked, Orange) { picked = it }
 
             TextButton(onClick = {
                 if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
@@ -477,8 +479,8 @@ private fun OnboardingScreen(state: UiState, vm: WalletViewModel) {
 
             Spacer(Modifier.height(10.dp))
             Button(
-                onClick = { vm.setXpub(xpub, label) },
-                enabled = xpub.isNotBlank(),
+                onClick = { vm.setXpub(xpub, label, picked.takeIf { xpubNeedsType(xpub) }) },
+                enabled = xpub.isNotBlank() && (picked != null || !xpubNeedsType(xpub)),
                 colors = ButtonDefaults.buttonColors(containerColor = Orange, contentColor = Ink),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth(),

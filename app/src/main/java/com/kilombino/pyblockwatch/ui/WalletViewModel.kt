@@ -404,7 +404,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun isRefreshing(chain: Chain): Boolean = refreshJobs[chain]?.isActive == true
 
     /** Validate and store a pasted extended public key, then scan both chains. */
-    fun setXpub(raw: String, label: String) {
+    fun setXpub(raw: String, label: String, picked: ScriptType? = null) {
         val trimmed = raw.trim().replace("\\s".toRegex(), "")
         val type = Scanner.scriptTypeOf(trimmed)
         if (type == null) {
@@ -427,11 +427,12 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         // Default derivation: honour a specific prefix (ypub → nested, zpub → native),
         // but a plain xpub defaults to BIP-84 native segwit rather than legacy. The user
         // can still switch it afterwards with the type selector.
-        val chosen = when (type) {
+        val chosen = picked ?: when (type) {
             ScriptType.P2SH_P2WPKH, ScriptType.P2WPKH -> type
             else -> ScriptType.P2WPKH
         }
         store.scriptType = chosen
+        store.typeChosen = picked != null
         _state.update {
             it.copy(
                 xpub = trimmed, label = label, scriptType = chosen, inputError = null,
@@ -456,6 +457,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Change the address type (BIP-84/49/44/86) and re-scan both chains. */
     fun setScriptType(type: ScriptType) {
+        // Picking it, even the one already shown, says it is the watch-only wallet's own type.
+        if (!_state.value.isHot) store.typeChosen = true
         if (type == store.scriptType) return
         // The hot wallet's xpub is m/84'/0'/0': any other type would show addresses it can't sign for.
         if (_state.value.isHot && type != ScriptType.P2WPKH) return

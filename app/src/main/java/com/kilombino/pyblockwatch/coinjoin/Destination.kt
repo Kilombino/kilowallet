@@ -32,10 +32,14 @@ object Destination {
     fun options(ctx: Context, type: ScriptType): List<Kind> {
         val out = mutableListOf(Kind.HOT)
         val watch = Store(ctx, Store.WATCH)
-        if (watch.xpub != null && watch.scriptType == type) out += Kind.WATCH
+        if (watch.xpub != null && watch.scriptType == type && typeKnown(watch)) out += Kind.WATCH
         if (type == ScriptType.P2WPKH && jamExport(ctx) != null) out += Kind.JAM
         return out
     }
+
+    /** The watch-only wallet's address type is its own, not a plain xpub's default (see [Store.typeChosen]). */
+    fun typeKnown(watch: Store): Boolean = watch.typeChosen ||
+        watch.xpub?.let { com.kilombino.pyblockwatch.data.Scanner.scriptTypeOf(it) }.let { it == ScriptType.P2WPKH || it == ScriptType.P2SH_P2WPKH }
 
     private fun jamExport(ctx: Context): JoinMarket.Export? =
         Store(ctx, Store.JM).jmExport?.let { runCatching { JoinMarket.parse(it) }.getOrNull() }
@@ -69,6 +73,7 @@ object Destination {
                 val w = Store(ctx, Store.WATCH)
                 val xpub = w.xpub ?: error("There is no watch-only wallet any more.")
                 require(w.scriptType == type) { "The watch-only wallet's addresses are not of this pool's type." }
+                require(typeKnown(w)) { "Choose the watch-only wallet's address type in its settings first." }
                 Bip32.parseExtendedPubKey(xpub) to w.usedTop(xpub, 0)
             }
             Kind.JAM -> {

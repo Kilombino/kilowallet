@@ -249,6 +249,16 @@ class Store(context: Context, private val profile: String = HOT) {
         set(v) = prefs.edit().putString(k(KEY_SCRIPT), v.name).apply()
 
     /**
+     * Watch-only: whether [scriptType] is known to be the wallet's own and not just the default a
+     * plain `xpub` gets: a ypub/zpub says it, and so does picking it on import or in settings.
+     * Coinjoin outputs go to a watch-only wallet only then, or they could land on addresses of a
+     * type the other wallet never looks at.
+     */
+    var typeChosen: Boolean
+        get() = prefs.getBoolean(k("type_chosen"), false)
+        set(v) = prefs.edit().putBoolean(k("type_chosen"), v).apply()
+
+    /**
      * Hot wallet only: the seed's Taproot account (BIP-86, m/86'/0'/0'), next to the BIP-84 one in
      * [xpub]. Once set it is always scanned, so its coins stay visible and spendable whichever
      * kind of address [receiveTaproot] hands out. Null until Taproot is turned on.
@@ -328,7 +338,7 @@ class Store(context: Context, private val profile: String = HOT) {
 
     fun clearWallet() {
         prefs.edit().apply {
-            remove(k(KEY_XPUB)); remove(k(KEY_LABEL)); remove(k("taproot_xpub")); remove(k("receive_taproot"))
+            remove(k(KEY_XPUB)); remove(k(KEY_LABEL)); remove(k("taproot_xpub")); remove(k("receive_taproot")); remove(k("type_chosen"))
             if (profile == JM) {
                 remove(k("export"))
                 prefs.all.keys.filter { it.startsWith(k("alert_")) || it.startsWith(k("conft_")) || it.startsWith(k("full_look_")) }.forEach { remove(it) }

@@ -2103,5 +2103,8 @@
 "Pick up to {0} confirmed {1} coins that together make at least {2} sats plus your fee. The leftover comes back to a fresh change address.": "最多选择 {0} 个已确认的 {1} 币，合计至少 {2} sats 加上你的手续费。剩余部分回到一个新的找零地址。",
 "Pick ONE confirmed {0} coin of at least {1} sats. Its leftover comes back to a fresh change address.": "选择一个已确认的 {0} 币，至少 {1} sats。剩余部分回到一个新的找零地址。",
 "The mixed output goes to an unused address of the wallet chosen above.": "混合输出发送到上面所选钱包的一个未使用地址。",
-"Each of your {0} mixed outputs of {1} sats goes to its own unused address of the wallet chosen above.": "你的 {0} 个 {1} sats 混合输出各自发送到上面所选钱包的一个未使用地址。"
+"Each of your {0} mixed outputs of {1} sats goes to its own unused address of the wallet chosen above.": "你的 {0} 个 {1} sats 混合输出各自发送到上面所选钱包的一个未使用地址。",
+"This key is at depth {0}, not an account key (m/84'/0'/0', m/86'/0'/0'…): its addresses won't match your wallet's. Export the account xpub instead.": "此密钥位于深度 {0}，不是账户密钥（m/84'/0'/0'、m/86'/0'/0'…）：它的地址与你钱包的地址不会一致。请改为导出账户 xpub。",
+"A plain xpub doesn't say which addresses it makes: pick the type your wallet uses.": "普通 xpub 不会说明它生成哪种地址：请选择你的钱包使用的类型。",
+"Choose the watch-only wallet's address type in its settings first.": "请先在只读钱包的设置中选择其地址类型。"
 }

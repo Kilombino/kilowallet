@@ -2115,5 +2115,8 @@
 "Pick up to {0} confirmed {1} coins that together make at least {2} sats plus your fee. The leftover comes back to a fresh change address.": "Elige hasta {0} monedas {1} confirmadas que juntas sumen al menos {2} sats más tu comisión. Lo que sobra vuelve a una dirección de cambio nueva.",
 "Pick ONE confirmed {0} coin of at least {1} sats. Its leftover comes back to a fresh change address.": "Elige UNA moneda {0} confirmada de al menos {1} sats. Lo que sobra vuelve a una dirección de cambio nueva.",
 "The mixed output goes to an unused address of the wallet chosen above.": "La salida mezclada va a una dirección sin usar del monedero elegido arriba.",
-"Each of your {0} mixed outputs of {1} sats goes to its own unused address of the wallet chosen above.": "Cada una de tus {0} salidas mezcladas de {1} sats va a su propia dirección sin usar del monedero elegido arriba."
+"Each of your {0} mixed outputs of {1} sats goes to its own unused address of the wallet chosen above.": "Cada una de tus {0} salidas mezcladas de {1} sats va a su propia dirección sin usar del monedero elegido arriba.",
+"This key is at depth {0}, not an account key (m/84'/0'/0', m/86'/0'/0'…): its addresses won't match your wallet's. Export the account xpub instead.": "Esta clave está a profundidad {0}, no es una clave de cuenta (m/84'/0'/0', m/86'/0'/0'…): sus direcciones no coincidirán con las de tu monedero. Exporta la xpub de la cuenta.",
+"A plain xpub doesn't say which addresses it makes: pick the type your wallet uses.": "Una xpub a secas no dice qué direcciones genera: elige el tipo que usa tu monedero.",
+"Choose the watch-only wallet's address type in its settings first.": "Elige primero el tipo de dirección del monedero de solo lectura en sus ajustes."
 }

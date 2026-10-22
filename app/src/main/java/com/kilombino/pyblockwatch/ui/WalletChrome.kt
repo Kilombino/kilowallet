@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import com.kilombino.pyblockwatch.crypto.ScriptType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
@@ -91,6 +92,7 @@ fun WalletModeSwitch(state: UiState, vm: WalletViewModel, accent: Color, modifie
 fun WatchWalletSetup(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
     val ctx = LocalContext.current
     var xpub by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+    var picked by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<ScriptType?>(null) }
     var label by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
     var scan by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     val state by vm.state.collectAsState()
@@ -114,6 +116,7 @@ fun WatchWalletSetup(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                     label = { Text("xpub / ypub / zpub", style = MaterialTheme.typography.bodySmall) },
                     textStyle = MaterialTheme.typography.bodySmall, minLines = 2, isError = state.inputError != null)
                 state.inputError?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall) }
+                XpubTypeChoice(xpub, picked, accent) { picked = it }
                 androidx.compose.material3.TextButton(onClick = {
                     if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) scan = true
                     else camera.launch(Manifest.permission.CAMERA)
@@ -124,8 +127,8 @@ fun WatchWalletSetup(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
             }
         },
         confirmButton = {
-            androidx.compose.material3.TextButton(enabled = xpub.isNotBlank(), onClick = {
-                vm.setXpub(xpub, label.ifBlank { "Watch-only" })
+            androidx.compose.material3.TextButton(enabled = xpub.isNotBlank() && (picked != null || !xpubNeedsType(xpub)), onClick = {
+                vm.setXpub(xpub, label.ifBlank { "Watch-only" }, picked.takeIf { xpubNeedsType(xpub) })
                 if (vm.state.value.inputError == null) { askNotif(); onClose() }
             }) { Text("WATCH IT", color = accent) }
         },
@@ -256,3 +259,35 @@ fun CoinsCard(state: UiState, vm: WalletViewModel, chain: Chain, accent: Color) 
         }
     }
 }
+
+/**
+ * Under a pasted extended public key: a plain `xpub` doesn't say which addresses it makes, so the
+ * type is asked for (null until picked); a ypub/zpub says it and nothing is asked. A key that is not
+ * an account key (m/purpose'/0'/0', depth 3) is pointed out: its addresses won't be the wallet's.
+ */
+@Composable
+internal fun XpubTypeChoice(xpub: String, picked: ScriptType?, accent: Color, onPick: (ScriptType) -> Unit) {
+    val key = remember(xpub) {
+        runCatching { com.kilombino.pyblockwatch.crypto.Bip32.parseExtendedPubKey(xpub.trim().replace("\\s".toRegex(), "")) }.getOrNull()
+    } ?: return
+    if (key.depth != 3) Text("This key is at depth ${key.depth}, not an account key (m/84'/0'/0', m/86'/0'/0'…): " +
+        "its addresses won't match your wallet's. Export the account xpub instead.", color = Bad, style = MaterialTheme.typography.bodySmall)
+    if (key.scriptType != ScriptType.P2PKH) return
+    Text("A plain xpub doesn't say which addresses it makes: pick the type your wallet uses.",
+        color = TextSoft, style = MaterialTheme.typography.bodySmall)
+    listOf(
+        ScriptType.P2WPKH to "Native SegWit · bc1q… (BIP84)",
+        ScriptType.P2TR to "Taproot · bc1p… (BIP86)",
+        ScriptType.P2SH_P2WPKH to "Nested SegWit · 3… (BIP49)",
+        ScriptType.P2PKH to "Legacy · 1… (BIP44)",
+    ).forEach { (t, name) ->
+        androidx.compose.material3.TextButton(onClick = { onPick(t) }, modifier = Modifier.fillMaxWidth()) {
+            Text((if (t == picked) "● " else "○ ") + name, color = if (t == picked) accent else TextMain,
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth())
+        }
+    }
+}
+
+/** Whether [xpub] still needs its type picked before it can be watched (see [XpubTypeChoice]). */
+internal fun xpubNeedsType(xpub: String): Boolean =
+    com.kilombino.pyblockwatch.data.Scanner.scriptTypeOf(xpub.trim().replace("\\s".toRegex(), "")) == ScriptType.P2PKH
