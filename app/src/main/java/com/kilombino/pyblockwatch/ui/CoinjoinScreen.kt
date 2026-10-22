@@ -459,7 +459,13 @@ private fun CoinPicker(
             ExactCoinPanel(vm, accent, exact, tag, exactFor, dest, outputs) { sent -> making = false; reload++; if (sent) onCancel() }
             return@Panel
         }
-        Explain(if (maxInputs > 1)
+        if (dest != Destination.Kind.HOT) Explain((if (maxInputs > 1)
+            "Pick up to $maxInputs confirmed $kind coins that together make at least ${groupSats(mixTotal)} sats plus your fee. " +
+                "The leftover comes back to a fresh change address."
+            else "Pick ONE confirmed $kind coin of at least ${groupSats(min)} sats. Its leftover comes back to a fresh change address.") +
+            "\n\n" + (if (outputs > 1) "Each of your $outputs mixed outputs of ${groupSats(amount)} sats goes to its own unused address of the wallet chosen above."
+                else "The mixed output goes to an unused address of the wallet chosen above."))
+        else Explain(if (maxInputs > 1)
             "Pick up to $maxInputs confirmed $kind coins that together make at least ${groupSats(mixTotal)} sats plus your fee. " +
                 "The leftover comes back to a fresh change address; " +
                 (if (outputs > 1) "each of your $outputs mixed outputs of ${groupSats(amount)} sats goes to its own fresh address of this wallet."

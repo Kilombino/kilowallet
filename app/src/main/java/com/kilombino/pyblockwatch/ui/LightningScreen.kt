@@ -640,6 +640,7 @@ private fun ReceiveLn(accent: Color, ready: Boolean) {
         if (!ready) Explain("You need an active channel, and can receive only up to what the other side holds in it (\"can receive\" under Channels). A new channel you opened starts with everything on your side.")
         OutlinedTextField(amount, { amount = it.filter(Char::isDigit) }, label = { Text("Sats") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+        FiatAmountField(amount, { amount = it })
         OutlinedTextField(memo, { memo = it }, label = { Text("Note (optional, the payer sees it)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Button(enabled = !busy && (amount.toLongOrNull() ?: 0) > 0, modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = accent), onClick = {

@@ -455,6 +455,7 @@ private fun ArkReceiveSheet(
                 }
             }
         }
+        FiatAmountField(amount, { amount = it }, market = LocalFiat.current.market, fiat = LocalFiat.current.code)
         if (invoicing) Text("Creating a new Lightning invoice… It can take a minute while the wallet " +
             "finishes other work, such as claiming an earlier payment.",
             style = MaterialTheme.typography.bodySmall, color = Warn)

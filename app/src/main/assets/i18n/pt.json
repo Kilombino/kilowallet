@@ -2107,5 +2107,13 @@
 "There is no JoinMarket wallet any more.": "Já não há carteira JoinMarket.",
 "The watch-only wallet's addresses are not of this pool's type.": "Os endereços da carteira só de leitura não são do tipo deste pool.",
 "JoinMarket's addresses are native SegWit (bc1q): they only fit a bc1q pool.": "Os endereços do JoinMarket são SegWit nativo (bc1q): só servem para um pool bc1q.",
-"could not find unused addresses": "não foram encontrados endereços não usados"
+"could not find unused addresses": "não foram encontrados endereços não usados",
+"amount to ask (sats, optional)": "valor a pedir (sats, opcional)",
+"This payment makes a perfect coin for a coinjoin pool. Speeding it up keeps it: the pool follows the new transaction and opens (or joins) once it confirms.": "Este pagamento cria uma moeda perfeita para um pool de coinjoin. Acelerá-lo mantém-na: o pool segue a nova transação e abre (ou entra) quando confirmar.",
+"Perfect coin changed": "A moeda perfeita mudou",
+"Speeding it up changed its amount, so it no longer fits the pool. It stays in your wallet: join a pool with it by hand in COINJOIN.": "Acelerá-la mudou o valor, por isso já não serve para o pool. Continua na tua carteira: entra num pool com ela à mão em COINJOIN.",
+"Pick up to {0} confirmed {1} coins that together make at least {2} sats plus your fee. The leftover comes back to a fresh change address.": "Escolhe até {0} moedas {1} confirmadas que juntas somem pelo menos {2} sats mais a tua comissão. O que sobra volta para um endereço de troco novo.",
+"Pick ONE confirmed {0} coin of at least {1} sats. Its leftover comes back to a fresh change address.": "Escolhe UMA moeda {0} confirmada de pelo menos {1} sats. O que sobra volta para um endereço de troco novo.",
+"The mixed output goes to an unused address of the wallet chosen above.": "A saída misturada vai para um endereço não usado da carteira escolhida acima.",
+"Each of your {0} mixed outputs of {1} sats goes to its own unused address of the wallet chosen above.": "Cada uma das tuas {0} saídas misturadas de {1} sats vai para o seu próprio endereço não usado da carteira escolhida acima."
 }

@@ -2095,5 +2095,13 @@
 "There is no JoinMarket wallet any more.": "已经没有 JoinMarket 钱包了。",
 "The watch-only wallet's addresses are not of this pool's type.": "只读钱包的地址与此池的类型不符。",
 "JoinMarket's addresses are native SegWit (bc1q): they only fit a bc1q pool.": "JoinMarket 的地址是原生 SegWit（bc1q）：只适用于 bc1q 池。",
-"could not find unused addresses": "找不到未使用的地址"
+"could not find unused addresses": "找不到未使用的地址",
+"amount to ask (sats, optional)": "请求金额（sats，可选）",
+"This payment makes a perfect coin for a coinjoin pool. Speeding it up keeps it: the pool follows the new transaction and opens (or joins) once it confirms.": "这笔付款为一个 coinjoin 池生成完美币。加速后它依然保留：池会跟随新交易，确认后自动开启（或加入）。",
+"Perfect coin changed": "完美币已改变",
+"Speeding it up changed its amount, so it no longer fits the pool. It stays in your wallet: join a pool with it by hand in COINJOIN.": "加速改变了它的金额，因此不再适合该池。它仍在你的钱包里：请在 COINJOIN 中手动用它加入池。",
+"Pick up to {0} confirmed {1} coins that together make at least {2} sats plus your fee. The leftover comes back to a fresh change address.": "最多选择 {0} 个已确认的 {1} 币，合计至少 {2} sats 加上你的手续费。剩余部分回到一个新的找零地址。",
+"Pick ONE confirmed {0} coin of at least {1} sats. Its leftover comes back to a fresh change address.": "选择一个已确认的 {0} 币，至少 {1} sats。剩余部分回到一个新的找零地址。",
+"The mixed output goes to an unused address of the wallet chosen above.": "混合输出发送到上面所选钱包的一个未使用地址。",
+"Each of your {0} mixed outputs of {1} sats goes to its own unused address of the wallet chosen above.": "你的 {0} 个 {1} sats 混合输出各自发送到上面所选钱包的一个未使用地址。"
 }

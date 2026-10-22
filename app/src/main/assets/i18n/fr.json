@@ -2107,5 +2107,13 @@
 "There is no JoinMarket wallet any more.": "Il n'y a plus de portefeuille JoinMarket.",
 "The watch-only wallet's addresses are not of this pool's type.": "Les adresses du portefeuille en lecture seule ne sont pas du type de ce pool.",
 "JoinMarket's addresses are native SegWit (bc1q): they only fit a bc1q pool.": "Les adresses de JoinMarket sont SegWit natif (bc1q) : elles ne conviennent qu'à un pool bc1q.",
-"could not find unused addresses": "aucune adresse inutilisée trouvée"
+"could not find unused addresses": "aucune adresse inutilisée trouvée",
+"amount to ask (sats, optional)": "montant à demander (sats, facultatif)",
+"This payment makes a perfect coin for a coinjoin pool. Speeding it up keeps it: the pool follows the new transaction and opens (or joins) once it confirms.": "Ce paiement crée une pièce parfaite pour un pool de coinjoin. L'accélérer la conserve : le pool suit la nouvelle transaction et s'ouvre (ou la rejoint) une fois confirmée.",
+"Perfect coin changed": "La pièce parfaite a changé",
+"Speeding it up changed its amount, so it no longer fits the pool. It stays in your wallet: join a pool with it by hand in COINJOIN.": "L'accélérer a changé son montant : elle ne convient plus au pool. Elle reste dans ton portefeuille : rejoins un pool avec elle à la main dans COINJOIN.",
+"Pick up to {0} confirmed {1} coins that together make at least {2} sats plus your fee. The leftover comes back to a fresh change address.": "Choisis jusqu'à {0} pièces {1} confirmées qui fassent ensemble au moins {2} sats plus tes frais. Le reste revient à une nouvelle adresse de monnaie.",
+"Pick ONE confirmed {0} coin of at least {1} sats. Its leftover comes back to a fresh change address.": "Choisis UNE pièce {0} confirmée d'au moins {1} sats. Le reste revient à une nouvelle adresse de monnaie.",
+"The mixed output goes to an unused address of the wallet chosen above.": "La sortie mélangée va vers une adresse inutilisée du portefeuille choisi ci-dessus.",
+"Each of your {0} mixed outputs of {1} sats goes to its own unused address of the wallet chosen above.": "Chacune de tes {0} sorties mélangées de {1} sats va vers sa propre adresse inutilisée du portefeuille choisi ci-dessus."
 }

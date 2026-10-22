@@ -2107,5 +2107,13 @@
 "There is no JoinMarket wallet any more.": "Ja no hi ha moneder JoinMarket.",
 "The watch-only wallet's addresses are not of this pool's type.": "Les adreces del moneder de només lectura no són del tipus d'aquest pool.",
 "JoinMarket's addresses are native SegWit (bc1q): they only fit a bc1q pool.": "Les adreces de JoinMarket són SegWit natiu (bc1q): només serveixen per a un pool bc1q.",
-"could not find unused addresses": "no s'han trobat adreces sense fer servir"
+"could not find unused addresses": "no s'han trobat adreces sense fer servir",
+"amount to ask (sats, optional)": "import a demanar (sats, opcional)",
+"This payment makes a perfect coin for a coinjoin pool. Speeding it up keeps it: the pool follows the new transaction and opens (or joins) once it confirms.": "Aquest pagament crea una moneda perfecta per a un pool de coinjoin. Accelerar-lo la conserva: el pool segueix la nova transacció i s'obre (o s'hi uneix) quan confirma.",
+"Perfect coin changed": "La moneda perfecta ha canviat",
+"Speeding it up changed its amount, so it no longer fits the pool. It stays in your wallet: join a pool with it by hand in COINJOIN.": "Accelerar-la va canviar el seu import, així que ja no encaixa al pool. Continua al teu moneder: uneix-te a un pool amb ella a mà a COINJOIN.",
+"Pick up to {0} confirmed {1} coins that together make at least {2} sats plus your fee. The leftover comes back to a fresh change address.": "Tria fins a {0} monedes {1} confirmades que juntes sumin com a mínim {2} sats més la teva comissió. El que sobra torna a una adreça de canvi nova.",
+"Pick ONE confirmed {0} coin of at least {1} sats. Its leftover comes back to a fresh change address.": "Tria UNA moneda {0} confirmada d'almenys {1} sats. El que sobra torna a una adreça de canvi nova.",
+"The mixed output goes to an unused address of the wallet chosen above.": "La sortida barrejada va a una adreça sense fer servir del moneder triat a dalt.",
+"Each of your {0} mixed outputs of {1} sats goes to its own unused address of the wallet chosen above.": "Cadascuna de les teves {0} sortides barrejades de {1} sats va a la seva pròpia adreça sense fer servir del moneder triat a dalt."
 }

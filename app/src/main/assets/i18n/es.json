@@ -2107,5 +2107,13 @@
 "There is no JoinMarket wallet any more.": "Ya no hay monedero JoinMarket.",
 "The watch-only wallet's addresses are not of this pool's type.": "Las direcciones del monedero de solo lectura no son del tipo de este pool.",
 "JoinMarket's addresses are native SegWit (bc1q): they only fit a bc1q pool.": "Las direcciones de JoinMarket son SegWit nativo (bc1q): solo valen para un pool bc1q.",
-"could not find unused addresses": "no se encontraron direcciones sin usar"
+"could not find unused addresses": "no se encontraron direcciones sin usar",
+"amount to ask (sats, optional)": "importe a pedir (sats, opcional)",
+"This payment makes a perfect coin for a coinjoin pool. Speeding it up keeps it: the pool follows the new transaction and opens (or joins) once it confirms.": "Este pago crea una moneda perfecta para un pool de coinjoin. Acelerarlo la conserva: el pool sigue a la nueva transacción y se abre (o se une) cuando confirma.",
+"Perfect coin changed": "La moneda perfecta ha cambiado",
+"Speeding it up changed its amount, so it no longer fits the pool. It stays in your wallet: join a pool with it by hand in COINJOIN.": "Al acelerarla cambió su importe, así que ya no encaja en el pool. Sigue en tu monedero: únete a un pool con ella a mano en COINJOIN.",
+"Pick up to {0} confirmed {1} coins that together make at least {2} sats plus your fee. The leftover comes back to a fresh change address.": "Elige hasta {0} monedas {1} confirmadas que juntas sumen al menos {2} sats más tu comisión. Lo que sobra vuelve a una dirección de cambio nueva.",
+"Pick ONE confirmed {0} coin of at least {1} sats. Its leftover comes back to a fresh change address.": "Elige UNA moneda {0} confirmada de al menos {1} sats. Lo que sobra vuelve a una dirección de cambio nueva.",
+"The mixed output goes to an unused address of the wallet chosen above.": "La salida mezclada va a una dirección sin usar del monedero elegido arriba.",
+"Each of your {0} mixed outputs of {1} sats goes to its own unused address of the wallet chosen above.": "Cada una de tus {0} salidas mezcladas de {1} sats va a su propia dirección sin usar del monedero elegido arriba."
 }

@@ -1537,8 +1537,9 @@ private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, explore
     FlowOpenWhileShown()
     val sent = (vm.state.collectAsState().value.sendPhase as? SendPhase.Sent)?.txid
     if (sent != null) {
+        // With the wallet and its chain, so an explorer already chosen opens straight away.
         TxDetailDialog(sent, accent, explorer, status = (if (cpfp) "speed-up sent ✓" else "replacement sent ✓") + " · in mempool",
-            onSpeedUp = null, onClose = onClose)
+            onSpeedUp = null, onClose = onClose, vm = vm, chain = vm.state.collectAsState().value.selected)
         return
     }
     val state by vm.state.collectAsState()
@@ -1568,6 +1569,10 @@ private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, explore
                             Text("Fee: ${groupSats(d.replacedFee)} → ${groupSats(d.fee)} sats", style = MaterialTheme.typography.bodySmall, color = accent)
                             Text("Change: ${groupSats(d.change)} sats", style = MaterialTheme.typography.bodySmall)
                         }
+                        // A payment that makes a perfect coin: say what happens to its pool.
+                        if (com.kilombino.pyblockwatch.coinjoin.PerfectCoin.waiting.collectAsState().value.any { it.txid == txid })
+                            Text("This payment makes a perfect coin for a coinjoin pool. Speeding it up keeps it: the pool follows the " +
+                                "new transaction and opens (or joins) once it confirms.", style = MaterialTheme.typography.bodySmall, color = Warn)
                         feeConcern?.let { FeeGate(it, feeOk) { feeOk = !feeOk } }
                     }
                     is SendPhase.Sent -> Text((if (cpfp) "Speed-up sent ✓\n" else "Replacement sent ✓\n") + p.txid,

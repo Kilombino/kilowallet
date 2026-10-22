@@ -2107,5 +2107,13 @@
 "There is no JoinMarket wallet any more.": "Non c'è più il portafoglio JoinMarket.",
 "The watch-only wallet's addresses are not of this pool's type.": "Gli indirizzi del portafoglio di sola lettura non sono del tipo di questo pool.",
 "JoinMarket's addresses are native SegWit (bc1q): they only fit a bc1q pool.": "Gli indirizzi di JoinMarket sono SegWit nativo (bc1q): vanno bene solo per un pool bc1q.",
-"could not find unused addresses": "nessun indirizzo non usato trovato"
+"could not find unused addresses": "nessun indirizzo non usato trovato",
+"amount to ask (sats, optional)": "importo da chiedere (sats, facoltativo)",
+"This payment makes a perfect coin for a coinjoin pool. Speeding it up keeps it: the pool follows the new transaction and opens (or joins) once it confirms.": "Questo pagamento crea una moneta perfetta per un pool di coinjoin. Accelerarlo la mantiene: il pool segue la nuova transazione e si apre (o vi entra) quando conferma.",
+"Perfect coin changed": "La moneta perfetta è cambiata",
+"Speeding it up changed its amount, so it no longer fits the pool. It stays in your wallet: join a pool with it by hand in COINJOIN.": "Accelerarla ne ha cambiato l'importo, quindi non va più bene per il pool. Resta nel tuo portafoglio: entra in un pool con essa a mano in COINJOIN.",
+"Pick up to {0} confirmed {1} coins that together make at least {2} sats plus your fee. The leftover comes back to a fresh change address.": "Scegli fino a {0} monete {1} confermate che insieme facciano almeno {2} sats più la tua commissione. Il resto torna a un nuovo indirizzo di resto.",
+"Pick ONE confirmed {0} coin of at least {1} sats. Its leftover comes back to a fresh change address.": "Scegli UNA moneta {0} confermata di almeno {1} sats. Il resto torna a un nuovo indirizzo di resto.",
+"The mixed output goes to an unused address of the wallet chosen above.": "L'uscita mescolata va a un indirizzo non usato del portafoglio scelto sopra.",
+"Each of your {0} mixed outputs of {1} sats goes to its own unused address of the wallet chosen above.": "Ognuna delle tue {0} uscite mescolate da {1} sats va a un proprio indirizzo non usato del portafoglio scelto sopra."
 }
