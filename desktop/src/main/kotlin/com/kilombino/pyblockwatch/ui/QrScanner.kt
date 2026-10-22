@@ -30,14 +30,31 @@ import javax.imageio.ImageIO
  * from an image copied to the clipboard. Same signature as the phone's dialog.
  */
 @Composable
-fun QrScannerDialog(onResult: (String) -> Unit, onDismiss: () -> Unit) {
+fun QrScannerDialog(onResult: (String) -> Unit, onDismiss: () -> Unit) = QrScannerDialog(onResult, onDismiss, null, null)
+
+/**
+ * [onFrame]: for a QR of several parts (an animated ur:… QR), each one read is handed to it and
+ * reading goes on until it says the whole was read; [progress] is shown meanwhile. From the
+ * screen, an animated QR is read again and again until it is whole.
+ */
+@Composable
+fun QrScannerDialog(onResult: (String) -> Unit, onDismiss: () -> Unit, onFrame: ((String) -> Boolean)?, progress: String?) {
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<String?>(null) }
     var frame by remember { mutableStateOf<ImageBitmap?>(null) }
     val camera = remember { QrDesktop.cameraDevice() }
     var useCamera by remember { mutableStateOf(camera != null && QrDesktop.hasFfmpeg()) }
     val done = remember { mutableStateOf(false) }
-    fun found(text: String) { if (!done.value) { done.value = true; onResult(text) } }
+    var lastPart by remember { mutableStateOf<String?>(null) }
+    fun found(text: String) {
+        if (done.value) return
+        if (onFrame != null) {
+            if (text == lastPart) return
+            lastPart = text
+            if (!onFrame(text)) return
+        }
+        done.value = true; onResult(text)
+    }
 
     if (useCamera && camera != null) LaunchedEffect(camera) {
         withContext(Dispatchers.IO) {
@@ -58,8 +75,17 @@ fun QrScannerDialog(onResult: (String) -> Unit, onDismiss: () -> Unit) {
                 OutlinedButton(onClick = {
                     scope.launch {
                         val t = withContext(Dispatchers.IO) { QrDesktop.fromScreen() }
-                        if (t != null) found(t) else status = Tr.t("No QR found on the screen. Make it bigger, or save it as an image.",
-                            "No hay ningún QR en la pantalla. Hazlo más grande o guárdalo como imagen.")
+                        if (t == null) { status = Tr.t("No QR found on the screen. Make it bigger, or save it as an image.",
+                            "No hay ningún QR en la pantalla. Hazlo más grande o guárdalo como imagen."); return@launch }
+                        found(t)
+                        // An animated QR: keep reading the screen until every part is in (two minutes at most).
+                        if (onFrame != null) {
+                            val until = System.currentTimeMillis() + 120_000
+                            while (!done.value && System.currentTimeMillis() < until) {
+                                kotlinx.coroutines.delay(150)
+                                withContext(Dispatchers.IO) { QrDesktop.fromScreen() }?.let { found(it) }
+                            }
+                        }
                     }
                 }, Modifier.fillMaxWidth()) { Text(Tr.t("Read from the screen", "Leer de la pantalla")) }
                 OutlinedButton(onClick = {
@@ -73,6 +99,7 @@ fun QrScannerDialog(onResult: (String) -> Unit, onDismiss: () -> Unit) {
                     val t = QrDesktop.fromClipboard()
                     if (t != null) found(t) else status = Tr.t("The clipboard holds no image with a QR.", "En el portapapeles no hay ninguna imagen con un QR.")
                 }, Modifier.fillMaxWidth()) { Text(Tr.t("Paste an image", "Pegar una imagen")) }
+                progress?.let { Text(it, textAlign = TextAlign.Center) }
                 status?.let { Text(it, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center) }
             }
         },

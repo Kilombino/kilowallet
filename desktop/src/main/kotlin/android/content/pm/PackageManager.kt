@@ -31,7 +31,11 @@ class PackageInfo(val versionName: String?, val longVersionCode: Long) {
 
 class SigningInfo { val apkContentsSigners: Array<Signature> = emptyArray() }
 class Signature(private val bytes: ByteArray) { fun toByteArray() = bytes }
-class ApplicationInfo(val nativeLibraryDir: String)
+class ApplicationInfo(val nativeLibraryDir: String) {
+    /** The desktop build is never debuggable (no test networks). */
+    val flags: Int = 0
+    companion object { const val FLAG_DEBUGGABLE = 2 }
+}
 class ServiceInfo { companion object { const val FOREGROUND_SERVICE_TYPE_DATA_SYNC = 1; const val FOREGROUND_SERVICE_TYPE_SPECIAL_USE = 0x40000000 } }
 class PackageInstaller { class SessionParams(mode: Int) { companion object { const val MODE_FULL_INSTALL = 1 } } }
 
