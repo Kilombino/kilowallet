@@ -177,7 +177,7 @@ class WatchService : Service() {
             // Every address used so far plus the gap, not just the first [gapLimit]: a wallet
             // past its 20th address would otherwise miss payments to its newer ones.
             // Worked out once and remembered with the scanner's (the same addresses every cycle).
-            val depth = store.usedTop(xpub, chainIndex) + store.gapLimit
+            val depth = store.usedTop(xpub, chainIndex, type) + store.gapLimit
             Scanner.derivedRange(account, type, chainIndex, depth).forEachIndexed { i, (address, sh) ->
                 out += AddressRow(
                     chainIndex = chainIndex, index = i, address = address,

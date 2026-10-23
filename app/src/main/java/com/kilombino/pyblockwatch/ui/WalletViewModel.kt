@@ -1864,7 +1864,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     private fun nextUnused(chainIndex: Int, tag: ScriptType? = newTag): Int {
         val seen = _state.value.chains.values.flatMap { it.rows }.filter { it.chainIndex == chainIndex && it.type == tag }
             .maxOfOrNull { it.index }?.plus(1) ?: 0
-        val top = maxOf(seen, xpubFor(tag)?.let { store.usedTop(it, chainIndex) } ?: 0)
+        val top = maxOf(seen, xpubFor(tag)?.let { store.usedTop(it, chainIndex, typeFor(tag)) } ?: 0)
         // Addresses a coinjoin seat holds (native SegWit pools take bc1q ones, Taproot pools bc1p).
         return maxOf(top, coinjoinReservedTop(chainIndex, top, tag))
     }
@@ -1917,7 +1917,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         for (tag in listOf(null, ScriptType.P2TR)) {
             val xpub = xpubFor(tag) ?: continue
             for (ci in 0..1) rows.filter { it.chainIndex == ci && it.type == tag }.maxOfOrNull { it.index }
-                ?.let { store.noteUsedTop(xpub, ci, it + 1) }
+                ?.let { store.noteUsedTop(xpub, ci, it + 1, typeFor(tag)) }
         }
     }
 
@@ -2319,7 +2319,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     "Not enough coins that were never mixed to make ${target} sats (mixed outputs are kept apart)."
                 }
                 // The pool's coin is of the pool's type, whichever kind of address the wallet hands out.
-                val i = nextUnused(0, tag); store.noteUsedTop(xpub, 0, i + 1)
+                val i = nextUnused(0, tag); store.noteUsedTop(xpub, 0, i + 1, typeFor(tag))
                 val to = receiveAddress(i, tag)?.first ?: error("no address")
                 exactPending = Triple(i, tag, target)
                 _state.update { it.copy(utxos = (coins + selected).distinctBy { c -> "${c.txid}:${c.vout}" }, utxosChain = Chain.BLAKE2B) }
@@ -2347,7 +2347,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         // To another wallet (found before the payment), or fresh addresses of this one.
         val mixes = f.destScripts?.takeIf { it.size == outputs } ?: run {
             val mixIndex = maxOf(nextUnused(0, tag), index + 1)
-            store.noteUsedTop(xpub, 0, mixIndex + outputs)
+            store.noteUsedTop(xpub, 0, mixIndex + outputs, type)
             (0 until outputs).map { j ->
                 com.kilombino.pyblockwatch.crypto.Address.scriptPubKey(
                     com.kilombino.pyblockwatch.crypto.Bip32.derivePath(parsed, 0, mixIndex + j).pubkey(), type)
@@ -2355,7 +2355,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         }
         // One past what the payment itself may have used for its own change.
         val changeIndex = nextUnused(1, tag) + 1
-        store.noteUsedTop(xpub, 1, changeIndex + 1)
+        store.noteUsedTop(xpub, 1, changeIndex + 1, type)
         com.kilombino.pyblockwatch.coinjoin.PerfectCoin.expect(getApplication(),
             com.kilombino.pyblockwatch.coinjoin.PerfectCoin.Waiting(txid, vout, value, type,
                 "m/${Scanner.purposeFor(type)}'/0'/0'/0/$index", script, mixes, changeScriptPubKey(changeIndex, tag),
@@ -2374,7 +2374,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 val parsed = com.kilombino.pyblockwatch.crypto.Bip32.parseExtendedPubKey(xpub)
                 (0..1).any { ci ->
                     val branch = com.kilombino.pyblockwatch.crypto.Bip32.deriveChild(parsed, ci)
-                    (0 until store.usedTop(xpub, ci) + store.gapLimit).any { i ->
+                    (0 until store.usedTop(xpub, ci, typeFor(tag)) + store.gapLimit).any { i ->
                         com.kilombino.pyblockwatch.crypto.Address.encode(
                             com.kilombino.pyblockwatch.crypto.Bip32.deriveChild(branch, i).pubkey(), typeFor(tag)) == a
                     }

@@ -74,7 +74,7 @@ object Destination {
                 val xpub = w.xpub ?: error("There is no watch-only wallet any more.")
                 require(w.scriptType == type) { "The watch-only wallet's addresses are not of this pool's type." }
                 require(typeKnown(w)) { "Choose the watch-only wallet's address type in its settings first." }
-                Bip32.parseExtendedPubKey(xpub) to w.usedTop(xpub, 0)
+                Bip32.parseExtendedPubKey(xpub) to w.usedTop(xpub, 0, type)
             }
             Kind.JAM -> {
                 val e = jamExport(ctx) ?: error("There is no JoinMarket wallet any more.")

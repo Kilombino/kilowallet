@@ -107,17 +107,24 @@ class Store(context: Context, private val profile: String = HOT) {
 
     /**
      * One past the highest used index of a branch (0 receive, 1 change) on either chain, for
-     * this xpub. Only grows: an address once used stays used.
+     * this xpub and address [type]. Only grows: an address once used stays used.
+     *
+     * Kept per type because one watch-only key can be read as bc1q or as Taproot: its bc1q
+     * addresses being used says nothing about its Taproot ones. Before 1.2.4 it was kept per
+     * key only; that old number is still read for every type but Taproot (a Taproot account
+     * used to be its own key, and a watch-only key switched to Taproot is what this fixes).
      */
-    fun usedTop(xpub: String, chainIndex: Int): Int = prefs.getInt(keyUsedTop(xpub, chainIndex), 0)
+    fun usedTop(xpub: String, chainIndex: Int, type: ScriptType): Int =
+        prefs.getInt(keyUsedTop(xpub, chainIndex, type),
+            if (type == ScriptType.P2TR) 0 else prefs.getInt(keyUsedTop(xpub, chainIndex, null), 0))
 
-    fun noteUsedTop(xpub: String, chainIndex: Int, top: Int) {
-        if (top > usedTop(xpub, chainIndex)) prefs.edit().putInt(keyUsedTop(xpub, chainIndex), top).apply()
+    fun noteUsedTop(xpub: String, chainIndex: Int, top: Int, type: ScriptType) {
+        if (top > usedTop(xpub, chainIndex, type)) prefs.edit().putInt(keyUsedTop(xpub, chainIndex, type), top).apply()
     }
 
-    private fun keyUsedTop(xpub: String, chainIndex: Int) =
-        "used_top_${chainIndex}_" + com.kilombino.pyblockwatch.crypto.Hashes.sha256(xpub.toByteArray()).take(8)
-            .joinToString("") { "%02x".format(it) }
+    private fun keyUsedTop(xpub: String, chainIndex: Int, type: ScriptType?) =
+        "used_top_${chainIndex}_" + (type?.let { "${it.name}_" } ?: "") +
+            com.kilombino.pyblockwatch.crypto.Hashes.sha256(xpub.toByteArray()).take(8).joinToString("") { "%02x".format(it) }
 
     /** Last known total per chain, so the service can tell "changed" from "first run". */
     fun lastTotal(chain: Chain): Long = prefs.getLong(k(keyTotal(chain)), -1L)
