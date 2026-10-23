@@ -2118,5 +2118,21 @@
 "Each of your {0} mixed outputs of {1} sats goes to its own unused address of the wallet chosen above.": "Chacune de tes {0} sorties mélangées de {1} sats va vers sa propre adresse inutilisée du portefeuille choisi ci-dessus.",
 "This key is at depth {0}, not an account key (m/84'/0'/0', m/86'/0'/0'…): its addresses won't match your wallet's. Export the account xpub instead.": "Cette clé est à la profondeur {0}, ce n'est pas une clé de compte (m/84'/0'/0', m/86'/0'/0'…) : ses adresses ne correspondront pas à celles de ton portefeuille. Exporte plutôt la xpub du compte.",
 "A plain xpub doesn't say which addresses it makes: pick the type your wallet uses.": "Une simple xpub ne dit pas quelles adresses elle produit : choisis le type qu'utilise ton portefeuille.",
-"Choose the watch-only wallet's address type in its settings first.": "Choisis d'abord le type d'adresse du portefeuille en lecture seule dans ses réglages."
+"Choose the watch-only wallet's address type in its settings first.": "Choisis d'abord le type d'adresse du portefeuille en lecture seule dans ses réglages.",
+"Cancel {0}…": "Annuler {0}…",
+"Replaces the payment with one that sends everything back to a fresh address of yours. The recipients get nothing, unless the original confirms first: then this one is refused.": "Remplace le paiement par un autre qui renvoie tout vers une nouvelle adresse à vous. Les destinataires ne reçoivent rien, sauf si l'original est confirmé avant : celui-ci est alors refusé.",
+"Back to you: {0} · {1} sats": "Retour vers vous : {0} · {1} sats",
+"Fee: {0} → {1} sats": "Frais : {0} → {1} sats",
+"To: {0} · {1} sats": "À : {0} · {1} sats",
+"This payment makes a perfect coin for a coinjoin pool. Cancelling it drops the coin, and the pool it was going to open or join with it.": "Ce paiement crée une pièce parfaite pour un pool de coinjoin. L'annuler supprime la pièce, et avec elle le pool qu'elle devait ouvrir ou rejoindre.",
+"cancellation sent ✓": "annulation envoyée ✓",
+"Cancellation sent ✓\n": "Annulation envoyée ✓\n",
+"Fee rate for the cancellation. It must beat the old fee by at least 1 sat/vB of its size, and the higher it is, the likelier it gets mined before the original.": "Taux de frais de l'annulation. Il doit dépasser les anciens frais d'au moins 1 sat/vB de sa taille, et plus il est élevé, plus elle a de chances d'être minée avant l'original.",
+"Cancel payment": "Annuler le paiement",
+"Unlock to sign the cancellation": "Déverrouillez pour signer l'annulation",
+"✕ CANCEL (RBF)": "✕ ANNULER (RBF)",
+"This transaction spends coins that are not in this wallet: it can't be cancelled from here.": "Cette transaction dépense des pièces qui ne sont pas dans ce portefeuille : elle ne peut pas être annulée d'ici.",
+"The coins ({0} sats) can't cover a {1}-sat fee.": "Les pièces ({0} sats) ne couvrent pas des frais de {1} sats.",
+"Could not prepare the cancellation.": "Impossible de préparer l'annulation.",
+"✕ cancel": "✕ annuler"
 }

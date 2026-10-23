@@ -2118,5 +2118,21 @@
 "Each of your {0} mixed outputs of {1} sats goes to its own unused address of the wallet chosen above.": "Jede deiner {0} gemischten Ausgaben zu {1} sats geht an eine eigene unbenutzte Adresse der oben gewählten Wallet.",
 "This key is at depth {0}, not an account key (m/84'/0'/0', m/86'/0'/0'…): its addresses won't match your wallet's. Export the account xpub instead.": "Dieser Schlüssel liegt in Tiefe {0} und ist kein Konto-Schlüssel (m/84'/0'/0', m/86'/0'/0'…): Seine Adressen stimmen nicht mit denen deiner Wallet überein. Exportiere stattdessen den Konto-xpub.",
 "A plain xpub doesn't say which addresses it makes: pick the type your wallet uses.": "Ein einfacher xpub sagt nicht, welche Adressen er erzeugt: Wähle den Typ, den deine Wallet verwendet.",
-"Choose the watch-only wallet's address type in its settings first.": "Wähle zuerst in den Einstellungen den Adresstyp der Nur-Lese-Wallet."
+"Choose the watch-only wallet's address type in its settings first.": "Wähle zuerst in den Einstellungen den Adresstyp der Nur-Lese-Wallet.",
+"Cancel {0}…": "{0}… stornieren",
+"Replaces the payment with one that sends everything back to a fresh address of yours. The recipients get nothing, unless the original confirms first: then this one is refused.": "Ersetzt die Zahlung durch eine, die alles an eine neue Adresse von dir zurückschickt. Die Empfänger bekommen nichts, außer die ursprüngliche wird vorher bestätigt: dann wird diese abgelehnt.",
+"Back to you: {0} · {1} sats": "Zurück an dich: {0} · {1} sats",
+"Fee: {0} → {1} sats": "Gebühr: {0} → {1} sats",
+"To: {0} · {1} sats": "An: {0} · {1} sats",
+"This payment makes a perfect coin for a coinjoin pool. Cancelling it drops the coin, and the pool it was going to open or join with it.": "Diese Zahlung erzeugt eine perfekte Münze für einen Coinjoin-Pool. Storniert man sie, fällt die Münze weg und mit ihr der Pool, den sie eröffnen oder dem sie beitreten sollte.",
+"cancellation sent ✓": "Stornierung gesendet ✓",
+"Cancellation sent ✓\n": "Stornierung gesendet ✓\n",
+"Fee rate for the cancellation. It must beat the old fee by at least 1 sat/vB of its size, and the higher it is, the likelier it gets mined before the original.": "Gebührensatz der Stornierung. Er muss die alte Gebühr um mindestens 1 sat/vB ihrer Größe übertreffen, und je höher er ist, desto eher wird sie vor der ursprünglichen gemined.",
+"Cancel payment": "Zahlung stornieren",
+"Unlock to sign the cancellation": "Entsperren, um die Stornierung zu signieren",
+"✕ CANCEL (RBF)": "✕ STORNIEREN (RBF)",
+"This transaction spends coins that are not in this wallet: it can't be cancelled from here.": "Diese Transaktion gibt Münzen aus, die nicht zu dieser Wallet gehören: Sie kann hier nicht storniert werden.",
+"The coins ({0} sats) can't cover a {1}-sat fee.": "Die Münzen ({0} sats) decken keine Gebühr von {1} sats.",
+"Could not prepare the cancellation.": "Die Stornierung konnte nicht vorbereitet werden.",
+"✕ cancel": "✕ stornieren"
 }

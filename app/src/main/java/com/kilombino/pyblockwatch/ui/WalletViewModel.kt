@@ -48,6 +48,8 @@ data class SendDraft(
     /** Set when this draft replaces an unconfirmed send (RBF): its txid and the fee it paid. */
     val replaces: String? = null,
     val replacedFee: Long = 0,
+    /** A cancellation (RBF): [replaces] is sent back to this wallet instead of to its recipients. */
+    val cancels: Boolean = false,
     /** More recipients after the first, in output order (address as typed, sats). */
     val extra: List<Pair<String, Long>> = emptyList(),
     /** The BIP-353 handle (user@domain) the first recipient was resolved from, if any. */
@@ -1493,6 +1495,55 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ------------------------------------------------------------------ hot wallet: cancel (RBF)
+
+    /**
+     * Draft a cancellation of unconfirmed send [txid]: a replacement that spends the same coins
+     * into one fresh address of this wallet (of the account they came from), so the recipients
+     * get nothing. Like a speed-up it must pay the old fee plus 1 sat/vB of its own size, and at
+     * least [ratePerVb]. If the original confirms first, the cancellation is simply refused.
+     */
+    fun prepareCancel(txid: String, ratePerVb: Double) {
+        val chain = _state.value.selected
+        val cs = _state.value.chains[chain] ?: return
+        _state.update { it.copy(sendPhase = SendPhase.Preparing) }
+        viewModelScope.launch {
+            runCatching {
+                val endpoint = store.endpoint(chain)
+                val client = com.kilombino.pyblockwatch.chain.ElectrumClient(endpoint, store.pinnedFingerprint(endpoint))
+                val draft = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        client.connect()
+                        val tx = com.kilombino.pyblockwatch.crypto.TxParse.parse(client.transaction(txid))
+                        val byHash = cs.rows.associateBy { it.scriptHash }
+                        val inputs = tx.inputs.map { i ->
+                            val prev = com.kilombino.pyblockwatch.crypto.TxParse.parse(client.transaction(i.txid)).outputs[i.vout]
+                            val row = byHash[com.kilombino.pyblockwatch.crypto.Address.electrumScriptHash(prev.scriptPubKey)]
+                                ?: error("This transaction spends coins that are not in this wallet: it can't be cancelled from here.")
+                            com.kilombino.pyblockwatch.data.Scanner.SpendableUtxo(i.txid, i.vout, prev.value, row.chainIndex, row.index, 0, row.type)
+                        }
+                        val oldFee = inputs.sumOf { it.value } - tx.outputs.sumOf { it.value }
+                        // Back to the account the coins came from (the first one's), at a fresh change address.
+                        val tag = inputs.first().type
+                        val to = changeScriptPubKey(nextUnused(1, tag), tag)
+                        val newFee = maxOf(
+                            estimateFee(inputs.size, listOf(to), ratePerVb.coerceIn(0.1, 1000.0), taprootIn(inputs)),
+                            oldFee + estimateFee(inputs.size, listOf(to), 1.0, taprootIn(inputs)) + 1,
+                        )
+                        val back = inputs.sumOf { it.value } - newFee
+                        require(back >= dustFor(to)) { "The coins (${inputs.sumOf { it.value }} sats) can't cover a $newFee-sat fee." }
+                        SendDraft(scriptToAddress(to), back, newFee, 0, inputs,
+                            listOf(com.kilombino.pyblockwatch.crypto.TxBuilder.Output(to, back)), chain,
+                            replaces = txid, replacedFee = oldFee, cancels = true)
+                    } finally { client.close() }
+                }
+                _state.update { it.copy(sendPhase = SendPhase.Review(draft)) }
+            }.onFailure { e ->
+                _state.update { it.copy(sendPhase = SendPhase.Failed(e.message ?: "Could not prepare the cancellation.")) }
+            }
+        }
+    }
+
     /** A readable address for an output script (bc1q/bc1p/1/3), for the review screen. */
     private fun scriptToAddress(spk: ByteArray): String = when {
         spk.size == 22 && spk[0] == 0.toByte() -> com.kilombino.pyblockwatch.crypto.Bech32.encodeSegwit("bc", 0, spk.copyOfRange(2, 22))
@@ -1597,8 +1648,12 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     dustFor(o.scriptPubKey).let { d -> require(o.value >= d) { "Recipient ${i + 2}: enter at least $d sats for that kind of address." } }
                 }
 
+                // A perfect coin's change goes to the pool's account, like the coin itself: change
+                // of another type would stand out as the change, and isn't where the user expects it.
+                val exactTag = exactPending?.takeIf { exactFor != null }
+                val changeTag = if (exactTag != null) exactTag.second else newTag
                 val changeScript = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                    changeScriptPubKey(nextChangeIndex(cs.rows))
+                    changeScriptPubKey(nextUnused(1, changeTag), changeTag)
                 }
                 val withChange = listOf(toScript) + extraOuts.map { it.scriptPubKey } + changeScript
                 val noChange = listOf(toScript) + extraOuts.map { it.scriptPubKey }
@@ -2000,6 +2055,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 _state.update { it.copy(sendPhase = SendPhase.Sent(txid)) }
                 // A coin of a waiting pool went: give up that seat, so the pool doesn't wait on it.
                 com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.leavePools(getApplication(), draft.leavesPools)
+                // A cancelled payment that made a perfect coin: the coin is gone, and its pool with it.
+                if (draft.cancels) draft.replaces?.let { com.kilombino.pyblockwatch.coinjoin.PerfectCoin.cancel(getApplication(), it) }
                 exact?.let { (i, tag, value) -> exactKey?.let { k -> runCatching { expectPerfectCoin(txid, draft, i, tag, value, k) } } }
                 exactFor = null; exactPending = null
                 refresh(chain)
