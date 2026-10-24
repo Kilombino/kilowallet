@@ -62,10 +62,12 @@ object DesktopServiceHost {
 }
 
 /** A notification, kept to show on the desktop (see [NotificationManager]). */
-class Notification(val title: CharSequence?, val text: CharSequence?, val ongoing: Boolean, val contentIntent: PendingIntent?) {
+class Notification(val title: CharSequence?, val text: CharSequence?, val ongoing: Boolean, val contentIntent: PendingIntent?,
+                   /** Kept without popping up (a coinjoin round's card: the steps that need you notify on their own). */
+                   val quiet: Boolean = false) {
     class Builder(ctx: Context, channel: String? = null) {
         private var title: CharSequence? = null; private var text: CharSequence? = null
-        private var ongoing = false; private var intent: PendingIntent? = null
+        private var ongoing = false; private var intent: PendingIntent? = null; private var quiet = false
         fun setSmallIcon(i: Int) = this
         fun setSmallIcon(i: android.graphics.drawable.Icon?) = this
         fun setContentTitle(t: CharSequence?) = apply { title = t }
@@ -90,6 +92,7 @@ class Notification(val title: CharSequence?, val text: CharSequence?, val ongoin
         fun setColorized(b: Boolean) = this
         fun setGroup(g: String?) = this
         fun setGroupSummary(b: Boolean) = this
+        fun setGroupAlertBehavior(b: Int) = apply { quiet = b == GROUP_ALERT_SUMMARY }
         fun setSilent(b: Boolean) = this
         fun setDeleteIntent(p: PendingIntent?) = this
         fun setTimeoutAfter(ms: Long) = this
@@ -98,7 +101,7 @@ class Notification(val title: CharSequence?, val text: CharSequence?, val ongoin
         fun setSortKey(k: String?) = this
         fun setProgress(max: Int, p: Int, ind: Boolean) = this
         fun addAction(icon: Int, title: CharSequence?, p: PendingIntent?) = this
-        fun build() = Notification(title, text, ongoing, intent)
+        fun build() = Notification(title, text, ongoing, intent, quiet)
     }
     abstract class Style
     class BigTextStyle : Style() { var big: CharSequence? = null; fun bigText(t: CharSequence?) = apply { big = t } }
@@ -108,6 +111,7 @@ class Notification(val title: CharSequence?, val text: CharSequence?, val ongoin
         const val CATEGORY_PROGRESS = "progress"; const val CATEGORY_STATUS = "status"; const val CATEGORY_MESSAGE = "msg"
         const val PRIORITY_DEFAULT = 0; const val PRIORITY_LOW = -1; const val PRIORITY_HIGH = 1
         const val FOREGROUND_SERVICE_IMMEDIATE = 1
+        const val GROUP_ALERT_ALL = 0; const val GROUP_ALERT_SUMMARY = 1; const val GROUP_ALERT_CHILDREN = 2
     }
 }
 
@@ -130,7 +134,9 @@ class NotificationManager {
     fun cancel(id: Int) = DesktopNotifications.cancel(id)
     fun cancelAll() = DesktopNotifications.cancelAll()
     fun areNotificationsEnabled(): Boolean = true
-    val activeNotifications: Array<Any> get() = emptyArray()
+    /** What is up now: the ongoing ones and the alerts shown (until cancelled). */
+    val activeNotifications: Array<android.service.notification.StatusBarNotification>
+        get() = DesktopNotifications.active().map { android.service.notification.StatusBarNotification(it) }.toTypedArray()
     companion object {
         const val IMPORTANCE_MIN = 1; const val IMPORTANCE_LOW = 2; const val IMPORTANCE_DEFAULT = 3; const val IMPORTANCE_HIGH = 4
     }
@@ -143,12 +149,15 @@ object DesktopNotifications {
     private val shown = java.util.concurrent.ConcurrentHashMap<Int, String>()
     fun show(id: Int, n: Notification) {
         if (n.ongoing) { ongoing[id] = n; return }
+        ongoing.remove(id)
         val key = "${n.title}|${n.text}"
         if (shown.put(id, key) == key) return // updated with the same text: once
+        if (n.quiet) return
         popup(n.title?.toString() ?: "Kilowallet", n.text?.toString() ?: "")
     }
     fun cancel(id: Int) { ongoing.remove(id); shown.remove(id) }
     fun cancelAll() { ongoing.clear(); shown.clear() }
+    fun active(): Set<Int> = ongoing.keys + shown.keys
 }
 
 class PendingIntent private constructor(val intent: Intent?) {

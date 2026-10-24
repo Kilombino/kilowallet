@@ -94,6 +94,11 @@ fun main() {
             title = "Kilowallet " + BuildInfo.VERSION,
             icon = icon,
             state = rememberWindowState(size = DpSize(480.dp, 900.dp)),
+            // Escape is the phone's back: it closes the settings shown in place of a screen.
+            onKeyEvent = {
+                it.type == KeyEventType.KeyDown && it.key == Key.Escape && unlocked &&
+                    androidx.activity.compose.DesktopBack.press()
+            },
         ) {
             LaunchedEffect(Unit) {
                 showRequests.collect { visible = true; window.isMinimized = false; window.toFront(); window.requestFocus() }

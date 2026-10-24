@@ -16,7 +16,7 @@ permissions:
 
 env:
   LND_REPO: paulscode/lightning-fork
-  LND_COMMIT: eb0848bad4abdfdbe90b4970be1e4511461fc553
+  LND_COMMIT: 7c8f252b13d37f4160cce1c5916477b3edca5565
   ARK_REPO: Kilombino/paperclip-wallet-app
   ARK_COMMIT: f896490277fcb73334d38674424cb9d50f015a7e
   GOBIND: golang.org/x/mobile/cmd/gobind@v0.0.0-20261011034528-197770444867
@@ -51,7 +51,7 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
       - uses: actions/setup-go@v5
-        with: { go-version: '1.26.8', cache: false }
+        with: { go-version: '1.27.3', cache: false }
       - uses: dtolnay/rust-toolchain@master
         with: { toolchain: '1.98.0', targets: '${{ matrix.rust }}' }
 

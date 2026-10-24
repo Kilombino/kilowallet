@@ -1,6 +1,6 @@
 # The desktop's native engines, pinned like Android's (lnd-engine/ENGINE, ark-engine/ENGINE):
 # same source commits, built for x86_64 Linux by the scripts here, placed in resources/linux-x64/.
-lnd-sha256-x86_64=1804220fdd4f9eb8e32ac74d082f96f446c61b2217a2e2e40479ce329a3a18c6
-lnd=paulscode/lightning-fork v0.21.4-beta-blake2b.21 eb0848bad (+ the same gomobile go.mod and generated mobile API as the Android engine) · engines/build-lnd.sh · go 1.26.8
+lnd-sha256-x86_64=1a4175ea0bb642ab2f3d8a7c13b44da9a45400ae4b5cd809200a024fcdd4df86
+lnd=paulscode/lightning-fork v0.21.4-beta-blake2b.21.1 7c8f252b1 (+ the same gomobile go.mod and generated mobile API as the Android engine) · engines/build-lnd.sh · go 1.27.3
 ark-sha256-x86_64=9646adffc0f560d4dd0c33317f87bdffe387fa923d6e42463a3342e8bd4c7f60
 ark=Kilombino/paperclip-wallet-app kilombino-esplora f896490 · engines/build-ark.sh · rustc 1.98.0

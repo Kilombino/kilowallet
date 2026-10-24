@@ -19,36 +19,36 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type OffersClient interface {
 	// lncli: `offer create`
-	//CreateOffer mints a BOLT 12 offer for this node's chain and stores it. The
-	//node answers invoice requests for it over onion messages for as long as
-	//it is active and unexpired.
+	// CreateOffer mints a BOLT 12 offer for this node's chain and stores it. The
+	// node answers invoice requests for it over onion messages for as long as
+	// it is active and unexpired.
 	CreateOffer(ctx context.Context, in *CreateOfferRequest, opts ...grpc.CallOption) (*CreateOfferResponse, error)
 	// lncli: `offer list`
-	//ListOffers lists the offers this node has minted, newest first.
+	// ListOffers lists the offers this node has minted, newest first.
 	ListOffers(ctx context.Context, in *ListOffersRequest, opts ...grpc.CallOption) (*ListOffersResponse, error)
 	// lncli: `offer disable`
-	//DisableOffer stops the node from serving an offer. The offer stays listed
-	//and can be enabled again.
+	// DisableOffer stops the node from serving an offer. The offer stays listed
+	// and can be enabled again.
 	DisableOffer(ctx context.Context, in *DisableOfferRequest, opts ...grpc.CallOption) (*DisableOfferResponse, error)
 	// lncli: `offer enable`
-	//EnableOffer resumes serving a disabled offer.
+	// EnableOffer resumes serving a disabled offer.
 	EnableOffer(ctx context.Context, in *EnableOfferRequest, opts ...grpc.CallOption) (*EnableOfferResponse, error)
 	// lncli: `offer decode`
-	//DecodeBolt12 decodes an offer (lno1...), invoice request (lnr1...) or
-	//invoice (lni1...) and reports which chain it names.
+	// DecodeBolt12 decodes an offer (lno1...), invoice request (lnr1...) or
+	// invoice (lni1...) and reports which chain it names.
 	DecodeBolt12(ctx context.Context, in *DecodeBolt12Request, opts ...grpc.CallOption) (*DecodeBolt12Response, error)
 	// lncli: `offer fetchinvoice`
-	//FetchInvoice asks an offer's issuer for an invoice over onion messages
-	//and returns it once it has been checked against the request. Nothing is
-	//paid.
+	// FetchInvoice asks an offer's issuer for an invoice over onion messages
+	// and returns it once it has been checked against the request. Nothing is
+	// paid.
 	FetchInvoice(ctx context.Context, in *FetchInvoiceRequest, opts ...grpc.CallOption) (*FetchInvoiceResponse, error)
 	// lncli: `offer pay`
-	//PayOffer fetches an invoice for an offer and pays it, or pays an invoice
-	//fetched earlier. It returns when the payment succeeds or fails.
+	// PayOffer fetches an invoice for an offer and pays it, or pays an invoice
+	// fetched earlier. It returns when the payment succeeds or fails.
 	PayOffer(ctx context.Context, in *PayOfferRequest, opts ...grpc.CallOption) (*PayOfferResponse, error)
 	// lncli: `offer invoices`
-	//ListOfferInvoices lists the invoices this node has issued for its
-	//offers, with their state in the invoice registry.
+	// ListOfferInvoices lists the invoices this node has issued for its
+	// offers, with their state in the invoice registry.
 	ListOfferInvoices(ctx context.Context, in *ListOfferInvoicesRequest, opts ...grpc.CallOption) (*ListOfferInvoicesResponse, error)
 }
 
@@ -137,36 +137,36 @@ func (c *offersClient) ListOfferInvoices(ctx context.Context, in *ListOfferInvoi
 // for forward compatibility
 type OffersServer interface {
 	// lncli: `offer create`
-	//CreateOffer mints a BOLT 12 offer for this node's chain and stores it. The
-	//node answers invoice requests for it over onion messages for as long as
-	//it is active and unexpired.
+	// CreateOffer mints a BOLT 12 offer for this node's chain and stores it. The
+	// node answers invoice requests for it over onion messages for as long as
+	// it is active and unexpired.
 	CreateOffer(context.Context, *CreateOfferRequest) (*CreateOfferResponse, error)
 	// lncli: `offer list`
-	//ListOffers lists the offers this node has minted, newest first.
+	// ListOffers lists the offers this node has minted, newest first.
 	ListOffers(context.Context, *ListOffersRequest) (*ListOffersResponse, error)
 	// lncli: `offer disable`
-	//DisableOffer stops the node from serving an offer. The offer stays listed
-	//and can be enabled again.
+	// DisableOffer stops the node from serving an offer. The offer stays listed
+	// and can be enabled again.
 	DisableOffer(context.Context, *DisableOfferRequest) (*DisableOfferResponse, error)
 	// lncli: `offer enable`
-	//EnableOffer resumes serving a disabled offer.
+	// EnableOffer resumes serving a disabled offer.
 	EnableOffer(context.Context, *EnableOfferRequest) (*EnableOfferResponse, error)
 	// lncli: `offer decode`
-	//DecodeBolt12 decodes an offer (lno1...), invoice request (lnr1...) or
-	//invoice (lni1...) and reports which chain it names.
+	// DecodeBolt12 decodes an offer (lno1...), invoice request (lnr1...) or
+	// invoice (lni1...) and reports which chain it names.
 	DecodeBolt12(context.Context, *DecodeBolt12Request) (*DecodeBolt12Response, error)
 	// lncli: `offer fetchinvoice`
-	//FetchInvoice asks an offer's issuer for an invoice over onion messages
-	//and returns it once it has been checked against the request. Nothing is
-	//paid.
+	// FetchInvoice asks an offer's issuer for an invoice over onion messages
+	// and returns it once it has been checked against the request. Nothing is
+	// paid.
 	FetchInvoice(context.Context, *FetchInvoiceRequest) (*FetchInvoiceResponse, error)
 	// lncli: `offer pay`
-	//PayOffer fetches an invoice for an offer and pays it, or pays an invoice
-	//fetched earlier. It returns when the payment succeeds or fails.
+	// PayOffer fetches an invoice for an offer and pays it, or pays an invoice
+	// fetched earlier. It returns when the payment succeeds or fails.
 	PayOffer(context.Context, *PayOfferRequest) (*PayOfferResponse, error)
 	// lncli: `offer invoices`
-	//ListOfferInvoices lists the invoices this node has issued for its
-	//offers, with their state in the invoice registry.
+	// ListOfferInvoices lists the invoices this node has issued for its
+	// offers, with their state in the invoice registry.
 	ListOfferInvoices(context.Context, *ListOfferInvoicesRequest) (*ListOfferInvoicesResponse, error)
 	mustEmbedUnimplementedOffersServer()
 }

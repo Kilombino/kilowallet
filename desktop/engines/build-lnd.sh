@@ -14,7 +14,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 [ "${LND_OVERLAY:-0}" = 1 ] && cp -R "$HERE/lnd-overlay/." "$LND/"
 cd "$LND"
 export GOTOOLCHAIN=local
-TC=$HOME/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.26.8.linux-amd64/bin
+TC=$HOME/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.3.linux-amd64/bin
 [ -d "$TC" ] && export GOMAXPROCS=3 PATH=$TC:$PATH
 export PATH=$(go env GOPATH)/bin:$PATH
 JDK=${JDK:-${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}}
