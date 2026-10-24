@@ -2122,5 +2122,6 @@
 "This transaction spends coins that are not in this wallet: it can't be cancelled from here.": "这笔交易花费的币不属于此钱包：无法在这里取消。",
 "The coins ({0} sats) can't cover a {1}-sat fee.": "这些币（{0} sats）不足以支付 {1} sats 的手续费。",
 "Could not prepare the cancellation.": "无法准备取消交易。",
-"✕ cancel": "✕ 取消"
+"✕ cancel": "✕ 取消",
+"OPEN WITHOUT NOTIFICATIONS": "打开但不通知"
 }

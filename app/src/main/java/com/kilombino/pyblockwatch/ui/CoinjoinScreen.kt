@@ -119,7 +119,9 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
     if (!enabled) {
         CoinjoinIntro(accent, onAccept = { vm.answerCoinjoin(true); enabled = true; askNotif() },
             onDecline = { vm.answerCoinjoin(false); com.kilombino.pyblockwatch.data.OpenTab.flow.value = com.kilombino.pyblockwatch.data.OpenTab.BTC },
-            declineLabel = "NOT NOW")
+            declineLabel = "NOT NOW",
+            // Looking at the pools and the rounds never needs the notifications.
+            onLookOnly = { vm.answerCoinjoin(true, notify = false); enabled = true })
         return
     }
 

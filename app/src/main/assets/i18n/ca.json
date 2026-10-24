@@ -2134,5 +2134,6 @@
 "This transaction spends coins that are not in this wallet: it can't be cancelled from here.": "Aquesta transacció gasta monedes que no són d'aquesta cartera: no es pot cancel·lar des d'aquí.",
 "The coins ({0} sats) can't cover a {1}-sat fee.": "Les monedes ({0} sats) no cobreixen una comissió de {1} sats.",
 "Could not prepare the cancellation.": "No s'ha pogut preparar la cancel·lació.",
-"✕ cancel": "✕ cancel·la"
+"✕ cancel": "✕ cancel·la",
+"OPEN WITHOUT NOTIFICATIONS": "OBRIR SENSE NOTIFICACIONS"
 }

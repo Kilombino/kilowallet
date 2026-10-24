@@ -73,8 +73,14 @@ class CoinjoinService : Service() {
             runCatching { RoundNotifications.update(ctx, if (started) first()?.poolId else null) }
             if (!started) return
             if (!CoinjoinHub.hasActive(ctx)) { ctx.stopService(Intent(ctx, CoinjoinService::class.java)); return }
-            (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(ID, ongoing(ctx))
+            // Unchanged, it is not posted again (it would come back on the phone every minute).
+            val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val sig = first()?.let { RoundNotifications.signature(ctx, it) } ?: ""
+            val showing = runCatching { nm.activeNotifications.any { it.id == ID } }.getOrDefault(false)
+            if (showing && sig == lastSig) return
+            nm.notify(ID, ongoing(ctx)); lastSig = sig
         }
+        @Volatile private var lastSig: String? = null
 
         private fun ongoing(ctx: Context): Notification {
             // The first round going is this notification, drawn as its lock-screen card.

@@ -2134,5 +2134,6 @@
 "This transaction spends coins that are not in this wallet: it can't be cancelled from here.": "Diese Transaktion gibt Münzen aus, die nicht zu dieser Wallet gehören: Sie kann hier nicht storniert werden.",
 "The coins ({0} sats) can't cover a {1}-sat fee.": "Die Münzen ({0} sats) decken keine Gebühr von {1} sats.",
 "Could not prepare the cancellation.": "Die Stornierung konnte nicht vorbereitet werden.",
-"✕ cancel": "✕ stornieren"
+"✕ cancel": "✕ stornieren",
+"OPEN WITHOUT NOTIFICATIONS": "OHNE BENACHRICHTIGUNGEN ÖFFNEN"
 }

@@ -2134,5 +2134,6 @@
 "This transaction spends coins that are not in this wallet: it can't be cancelled from here.": "Esta transação gasta moedas que não são desta carteira: não pode ser cancelada daqui.",
 "The coins ({0} sats) can't cover a {1}-sat fee.": "As moedas ({0} sats) não cobrem uma taxa de {1} sats.",
 "Could not prepare the cancellation.": "Não foi possível preparar o cancelamento.",
-"✕ cancel": "✕ cancelar"
+"✕ cancel": "✕ cancelar",
+"OPEN WITHOUT NOTIFICATIONS": "ABRIR SEM NOTIFICAÇÕES"
 }

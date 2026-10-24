@@ -966,11 +966,14 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun coinjoinNotify(): Boolean = store.coinjoinNotify
     fun coinjoinAsked(): Boolean = store.coinjoinAsked
 
-    /** The answer to the coinjoin explainer: yes turns the tab and pool notifications on. */
-    fun answerCoinjoin(accept: Boolean) {
+    /**
+     * The answer to the coinjoin explainer: yes turns the tab and pool notifications on; with
+     * [notify] false the tab opens without those notifications.
+     */
+    fun answerCoinjoin(accept: Boolean, notify: Boolean = accept) {
         store.coinjoinAsked = true
         store.coinjoinEnabled = accept
-        setCoinjoinNotify(accept)
+        setCoinjoinNotify(accept && notify)
     }
 
     fun setCoinjoinNotify(on: Boolean) {

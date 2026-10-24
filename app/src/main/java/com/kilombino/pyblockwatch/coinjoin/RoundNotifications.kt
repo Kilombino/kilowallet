@@ -26,6 +26,17 @@ object RoundNotifications {
 
     fun idFor(poolId: String) = 5000 + (poolId.hashCode() and 0x7fff)
 
+    /** What each card on screen was drawn from, by notification id. */
+    private val drawn = HashMap<Int, String>()
+
+    /** Everything a card shows; the same signature draws the same card. */
+    fun signature(ctx: Context, st: PoolSession.State): String {
+        val masked = ctx.getSharedPreferences("pyblockwatch", Context.MODE_PRIVATE).getBoolean("street_mode_default", true) &&
+            com.kilombino.pyblockwatch.ui.StreetMode.hidden
+        return listOf(st.poolId, st.phase, st.seats.size, st.round.size, st.terms.maxPeers, st.postedSig, st.phaseDeadline,
+            st.voteDeadline, st.terms.expiresAt, st.txid, masked, com.kilombino.pyblockwatch.ui.i18n.I18n.lang.value).joinToString("|")
+    }
+
     private fun ensureChannel(ctx: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val ch = NotificationChannel(CHANNEL, "Coinjoin rounds", NotificationManager.IMPORTANCE_DEFAULT).apply {
@@ -127,7 +138,8 @@ object RoundNotifications {
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setCategory(Notification.CATEGORY_PROGRESS)
             .setOngoing(live).setAutoCancel(!live).setOnlyAlertOnce(true)
-            .setGroup("coinjoin_rounds").setSortKey(st.created.toString())
+            // The cards never sound or pop up themselves: the steps that need you notify on their own.
+            .setGroup("coinjoin_rounds").setGroupAlertBehavior(Notification.GROUP_ALERT_SUMMARY).setSortKey(st.created.toString())
             .setContentIntent(CoinjoinHub.openApp(ctx))
             .build()
     }
@@ -140,6 +152,14 @@ object RoundNotifications {
     fun update(ctx: Context, skip: String? = null) {
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        // Redrawn every minute: a card still showing what it shows is left alone. Posted again,
+        // every round's card came back on the phone, minute after minute, with nothing new.
+        val showing = runCatching { nm.activeNotifications.map { it.id }.toSet() }.getOrDefault(emptySet())
+        fun post(id: Int, st: PoolSession.State) {
+            val sig = signature(ctx, st)
+            if (id in showing && drawn[id] == sig) return
+            runCatching { nm.notify(id, card(ctx, st)) }.onSuccess { drawn[id] = sig }
+        }
         val shownFinal = prefs.getStringSet("final", emptySet())!!.toMutableSet()
         val states = CoinjoinHub.states.value
         for (st in states) {
@@ -147,11 +167,11 @@ object RoundNotifications {
             when {
                 st.phase in final -> if (st.poolId !in shownFinal) {
                     // Only a round seen going here gets its last card (not old ones loaded at start).
-                    if (prefs.getBoolean("live:" + st.poolId, false)) runCatching { nm.notify(id, card(ctx, st)) }
+                    if (prefs.getBoolean("live:" + st.poolId, false)) post(id, st)
                     shownFinal += st.poolId
                 }
-                st.poolId == skip -> { nm.cancel(id); prefs.edit().putBoolean("live:" + st.poolId, true).apply() }
-                else -> { runCatching { nm.notify(id, card(ctx, st)) }; prefs.edit().putBoolean("live:" + st.poolId, true).apply() }
+                st.poolId == skip -> { if (id in showing) nm.cancel(id); drawn.remove(id); prefs.edit().putBoolean("live:" + st.poolId, true).apply() }
+                else -> { post(id, st); prefs.edit().putBoolean("live:" + st.poolId, true).apply() }
             }
         }
         // Rounds removed from the list: their cards and marks go too.

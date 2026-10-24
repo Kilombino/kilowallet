@@ -316,7 +316,8 @@ class MainActivity : FragmentActivity() {
                         Column(Modifier.verticalScroll(rememberScrollState())) {
                             CoinjoinIntro(Good,
                                 onAccept = { vm.answerCoinjoin(true); askCoinjoin = false; askNotif() },
-                                onDecline = { vm.answerCoinjoin(false); askCoinjoin = false })
+                                onDecline = { vm.answerCoinjoin(false); askCoinjoin = false },
+                                onLookOnly = { vm.answerCoinjoin(true, notify = false); askCoinjoin = false })
                         }
                     }
                     if (state.jamView && !state.setupMode) {
@@ -615,6 +616,10 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
             refreshing = false
         }
     }
+    // Settings open in place of the screen, from its top (not after everything else); back closes them.
+    val scroll = rememberScrollState()
+    LaunchedEffect(showSettings) { scroll.scrollTo(0) }
+    androidx.activity.compose.BackHandler(enabled = showSettings) { showSettings = false }
     @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
     androidx.compose.material3.pulltorefresh.PullToRefreshBox(
         isRefreshing = refreshing,
@@ -622,7 +627,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
         modifier = Modifier.fillMaxSize(),
     ) {
     Column(
-        Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.fillMaxSize().imePadding().verticalScroll(scroll).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Spacer(Modifier.height(28.dp))
@@ -644,6 +649,17 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
 
         // A watch-only wallet stays that: no Ark, no coinjoin (it cannot sign).
         if (!state.isHot && (arkTab || cjTab || lnTab)) { arkTab = false; cjTab = false; lnTab = false }
+        if (showSettings) {
+            // On the LIGHTNING tab, Lightning's own settings; on the others, the wallet's.
+            if (lnTab) LightningScreen(vm, LnGold, true)
+            else {
+                SettingsPanel(state, vm, accent, onToggleNotifications) { vm.forget() }
+                // The recovery words live at the very end of settings.
+                if (state.isHot) HotWordsPanel(vm, accent)
+            }
+            Spacer(Modifier.height(30.dp))
+            return@Column
+        }
         AdvancedTabs(chain, arkTab, cjTab, lnTab, state.isHot,
             onBtc = { arkTab = false; cjTab = false; lnTab = false; if (chain != Chain.BLAKE2B) vm.select(Chain.BLAKE2B) },
             onArk = { arkTab = true; cjTab = false; lnTab = false; showSend = false; showReceive = false },
@@ -651,8 +667,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
             onLn = { lnTab = true; arkTab = false; cjTab = false; showSend = false; showReceive = false; if (chain != Chain.BLAKE2B) vm.select(Chain.BLAKE2B) })
 
         if (lnTab) {
-            // On this tab settings shows Lightning's own; the wallet's are on the BTC tab.
-            LightningScreen(vm, LnGold, showSettings)
+            LightningScreen(vm, LnGold, false)
             Spacer(Modifier.height(30.dp))
             return@Column
         }
@@ -719,14 +734,6 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
                     Text("I have checked the fingerprint: trust", color = Warn,
                          style = MaterialTheme.typography.bodySmall)
                 }
-            }
-        }
-
-        Reveal(showSettings) {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                SettingsPanel(state, vm, accent, onToggleNotifications) { vm.forget() }
-                // The recovery words live at the very end of settings.
-                if (state.isHot) HotWordsPanel(vm, accent)
             }
         }
 
