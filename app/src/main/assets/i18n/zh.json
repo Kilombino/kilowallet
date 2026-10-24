@@ -2184,7 +2184,7 @@
 "not linked: open the bot from the app first": "未关联：请先从应用中打开机器人",
 "🌀 PAY THROUGH A NEW COINJOIN POOL": "🌀 通过新的 COINJOIN 池付款",
 "The payment goes out only when the pool closes, which can take hours. If it doesn't fill, nothing is paid and you can send normally.": "只有池关闭时付款才会发出，这可能需要几个小时。如果池没有满，什么都不会付，你可以正常发送。",
-"Pay through a coinjoin: not available. ": "通过 coinjoin 付款：不可用。",
+"Pay through a coinjoin: not available. ": "通过 coinjoin 付款：不可用。 ",
 "Needs equal amounts and one address type (all bc1q or all bc1p).": "需要金额相同且地址类型一致（全部 bc1q 或全部 bc1p）。",
 "A pool gives at most {0} outputs: {1} recipients at most.": "一个池最多给 {0} 个输出：最多 {1} 个收款人。",
 "Only plain bc1q or bc1p addresses can be paid through a coinjoin.": "只有普通的 bc1q 或 bc1p 地址可以通过 coinjoin 付款。",
