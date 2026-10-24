@@ -1308,7 +1308,8 @@ private fun TelegramAlertsPanel(accent: Color, mine: List<com.kilombino.pyblockw
     val ctx = LocalContext.current.applicationContext
     val uri = androidx.compose.ui.platform.LocalUriHandler.current
     var on by remember { mutableStateOf(com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.enabled(ctx)) }
-    var linked by remember { mutableStateOf<Boolean?>(null) }
+    // null: not known yet, or the bot was out of reach when asked (not the same as an unpressed Start).
+    var linked by remember { mutableStateOf<Boolean?>(com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.knownLinked(ctx).takeIf { it }) }
     var asking by remember { mutableStateOf(false) }
     // How the last request to the bot went, and what still waits to be sent again.
     var status by remember { mutableStateOf(com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.status(ctx)) }
@@ -1324,7 +1325,7 @@ private fun TelegramAlertsPanel(accent: Color, mine: List<com.kilombino.pyblockw
     LaunchedEffect(on) {
         // Until the user presses Start in the bot, check now and then (over Tor, so not too often).
         while (on && linked != true) {
-            linked = withContext(Dispatchers.IO) { com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.linked(ctx) }
+            linked = withContext(Dispatchers.IO) { com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.check(ctx) }
             status = com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.status(ctx)
             if (linked == true) {
                 // Pools already running get followed too.
@@ -1368,7 +1369,9 @@ private fun TelegramAlertsPanel(accent: Color, mine: List<com.kilombino.pyblockw
                 Explain(when {
                     !on -> "Follow your pools step by step in @${com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.BOT}. Optional."
                     linked == true -> "On: your pools are followed in @${com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.BOT}."
-                    else -> "Waiting for you to press Start in @${com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.BOT}…"
+                    linked == false -> "Waiting for you to press Start in @${com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.BOT}…"
+                    status?.error != null -> "Could not reach the bot to check whether you pressed Start in @${com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.BOT}: trying again."
+                    else -> "Checking with @${com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.BOT}…"
                 })
             }
             when {

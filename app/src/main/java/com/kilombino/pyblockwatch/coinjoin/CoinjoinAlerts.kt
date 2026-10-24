@@ -15,7 +15,8 @@ import java.security.SecureRandom
  * ones (close requested, refused, time to sign, confirmed) only this app knows, so it reports
  * them. Privacy cost, shown to the user before enabling: the bot's server learns that this
  * Telegram account is in that pool (not which mixed output is theirs). It forgets the pool when
- * it ends. Requests go over Tor to the bot's onion, waiting for Tor to start ([torOnly], the
+ * it ends. Requests go over Tor to the bot's onion (and, when the onion is out of reach, over Tor
+ * to its https address, so the bot still never sees the phone's), waiting for Tor to start ([torOnly], the
  * default); with it off, over Tor only when Tor is already running and otherwise over https, for
  * who prefers the alerts to arrive whatever Tor does (Telegram already sees the phone's address).
  *
@@ -55,12 +56,15 @@ object CoinjoinAlerts {
     fun disable(ctx: Context) {
         val t = prefs(ctx).getString("token", null)
         // What was waiting for the old link has nowhere to go now; only the unlink itself still does.
-        synchronized(this) { prefs(ctx).edit().putBoolean("enabled", false).remove("token").remove("queue").apply() }
+        synchronized(this) { prefs(ctx).edit().putBoolean("enabled", false).remove("token").remove("queue").remove("linked").apply() }
         if (t != null) send(ctx, "/unlink", JSONObject().put("token", t), force = true)
     }
 
     /** Whether the bot has this phone linked (the user pressed Start). Network; call off the main thread. */
     fun linked(ctx: Context): Boolean = check(ctx) == true
+
+    /** Whether the bot last said this phone is linked: kept, so a bot out of reach doesn't look like an unpressed Start. */
+    fun knownLinked(ctx: Context): Boolean = prefs(ctx).getBoolean("linked", false)
 
     /**
      * Asks the bot whether this phone is linked, and notes how the request went ([status]): true or
@@ -69,6 +73,7 @@ object CoinjoinAlerts {
      */
     fun check(ctx: Context): Boolean? = runCatching {
         JSONObject(post(ctx, "/linked", JSONObject().put("token", token(ctx)).toString()).second).optBoolean("linked")
+            .also { prefs(ctx).edit().putBoolean("linked", it).apply() }
     }.onSuccess { note(ctx, null) }.onFailure { note(ctx, reason(it)) }.getOrNull()
 
     /** Start following a pool we created or were welcomed into. */
@@ -203,9 +208,8 @@ object CoinjoinAlerts {
             }
             else -> null
         }
-        val base = if (proxy != null) ONION else CLEARNET
-        val u = java.net.URL(base + path)
         if (proxy == null) {
+            val u = java.net.URL(CLEARNET + path)
             val c = u.openConnection() as java.net.HttpURLConnection
             c.requestMethod = "POST"; c.doOutput = true; c.connectTimeout = 20_000; c.readTimeout = 30_000
             c.setRequestProperty("content-type", "application/json")
@@ -213,10 +217,30 @@ object CoinjoinAlerts {
             val code = c.responseCode
             return code to ((if (code < 400) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() } ?: "")
         }
-        // Plain HTTP over the SOCKS proxy, the .onion resolved by Tor.
-        java.net.Socket(proxy).use { s ->
-            s.connect(java.net.InetSocketAddress.createUnresolved(u.host, if (u.port > 0) u.port else 80), 60_000)
-            s.soTimeout = 60_000
+        // The onion first; when Tor can't reach it (no descriptor found: "SOCKS server general
+        // failure"), the https address through a Tor exit, which hides the phone's address just the same.
+        return try {
+            overTor(proxy, java.net.URL(ONION + path), body)
+        } catch (e: java.io.IOException) {
+            runCatching { overTor(proxy, java.net.URL(CLEARNET + path), body) }.getOrElse { throw e }
+        }
+    }
+
+    /** One POST through Tor's SOCKS proxy, the host resolved by Tor; TLS on top for https. */
+    private fun overTor(proxy: java.net.Proxy, u: java.net.URL, body: String): Pair<Int, String> {
+        val https = u.protocol == "https"
+        val port = if (u.port > 0) u.port else if (https) 443 else 80
+        java.net.Socket(proxy).use { raw ->
+            raw.connect(java.net.InetSocketAddress.createUnresolved(u.host, port), 60_000)
+            raw.soTimeout = 60_000
+            val s = if (!https) raw else {
+                val tls = (javax.net.ssl.SSLSocketFactory.getDefault() as javax.net.ssl.SSLSocketFactory)
+                    .createSocket(raw, u.host, port, true) as javax.net.ssl.SSLSocket
+                tls.startHandshake()
+                if (!javax.net.ssl.HttpsURLConnection.getDefaultHostnameVerifier().verify(u.host, tls.session))
+                    throw javax.net.ssl.SSLPeerUnverifiedException("certificate not for ${u.host}")
+                tls
+            }
             val b = body.toByteArray()
             s.getOutputStream().apply {
                 write(("POST ${u.path} HTTP/1.1\r\nHost: ${u.host}\r\nContent-Type: application/json\r\n" +
@@ -224,12 +248,12 @@ object CoinjoinAlerts {
             }
             val resp = s.getInputStream().bufferedReader().readText()
             val head = resp.substringBefore("\r\n\r\n")
-            val body = resp.substringAfter("\r\n\r\n", "")
+            val rest = resp.substringAfter("\r\n\r\n", "")
             // "HTTP/1.1 200 OK": nothing back at all is a failure to deliver, not an answer.
             val code = head.lineSequence().firstOrNull()?.split(' ')?.getOrNull(1)?.toIntOrNull()
-                ?: throw java.io.IOException("no answer from the onion")
+                ?: throw java.io.IOException("no answer from ${u.host}")
             // A chunked reply ("10\r\n{...}\r\n0\r\n\r\n") would not parse as JSON: join its chunks.
-            return code to if (head.contains("transfer-encoding: chunked", ignoreCase = true)) unchunk(body) else body
+            return code to if (head.contains("transfer-encoding: chunked", ignoreCase = true)) unchunk(rest) else rest
         }
     }
 
