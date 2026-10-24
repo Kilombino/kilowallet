@@ -2238,5 +2238,10 @@
 "your {0} coins {1} → {2} paid to {3} recipient(s) + {4} change · fee {5}": "你的 {0} 个币 {1} → 向 {3} 个收款人支付 {2} + 找零 {4} · 手续费 {5}",
 "the payments go to: {0}": "付款发往：{0}",
 "Not paid yet. ": "尚未支付。 ",
-"closes in": "剩余"
+"closes in": "剩余",
+"confirmed": "已确认",
+"joining": "加入中",
+"vote": "投票",
+"signing": "签名中",
+"{0} people": "{0} 人"
 }

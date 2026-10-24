@@ -2250,5 +2250,10 @@
 "your {0} coins {1} → {2} paid to {3} recipient(s) + {4} change · fee {5}": "le tue {0} monete {1} → {2} pagati a {3} destinatario/i + {4} di resto · commissione {5}",
 "the payments go to: {0}": "i pagamenti vanno a: {0}",
 "Not paid yet. ": "Non ancora pagato. ",
-"closes in": "chiude tra"
+"closes in": "chiude tra",
+"confirmed": "confermato",
+"joining": "adesione",
+"vote": "voto",
+"signing": "firma",
+"{0} people": "{0} persone"
 }

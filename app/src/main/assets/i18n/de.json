@@ -2250,5 +2250,10 @@
 "your {0} coins {1} → {2} paid to {3} recipient(s) + {4} change · fee {5}": "deine {0} Münzen {1} → {2} an {3} Empfänger gezahlt + {4} Wechselgeld · Gebühr {5}",
 "the payments go to: {0}": "die Zahlungen gehen an: {0}",
 "Not paid yet. ": "Noch nicht gezahlt. ",
-"closes in": "schließt in"
+"closes in": "schließt in",
+"confirmed": "bestätigt",
+"joining": "tritt bei",
+"vote": "Abstimmung",
+"signing": "signiert",
+"{0} people": "{0} Personen"
 }
