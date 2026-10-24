@@ -36,6 +36,7 @@ object Tor {
             if (proc?.isAlive == true || !available) return
             val bin = exe ?: return
             val dir = java.io.File(app.noBackupFilesDir, "arti").apply { mkdirs() }
+            repairState(java.io.File(dir, "state"))
             // A port of our own: Arti is told exactly where to listen, so there is nothing to read back.
             val port = java.net.ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1")).use { it.localPort }
             val conf = java.io.File(dir, "arti.toml")
@@ -63,6 +64,19 @@ object Tor {
                 }
                 ready = false; synchronized(lock) { lock.notifyAll() }
             }.apply { isDaemon = true; name = "arti" }.start()
+        }
+    }
+
+    /**
+     * Arti refuses to start on a state file it can't read ("corrupted data in persistent state"),
+     * as a guards.json left empty when the app was killed mid-write: it stays down for good. Such a
+     * file only holds what Arti learns again on its own (guards, timings), so an empty or unreadable
+     * one is deleted before starting.
+     */
+    internal fun repairState(state: java.io.File) {
+        state.walkTopDown().filter { it.isFile && it.name.endsWith(".json") }.forEach { f ->
+            val ok = runCatching { f.readText().isNotBlank() && org.json.JSONTokener(f.readText()).nextValue() != null }.getOrDefault(false)
+            if (!ok) f.delete()
         }
     }
 
