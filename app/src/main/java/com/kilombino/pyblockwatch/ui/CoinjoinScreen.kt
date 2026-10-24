@@ -1346,8 +1346,8 @@ private fun TelegramAlertsPanel(accent: Color, mine: List<com.kilombino.pyblockw
                     style = MaterialTheme.typography.bodySmall)
                 Text("⚠ Privacy: to do it, the bot's server learns that your Telegram account is in those pools " +
                     "(and Telegram sees the messages). It never learns which mixed output is yours, and it forgets " +
-                    "each pool when it ends. The app talks to it over Tor when Tor is already running, otherwise over https " +
-                    "from your IP (as Telegram already sees it); \"Only over Tor\" keeps it to Tor. If that is too much, " +
+                    "each pool when it ends. The app talks to it over Tor; turning \"Only over Tor\" off lets it use https " +
+                    "from your IP when Tor isn't running (Telegram already sees it). If that is too much, " +
                     "leave this off: the app's own notifications already tell you everything.",
                     style = MaterialTheme.typography.bodySmall, color = Warn)
             }

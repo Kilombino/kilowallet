@@ -2261,5 +2261,6 @@
 "each pool when it ends. The app talks to it over Tor when Tor is already running, otherwise over https from your IP (as Telegram already sees it); \"Only over Tor\" keeps it to Tor. If that is too much, leave this off: the app's own notifications already tell you everything.": "每个池结束时忘掉它。Tor 已在运行时，应用通过 Tor 与它通信，否则从你的 IP 通过 https（Telegram 本来就能看到）；“仅通过 Tor”则只用 Tor。如果你觉得太多，就别打开：应用自己的通知已经会告诉你一切。",
 "Only over Tor": "仅通过 Tor",
 "Alerts wait for Tor to start; if it doesn't, they wait here and nothing goes over https.": "提醒会等 Tor 启动；如果它没启动，提醒就留在这里，不会通过 https 发出。",
-"Over Tor when it is already running, otherwise over https (cjbot.kilombino.com): the bot's server sees this phone's address, as Telegram already does.": "Tor 已在运行时通过 Tor，否则通过 https（cjbot.kilombino.com）：机器人的服务器会看到这部手机的地址，就像 Telegram 已经看到的那样。"
+"Over Tor when it is already running, otherwise over https (cjbot.kilombino.com): the bot's server sees this phone's address, as Telegram already does.": "Tor 已在运行时通过 Tor，否则通过 https（cjbot.kilombino.com）：机器人的服务器会看到这部手机的地址，就像 Telegram 已经看到的那样。",
+"each pool when it ends. The app talks to it over Tor; turning \"Only over Tor\" off lets it use https from your IP when Tor isn't running (Telegram already sees it). If that is too much, leave this off: the app's own notifications already tell you everything.": "每个池结束时忘掉它。应用通过 Tor 与它通信；如果关闭“仅通过 Tor”，在 Tor 未运行时可以从你的 IP 通过 https 发送（Telegram 本来就能看到）。如果你觉得太多，就别打开：应用自己的通知已经会告诉你一切。"
 }

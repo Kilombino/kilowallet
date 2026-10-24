@@ -11,9 +11,10 @@ class TorStateTest {
         val empty = java.io.File(state, "guards.json").apply { writeText("") }
         val cut = java.io.File(state, "sub/circuit_timeouts.json").apply { parentFile.mkdirs(); writeText("{\"a\": [1, 2") }
         val good = java.io.File(state, "state.json").apply { writeText("{\"ok\": true}") }
+        val zeros = java.io.File(state, "zeros.json").apply { writeBytes(ByteArray(64)) }
         val other = java.io.File(state, "lock").apply { writeText("") }
         Tor.repairState(state)
-        assertFalse(empty.exists()); assertFalse(cut.exists())
+        assertFalse(empty.exists()); assertFalse(cut.exists()); assertFalse(zeros.exists())
         assertTrue(good.exists()); assertTrue(other.exists())
         state.deleteRecursively()
     }

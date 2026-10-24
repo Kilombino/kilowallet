@@ -15,9 +15,9 @@ import java.security.SecureRandom
  * ones (close requested, refused, time to sign, confirmed) only this app knows, so it reports
  * them. Privacy cost, shown to the user before enabling: the bot's server learns that this
  * Telegram account is in that pool (not which mixed output is theirs). It forgets the pool when
- * it ends. Requests go over Tor to the bot's onion when Tor is already running, and otherwise over
- * https: Telegram itself already sees the phone's address, and a Tor that doesn't come up on some
- * phones lost every alert. [torOnly] keeps them to Tor (waiting for it to start) for who wants that.
+ * it ends. Requests go over Tor to the bot's onion, waiting for Tor to start ([torOnly], the
+ * default); with it off, over Tor only when Tor is already running and otherwise over https, for
+ * who prefers the alerts to arrive whatever Tor does (Telegram already sees the phone's address).
  *
  * Delivery: every request waits in a small queue kept on the phone (at most [QUEUE_MAX], each
  * dropped after a day) until the bot has it, so an alert that found Tor still starting or the
@@ -49,7 +49,7 @@ object CoinjoinAlerts {
     fun enable(ctx: Context) { prefs(ctx).edit().putBoolean("enabled", true).apply() }
 
     /** Alerts only over Tor, never https: they wait for Tor to start, and if it doesn't they wait in the queue. */
-    fun torOnly(ctx: Context): Boolean = prefs(ctx).getBoolean("tor_only", false)
+    fun torOnly(ctx: Context): Boolean = prefs(ctx).getBoolean("tor_only", true)
     fun setTorOnly(ctx: Context, on: Boolean) { prefs(ctx).edit().putBoolean("tor_only", on).apply() }
 
     fun disable(ctx: Context) {
