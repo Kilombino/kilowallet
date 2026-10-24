@@ -384,7 +384,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 val unconf = rows.sumOf { it.unconfirmed }
                 ws.setLastBalance(chain, conf, unconf)
                 if (ws.notificationsEnabled) {
-                    BalanceWatch.evaluate(store, notifier, chain, conf, unconf, doneTxs)
+                    BalanceWatch.evaluate(ws, nf, chain, conf, unconf, doneTxs)
                 }
                 updateIf(xpub, chain) {
                     it.copy(rows = rows, transactions = doneTxs, height = tip, phase = ScanPhase.Complete, stale = false)
