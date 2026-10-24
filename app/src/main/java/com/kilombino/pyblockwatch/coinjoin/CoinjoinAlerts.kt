@@ -15,7 +15,9 @@ import java.security.SecureRandom
  * ones (close requested, refused, time to sign, confirmed) only this app knows, so it reports
  * them. Privacy cost, shown to the user before enabling: the bot's server learns that this
  * Telegram account is in that pool (not which mixed output is theirs). It forgets the pool when
- * it ends. Requests go over Tor to the bot's onion when Tor is available.
+ * it ends. Requests go over Tor to the bot's onion when Tor is already running, and otherwise over
+ * https: Telegram itself already sees the phone's address, and a Tor that doesn't come up on some
+ * phones lost every alert. [torOnly] keeps them to Tor (waiting for it to start) for who wants that.
  *
  * Delivery: every request waits in a small queue kept on the phone (at most [QUEUE_MAX], each
  * dropped after a day) until the bot has it, so an alert that found Tor still starting or the
@@ -45,6 +47,10 @@ object CoinjoinAlerts {
     fun linkUrl(ctx: Context): String = "https://t.me/$BOT?start=${token(ctx)}"
 
     fun enable(ctx: Context) { prefs(ctx).edit().putBoolean("enabled", true).apply() }
+
+    /** Alerts only over Tor, never https: they wait for Tor to start, and if it doesn't they wait in the queue. */
+    fun torOnly(ctx: Context): Boolean = prefs(ctx).getBoolean("tor_only", false)
+    fun setTorOnly(ctx: Context, on: Boolean) { prefs(ctx).edit().putBoolean("tor_only", on).apply() }
 
     fun disable(ctx: Context) {
         val t = prefs(ctx).getString("token", null)
@@ -181,19 +187,22 @@ object CoinjoinAlerts {
     private class TorDown(msg: String) : Exception(msg)
 
     /**
-     * POST over Tor to the onion, giving back the HTTP status and the body. Never over https when
-     * this phone has Tor: the request says which pools this Telegram account is in, so if Tor
-     * doesn't come up the alert waits in the queue for it. Only a phone without Tor (not arm64)
-     * uses https, and the switch says so there.
+     * POST to the bot, giving back the HTTP status and the body: over Tor to the onion when Tor is
+     * already running (or always, with [torOnly], waiting for it to start), else over https.
      */
     private fun post(ctx: Context, path: String, body: String): Pair<Int, String> {
-        // The first start downloads Tor's directory, which on a phone can take a couple of minutes.
-        val proxy = if (Tor.available) {
-            Tor.start(ctx)
-            Tor.proxy(180_000) ?: throw TorDown(
-                (if (Tor.alive) "Tor still connecting after 3 minutes" else "Tor stopped") +
-                    (Tor.lastLine.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: "") + ": not sent over the clear net")
-        } else null
+        val proxy = when {
+            !Tor.available -> null
+            Tor.running -> Tor.proxy(0)
+            torOnly(ctx) -> {
+                // The first start downloads Tor's directory, which on a phone can take a couple of minutes.
+                Tor.start(ctx)
+                Tor.proxy(180_000) ?: throw TorDown(
+                    (if (Tor.alive) "Tor still connecting after 3 minutes" else "Tor stopped") +
+                        (Tor.lastLine.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: "") + ": not sent over the clear net")
+            }
+            else -> null
+        }
         val base = if (proxy != null) ONION else CLEARNET
         val u = java.net.URL(base + path)
         if (proxy == null) {

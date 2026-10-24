@@ -2268,5 +2268,10 @@
 "Tor still connecting after 3 minutes ({0}): not sent over the clear net": "Tor continua connectant després de 3 minuts ({0}): no s'envia per la xarxa oberta",
 "Tor stopped ({0}): not sent over the clear net": "Tor s'ha aturat ({0}): no s'envia per la xarxa oberta",
 "Tor still connecting after 3 minutes: not sent over the clear net": "Tor continua connectant després de 3 minuts: no s'envia per la xarxa oberta",
-"Tor stopped: not sent over the clear net": "Tor s'ha aturat: no s'envia per la xarxa oberta"
+"Tor stopped: not sent over the clear net": "Tor s'ha aturat: no s'envia per la xarxa oberta",
+"(and Telegram sees the messages). It never learns which mixed output is yours, and it forgets ": "(i Telegram veu els missatges). Mai sap quina sortida barrejada és la teva, i oblida ",
+"each pool when it ends. The app talks to it over Tor when Tor is already running, otherwise over https from your IP (as Telegram already sees it); \"Only over Tor\" keeps it to Tor. If that is too much, leave this off: the app's own notifications already tell you everything.": "cada pool quan acaba. L'app hi parla per Tor quan Tor ja està en marxa, i si no per https des de la teva IP (que Telegram ja veu); \"Només per Tor\" ho limita a Tor. Si et sembla massa, deixa-ho apagat: les notificacions de la mateixa app ja t'ho expliquen tot.",
+"Only over Tor": "Només per Tor",
+"Alerts wait for Tor to start; if it doesn't, they wait here and nothing goes over https.": "Els avisos esperen que arrenqui Tor; si no arrenca, esperen aquí i res no surt per https.",
+"Over Tor when it is already running, otherwise over https (cjbot.kilombino.com): the bot's server sees this phone's address, as Telegram already does.": "Per Tor quan ja està en marxa, i si no per https (cjbot.kilombino.com): el servidor del bot veu l'adreça d'aquest telèfon, com ja fa Telegram."
 }

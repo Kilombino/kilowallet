@@ -1345,10 +1345,10 @@ private fun TelegramAlertsPanel(accent: Color, mine: List<com.kilombino.pyblockw
                     "step by step: someone joined or left, someone asks to close, your turn to sign, sent, confirmed, cancelled.",
                     style = MaterialTheme.typography.bodySmall)
                 Text("⚠ Privacy: to do it, the bot's server learns that your Telegram account is in those pools " +
-                    "(and Telegram sees the messages). It never learns which mixed output is yours, it talks to this " +
-                    "app over Tor, and it forgets each pool when it ends. If that is too much, leave this off: the " +
-                    "app's own notifications already tell you everything." +
-                    (if (com.kilombino.pyblockwatch.chain.Tor.available) "" else "\n\nThis phone has no Tor: the alerts go to the bot's server over https, from your IP."),
+                    "(and Telegram sees the messages). It never learns which mixed output is yours, and it forgets " +
+                    "each pool when it ends. The app talks to it over Tor when Tor is already running, otherwise over https " +
+                    "from your IP (as Telegram already sees it); \"Only over Tor\" keeps it to Tor. If that is too much, " +
+                    "leave this off: the app's own notifications already tell you everything.",
                     style = MaterialTheme.typography.bodySmall, color = Warn)
             }
         },
@@ -1407,6 +1407,18 @@ private fun TelegramAlertsPanel(accent: Color, mine: List<com.kilombino.pyblockw
             }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
                 Text(if (checking) "checking… (over Tor it can take a few minutes)" else "CHECK THE CONNECTION TO THE BOT",
                     color = accent, style = MaterialTheme.typography.labelSmall)
+            }
+            if (com.kilombino.pyblockwatch.chain.Tor.available) {
+                var torOnly by remember { mutableStateOf(com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.torOnly(ctx)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Only over Tor", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                        Text(if (torOnly) "Alerts wait for Tor to start; if it doesn't, they wait here and nothing goes over https."
+                            else "Over Tor when it is already running, otherwise over https (cjbot.kilombino.com): the bot's server sees this phone's address, as Telegram already does.",
+                            style = MaterialTheme.typography.bodySmall, color = TextFaint)
+                    }
+                    Switch(checked = torOnly, onCheckedChange = { torOnly = it; com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.setTorOnly(ctx, it) })
+                }
             }
             // Why Tor doesn't come up, to copy and send: Arti's own log, without addresses or keys.
             if (com.kilombino.pyblockwatch.chain.Tor.available) {

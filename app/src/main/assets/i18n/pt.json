@@ -2268,5 +2268,10 @@
 "Tor still connecting after 3 minutes ({0}): not sent over the clear net": "Tor ainda conectando após 3 minutos ({0}): não enviado pela rede aberta",
 "Tor stopped ({0}): not sent over the clear net": "O Tor parou ({0}): não enviado pela rede aberta",
 "Tor still connecting after 3 minutes: not sent over the clear net": "Tor ainda conectando após 3 minutos: não enviado pela rede aberta",
-"Tor stopped: not sent over the clear net": "O Tor parou: não enviado pela rede aberta"
+"Tor stopped: not sent over the clear net": "O Tor parou: não enviado pela rede aberta",
+"(and Telegram sees the messages). It never learns which mixed output is yours, and it forgets ": "(e o Telegram vê as mensagens). Nunca sabe qual saída misturada é a sua, e esquece ",
+"each pool when it ends. The app talks to it over Tor when Tor is already running, otherwise over https from your IP (as Telegram already sees it); \"Only over Tor\" keeps it to Tor. If that is too much, leave this off: the app's own notifications already tell you everything.": "cada pool quando termina. O app fala com ele pelo Tor quando o Tor já está rodando, senão por https a partir do seu IP (que o Telegram já vê); \"Só pelo Tor\" limita ao Tor. Se for demais, deixe desligado: as notificações do próprio app já contam tudo.",
+"Only over Tor": "Só pelo Tor",
+"Alerts wait for Tor to start; if it doesn't, they wait here and nothing goes over https.": "Os avisos esperam o Tor iniciar; se não iniciar, esperam aqui e nada sai por https.",
+"Over Tor when it is already running, otherwise over https (cjbot.kilombino.com): the bot's server sees this phone's address, as Telegram already does.": "Pelo Tor quando já está rodando, senão por https (cjbot.kilombino.com): o servidor do bot vê o endereço deste telefone, como o Telegram já vê."
 }
