@@ -549,11 +549,14 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
     var cjTab by remember { mutableStateOf(false) }
     var lnTab by remember { mutableStateOf(false) }
     var arkPull by remember { mutableStateOf(0) }
+    var showSettings by remember { mutableStateOf(false) }
     val openTab by com.kilombino.pyblockwatch.data.OpenTab.flow.collectAsState()
     LaunchedEffect(openTab) {
         val t = openTab ?: return@LaunchedEffect
         if (t == com.kilombino.pyblockwatch.data.OpenTab.UPDATE) return@LaunchedEffect  // the update dialog takes it
         com.kilombino.pyblockwatch.data.OpenTab.flow.value = null
+        // Settings cover everything: a tab asked for (LEARN MORE in settings, a notification) has to show.
+        showSettings = false
         when (t) {
             com.kilombino.pyblockwatch.data.OpenTab.COINJOIN -> {
                 cjTab = true; arkTab = false; lnTab = false
@@ -579,7 +582,6 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
     // Advanced always opens on BTC | ARK: the spamchain only shows when opened from settings.
     LaunchedEffect(Unit) { if (state.selected == Chain.SHA256) vm.select(Chain.BLAKE2B) }
     val accent by animateColorAsState(if (arkTab) ArkRed else Color(chain.accent), tween(400), label = "accent")
-    var showSettings by remember { mutableStateOf(false) }
     var showSend by remember { mutableStateOf(false) }
     var showReceive by remember { mutableStateOf(false) }
     // BACK from a payment's pool sheet: SEND again, on BTC, with what was typed (SendSheet takes it).
