@@ -1303,6 +1303,17 @@ internal fun SettingsPanel(
                 com.kilombino.pyblockwatch.data.OpenTab.checkNow = true
                 com.kilombino.pyblockwatch.data.OpenTab.flow.value = com.kilombino.pyblockwatch.data.OpenTab.UPDATE
             }) { Text("CHECK NOW", color = accent, style = MaterialTheme.typography.bodySmall) }
+            var prices by remember { mutableStateOf(activity.getSharedPreferences("pyblockwatch", android.content.Context.MODE_PRIVATE).getBoolean("show_prices", true)) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Prices over the network", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                    Explain("The XBT price in your currency and the mining figures come from mempool.kilombino.com, at most every 15 minutes (the server sees your address and when you ask). Off: no fiat values, no request; everything else works the same.")
+                }
+                Switch(checked = prices, onCheckedChange = {
+                    prices = it
+                    activity.getSharedPreferences("pyblockwatch", android.content.Context.MODE_PRIVATE).edit().putBoolean("show_prices", it).apply()
+                }, colors = switchColors(accent))
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Street mode", style = MaterialTheme.typography.bodyMedium, color = TextMain)

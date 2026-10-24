@@ -110,6 +110,8 @@ object MarketFeed {
      */
     @Synchronized
     fun refresh(ctx: Context, force: Boolean = false): MarketData? {
+        // Off in settings: not even one request; the wallet works the same, just without fiat values.
+        if (!Store(ctx).showPrices) return cached(ctx)
         val p = prefs(ctx)
         val now = System.currentTimeMillis()
         val next = p.getLong(KEY_NEXT, 0L)
