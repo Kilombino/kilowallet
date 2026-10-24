@@ -456,6 +456,7 @@ private fun CoinPicker(
             if (dest != Destination.Kind.HOT) Text("Unused receive addresses of that wallet; the change, if any, comes back here. " +
                 "Nobody in the round can tell: an output is just an address of the pool's type.",
                 color = TextFaint, style = MaterialTheme.typography.bodySmall)
+            if (dest != Destination.Kind.HOT) DestinationPreview(dest, type, outputs, accent)
             Spacer(Modifier.height(8.dp))
         }
         if (making) {
@@ -713,6 +714,13 @@ private fun MyPoolCard(
         val which = remember(st.poolId) { Destination.whichOf(ctx, st.poolId) }
         if (goesTo != Destination.Kind.HOT) Text("mixed outputs go to: " + Destination.label(goesTo) + (which?.let { " · $it" } ?: ""),
             style = MaterialTheme.typography.bodySmall, color = accent)
+        if (goesTo != Destination.Kind.HOT && st.mixScripts.isNotEmpty()) {
+            var show by remember(st.poolId) { mutableStateOf(false) }
+            TextButton(onClick = { show = !show }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                Text(if (show) "hide the addresses" else "show the addresses", color = accent, style = MaterialTheme.typography.labelSmall)
+            }
+            if (show) AddressesShown(remember(st.poolId) { Destination.describe(ctx, goesTo, st.terms.script, st.mixScripts) })
+        }
         if (CoinjoinHub.isAuto(st.poolId) && st.phase in setOf(PoolSession.Phase.OPEN, PoolSession.Phase.VOTING,
                 PoolSession.Phase.CLOSING, PoolSession.Phase.SIGNING)) {
             // The switch above says it all; here only a quiet mark.
@@ -1316,6 +1324,49 @@ private fun PerfectCoinCard(w: com.kilombino.pyblockwatch.coinjoin.PerfectCoin.W
             }
             TextButton(onClick = { com.kilombino.pyblockwatch.coinjoin.PerfectCoin.cancel(ctx, w.txid) }) {
                 Text("don't join, keep the coin", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+/**
+ * The addresses the mixed outputs would go to in another wallet, with their paths, to compare with
+ * that wallet (Sparrow, Shrike…) before joining: asked to the server only when wanted.
+ */
+@Composable
+private fun DestinationPreview(dest: Destination.Kind, type: ScriptType, outputs: Int, accent: Color) {
+    val ctx = LocalContext.current
+    var shown by remember(dest, type, outputs) { mutableStateOf<List<Destination.Shown>?>(null) }
+    var error by remember(dest, type, outputs) { mutableStateOf<String?>(null) }
+    var loading by remember(dest, type, outputs) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    if (shown == null) TextButton(enabled = !loading, onClick = {
+        loading = true; error = null
+        scope.launch {
+            runCatching { withContext(Dispatchers.IO) { Destination.preview(ctx, dest, type, outputs) } }
+                .onSuccess { shown = it }.onFailure { error = it.message ?: "could not reach the server" }
+            loading = false
+        }
+    }) { Text(if (loading) "looking…" else "SHOW THE ADDRESSES", color = accent, style = MaterialTheme.typography.labelSmall) }
+    error?.let { Text(it, color = Warn, style = MaterialTheme.typography.bodySmall) }
+    shown?.let {
+        Text(if (it.size > 1) MANY else ONE, color = TextFaint, style = MaterialTheme.typography.bodySmall)
+        AddressesShown(it)
+    }
+}
+
+private const val ONE = "The next unused receive address of that wallet, as of now. Compare it with the wallet itself (in Sparrow or Shrike: Addresses › Receive)."
+private const val MANY = "The next unused receive addresses of that wallet, as of now. Compare them with the wallet itself (in Sparrow or Shrike: Addresses › Receive)."
+
+/** Full addresses with their paths, selectable to copy. */
+@Composable
+private fun AddressesShown(list: List<Destination.Shown>) {
+    androidx.compose.foundation.text.selection.SelectionContainer {
+        Column {
+            list.forEach { a ->
+                androidx.compose.material3.Text(a.address, style = MaterialTheme.typography.bodySmall, color = TextMain)
+                Text(a.path, style = MaterialTheme.typography.labelSmall, color = TextFaint)
+                Spacer(Modifier.height(4.dp))
             }
         }
     }

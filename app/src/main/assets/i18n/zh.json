@@ -2123,5 +2123,12 @@
 "The coins ({0} sats) can't cover a {1}-sat fee.": "这些币（{0} sats）不足以支付 {1} sats 的手续费。",
 "Could not prepare the cancellation.": "无法准备取消交易。",
 "✕ cancel": "✕ 取消",
-"OPEN WITHOUT NOTIFICATIONS": "打开但不通知"
+"OPEN WITHOUT NOTIFICATIONS": "打开但不通知",
+"SHOW THE ADDRESSES": "查看地址",
+"show the addresses": "查看地址",
+"hide the addresses": "隐藏地址",
+"looking…": "查找中…",
+"could not reach the server": "无法连接服务器",
+"The next unused receive address of that wallet, as of now. Compare it with the wallet itself (in Sparrow or Shrike: Addresses › Receive).": "该钱包当前下一个未使用的收款地址。请与钱包本身核对（在 Sparrow 或 Shrike 中：Addresses › Receive）。",
+"The next unused receive addresses of that wallet, as of now. Compare them with the wallet itself (in Sparrow or Shrike: Addresses › Receive).": "该钱包当前接下来未使用的收款地址。请与钱包本身核对（在 Sparrow 或 Shrike 中：Addresses › Receive）。"
 }

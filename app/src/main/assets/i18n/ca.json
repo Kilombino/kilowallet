@@ -2135,5 +2135,12 @@
 "The coins ({0} sats) can't cover a {1}-sat fee.": "Les monedes ({0} sats) no cobreixen una comissió de {1} sats.",
 "Could not prepare the cancellation.": "No s'ha pogut preparar la cancel·lació.",
 "✕ cancel": "✕ cancel·la",
-"OPEN WITHOUT NOTIFICATIONS": "OBRIR SENSE NOTIFICACIONS"
+"OPEN WITHOUT NOTIFICATIONS": "OBRIR SENSE NOTIFICACIONS",
+"SHOW THE ADDRESSES": "VEURE LES ADRECES",
+"show the addresses": "veure les adreces",
+"hide the addresses": "amagar les adreces",
+"looking…": "cercant…",
+"could not reach the server": "no s'ha pogut contactar amb el servidor",
+"The next unused receive address of that wallet, as of now. Compare it with the wallet itself (in Sparrow or Shrike: Addresses › Receive).": "La següent adreça de recepció sense usar d'aquesta cartera, ara mateix. Compara-la amb la mateixa cartera (a Sparrow o Shrike: Addresses › Receive).",
+"The next unused receive addresses of that wallet, as of now. Compare them with the wallet itself (in Sparrow or Shrike: Addresses › Receive).": "Les següents adreces de recepció sense usar d'aquesta cartera, ara mateix. Compara-les amb la mateixa cartera (a Sparrow o Shrike: Addresses › Receive)."
 }

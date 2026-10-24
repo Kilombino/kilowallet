@@ -81,6 +81,10 @@ class WatchService : Service() {
                         val quick = !ws.fullLookDue(chain)
                         val (updated, txs, _) = scanner.refreshDetails(rows, endpoint, store.pinnedFingerprint(endpoint), quick)
                         if (!quick) ws.setLastFullLook(chain)
+                        // A payment to an address past the count moves it on: the next cycle looks further.
+                        for (r in updated.filter { it.txCount > 0 })
+                            ws.noteUsedTop(if (r.type == com.kilombino.pyblockwatch.crypto.ScriptType.P2TR) taproot ?: xpub else xpub,
+                                r.chainIndex, r.index + 1, r.type ?: ws.scriptType)
                         BalanceWatch.evaluate(
                             ws, notifier, chain,
                             updated.sumOf { it.confirmed }, updated.sumOf { it.unconfirmed }, txs,
@@ -177,7 +181,7 @@ class WatchService : Service() {
             // Every address used so far plus the gap, not just the first [gapLimit]: a wallet
             // past its 20th address would otherwise miss payments to its newer ones.
             // Worked out once and remembered with the scanner's (the same addresses every cycle).
-            val depth = store.usedTop(xpub, chainIndex, type) + store.gapLimit
+            val depth = store.usedTopToWatch(xpub, chainIndex, type) + store.gapLimit
             Scanner.derivedRange(account, type, chainIndex, depth).forEachIndexed { i, (address, sh) ->
                 out += AddressRow(
                     chainIndex = chainIndex, index = i, address = address,

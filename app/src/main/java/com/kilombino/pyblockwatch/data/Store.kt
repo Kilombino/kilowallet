@@ -118,6 +118,14 @@ class Store(context: Context, private val profile: String = HOT) {
         prefs.getInt(keyUsedTop(xpub, chainIndex, type),
             if (type == ScriptType.P2TR) 0 else prefs.getInt(keyUsedTop(xpub, chainIndex, null), 0))
 
+    /**
+     * For the background watcher, which only re-derives what was found: the most any count says,
+     * this type's or the one kept before counts were per type. Looking at a few unused addresses
+     * too costs little; missing used ones made the watcher see coins vanish ("Sent") and come back.
+     */
+    fun usedTopToWatch(xpub: String, chainIndex: Int, type: ScriptType): Int =
+        maxOf(usedTop(xpub, chainIndex, type), prefs.getInt(keyUsedTop(xpub, chainIndex, null), 0))
+
     fun noteUsedTop(xpub: String, chainIndex: Int, top: Int, type: ScriptType) {
         if (top > usedTop(xpub, chainIndex, type)) prefs.edit().putInt(keyUsedTop(xpub, chainIndex, type), top).apply()
     }
