@@ -2239,5 +2239,16 @@
 "Not paid yet: the payment goes out when the pool closes. ": "Non ancora pagato: il pagamento parte quando il pool si chiude. ",
 "It can close now: waiting for someone to close it.": "Ora si può chiudere: in attesa che qualcuno lo chiuda.",
 "Waiting for one more person.": "In attesa di un'altra persona.",
-"Waiting for {0} more people.": "In attesa di altre {0} persone."
+"Waiting for {0} more people.": "In attesa di altre {0} persone.",
+"your coin {0} → {1} mixed · fee {2}": "la tua moneta {0} → {1} mescolati · commissione {2}",
+"your coin {0} → {1} mixed + {2} change · fee {3}": "la tua moneta {0} → {1} mescolati + {2} di resto · commissione {3}",
+"your {0} coins {1} → {2} mixed · fee {3}": "le tue {0} monete {1} → {2} mescolati · commissione {3}",
+"your {0} coins {1} → {2} mixed + {3} change · fee {4}": "le tue {0} monete {1} → {2} mescolati + {3} di resto · commissione {4}",
+"your coin {0} → {1} paid to {2} recipient(s) · fee {3}": "la tua moneta {0} → {1} pagati a {2} destinatario/i · commissione {3}",
+"your coin {0} → {1} paid to {2} recipient(s) + {3} change · fee {4}": "la tua moneta {0} → {1} pagati a {2} destinatario/i + {3} di resto · commissione {4}",
+"your {0} coins {1} → {2} paid to {3} recipient(s) · fee {4}": "le tue {0} monete {1} → {2} pagati a {3} destinatario/i · commissione {4}",
+"your {0} coins {1} → {2} paid to {3} recipient(s) + {4} change · fee {5}": "le tue {0} monete {1} → {2} pagati a {3} destinatario/i + {4} di resto · commissione {5}",
+"the payments go to: {0}": "i pagamenti vanno a: {0}",
+"Not paid yet. ": "Non ancora pagato. ",
+"closes in": "chiude tra"
 }

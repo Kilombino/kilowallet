@@ -898,17 +898,20 @@ private fun MyPoolCard(
             PoolSession.Phase.REJECTED -> "Refused: ${st.reason}"
         }, style = MaterialTheme.typography.bodySmall, color = color)
         }
-        Text((if (st.seat.coins.size > 1) "your ${st.seat.coins.size} coins " else "your coin ") +
-            "${groupSats(st.seat.inputValue)} → " +
-            // The creator of a payment pool (v5): its outputs are the payments, not mixed outputs.
-            (if (st.terms.v5 && st.creator) "${groupSats(st.terms.mixTotal)} paid to ${st.terms.payments.size} recipient(s)" else "${poolAmount(st.terms)} mixed") +
-            (if (st.seat.changeValue > 0) " + ${groupSats(st.seat.changeValue)} change" else "") +
-            " · fee ${groupSats(st.seat.inputValue - st.terms.mixTotal - st.seat.changeValue)}",
+        // Whole sentences (one per case), so each is found in the translations as it is.
+        val coins = if (st.seat.coins.size > 1) "your ${st.seat.coins.size} coins" else "your coin"
+        // The creator of a payment pool (v5): its outputs are the payments, not mixed outputs.
+        val out = if (st.terms.v5 && st.creator) "${groupSats(st.terms.mixTotal)} paid to ${st.terms.payments.size} recipient(s)"
+            else "${poolAmount(st.terms)} mixed"
+        val fee = groupSats(st.seat.inputValue - st.terms.mixTotal - st.seat.changeValue)
+        Text("$coins ${groupSats(st.seat.inputValue)} → $out" +
+            (if (st.seat.changeValue > 0) " + ${groupSats(st.seat.changeValue)} change · fee $fee" else " · fee $fee"),
             style = MaterialTheme.typography.bodySmall, color = TextFaint)
         // Only on this phone: where the mixed outputs go when it is not this wallet.
         val goesTo = remember(st.poolId) { Destination.of(ctx, st.poolId) }
         val which = remember(st.poolId) { Destination.whichOf(ctx, st.poolId) }
-        if (goesTo != Destination.Kind.HOT) Text("mixed outputs go to: " + Destination.label(goesTo) + (which?.let { " · $it" } ?: ""),
+        if (goesTo != Destination.Kind.HOT) Text((if (goesTo == Destination.Kind.PAY) "the payments go to: " else "mixed outputs go to: ") +
+            Destination.label(goesTo) + (which?.let { " · $it" } ?: ""),
             style = MaterialTheme.typography.bodySmall, color = accent)
         if (goesTo == Destination.Kind.PAY && st.phase in setOf(PoolSession.Phase.JOINING, PoolSession.Phase.OPEN, PoolSession.Phase.VOTING))
             Text("A payment: it goes out only when the pool closes. If the pool doesn't fill, nothing is paid; cancel it and send normally.",
@@ -1490,7 +1493,9 @@ private fun RoundCard(
     Panel(accent = color) {
         Column(Modifier.fillMaxWidth().clickable { onToggle() }) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text((if (st.terms.private) "🔒 " else "") + (if (pay) "💸 " else "") + "${poolAmount(st.terms)} sats each" +
+                // A payment pool's creator pays its recipients: no "each" about it.
+                Text((if (st.terms.private) "🔒 " else "") + (if (pay) "💸 " else "") +
+                    (if (st.terms.v5 && st.creator) "${groupSats(st.terms.mixTotal)} sats to ${st.terms.payments.size} recipient(s)" else "${poolAmount(st.terms)} sats each") +
                     (if (st.terms.script == ScriptType.P2TR) " · Taproot" else ""),
                     style = MaterialTheme.typography.titleMedium, color = TextMain, modifier = Modifier.weight(1f))
                 // The bar shows the step; here, how long the current one has left.

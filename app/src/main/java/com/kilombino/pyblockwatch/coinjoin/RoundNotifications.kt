@@ -92,7 +92,8 @@ object RoundNotifications {
                 (if (st.seat.changeValue > 0) ", plus ${sats(st.seat.changeValue, masked)} sats change." else ".")
             PoolSession.Phase.ABORTED, PoolSession.Phase.REJECTED -> "${st.reason.replaceFirstChar { it.uppercase() }}. " +
                 if (pay) "Nothing was paid: send it normally if you like." else "Your coin did not move."
-            PoolSession.Phase.OPEN -> (if (pay) "Not paid yet: the payment goes out when the pool closes. " else "Your coin is still in your wallet. ") +
+            // Two lines on the card: the payment's note kept short, so whether it can close still fits.
+            PoolSession.Phase.OPEN -> (if (pay) "Not paid yet. " else "Your coin is still in your wallet. ") +
                 when (val missing = st.terms.minPeers - people) {
                     in Int.MIN_VALUE..0 -> "It can close now: waiting for someone to close it."
                     1 -> "Waiting for one more person."
@@ -105,7 +106,8 @@ object RoundNotifications {
             step == STEPS -> 0xFF34D399.toInt()
             else -> 0xFF278BF5.toInt()
         }
-        val title = "${sats(st.terms.amount, masked)} sats each" + if (st.terms.script == com.kilombino.pyblockwatch.crypto.ScriptType.P2TR) " · Taproot" else ""
+        val title = (if (st.terms.v5 && st.creator) "${sats(st.terms.mixTotal, masked)} sats to ${st.terms.payments.size} recipient(s)"
+            else "${sats(st.terms.amount, masked)} sats each") + if (st.terms.script == com.kilombino.pyblockwatch.crypto.ScriptType.P2TR) " · Taproot" else ""
         val counting = st.phase == PoolSession.Phase.OPEN && st.terms.expiresAt > System.currentTimeMillis() / 1000
 
         fun views(layout: Int, big: Boolean) = RemoteViews(ctx.packageName, layout).apply {
@@ -120,6 +122,7 @@ object RoundNotifications {
                 else -> "cancelled"
             }))
             setTextViewText(R.id.cj_status, com.kilombino.pyblockwatch.ui.i18n.I18n.tr(status))
+            if (big) setTextViewText(R.id.cj_timer_label, com.kilombino.pyblockwatch.ui.i18n.I18n.tr("closes in"))
             setTextColor(R.id.cj_status, color)
             if (big) setTextViewText(R.id.cj_where, com.kilombino.pyblockwatch.ui.i18n.I18n.tr(where))
             val dots = intArrayOf(R.id.cj_dot1, R.id.cj_dot2, R.id.cj_dot3, R.id.cj_dot4, R.id.cj_dot5)

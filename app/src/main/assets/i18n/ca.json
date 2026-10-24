@@ -2239,5 +2239,16 @@
 "Not paid yet: the payment goes out when the pool closes. ": "Encara sense pagar: el pagament surt quan el pool es tanqui. ",
 "It can close now: waiting for someone to close it.": "Ja es pot tancar: esperant que algú el tanqui.",
 "Waiting for one more person.": "Esperant una persona més.",
-"Waiting for {0} more people.": "Esperant {0} persones més."
+"Waiting for {0} more people.": "Esperant {0} persones més.",
+"your coin {0} → {1} mixed · fee {2}": "la teva moneda {0} → {1} mesclats · comissió {2}",
+"your coin {0} → {1} mixed + {2} change · fee {3}": "la teva moneda {0} → {1} mesclats + {2} de canvi · comissió {3}",
+"your {0} coins {1} → {2} mixed · fee {3}": "les teves {0} monedes {1} → {2} mesclats · comissió {3}",
+"your {0} coins {1} → {2} mixed + {3} change · fee {4}": "les teves {0} monedes {1} → {2} mesclats + {3} de canvi · comissió {4}",
+"your coin {0} → {1} paid to {2} recipient(s) · fee {3}": "la teva moneda {0} → {1} pagats a {2} destinatari(s) · comissió {3}",
+"your coin {0} → {1} paid to {2} recipient(s) + {3} change · fee {4}": "la teva moneda {0} → {1} pagats a {2} destinatari(s) + {3} de canvi · comissió {4}",
+"your {0} coins {1} → {2} paid to {3} recipient(s) · fee {4}": "les teves {0} monedes {1} → {2} pagats a {3} destinatari(s) · comissió {4}",
+"your {0} coins {1} → {2} paid to {3} recipient(s) + {4} change · fee {5}": "les teves {0} monedes {1} → {2} pagats a {3} destinatari(s) + {4} de canvi · comissió {5}",
+"the payments go to: {0}": "els pagaments van a: {0}",
+"Not paid yet. ": "Encara sense pagar. ",
+"closes in": "tanca en"
 }

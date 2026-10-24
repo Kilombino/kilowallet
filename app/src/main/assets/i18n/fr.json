@@ -2239,5 +2239,16 @@
 "Not paid yet: the payment goes out when the pool closes. ": "Pas encore payé : le paiement part quand le pool se ferme. ",
 "It can close now: waiting for someone to close it.": "Il peut fermer maintenant : en attente que quelqu'un le ferme.",
 "Waiting for one more person.": "En attente d'une personne de plus.",
-"Waiting for {0} more people.": "En attente de {0} personnes de plus."
+"Waiting for {0} more people.": "En attente de {0} personnes de plus.",
+"your coin {0} → {1} mixed · fee {2}": "votre pièce {0} → {1} mélangés · frais {2}",
+"your coin {0} → {1} mixed + {2} change · fee {3}": "votre pièce {0} → {1} mélangés + {2} de monnaie · frais {3}",
+"your {0} coins {1} → {2} mixed · fee {3}": "vos {0} pièces {1} → {2} mélangés · frais {3}",
+"your {0} coins {1} → {2} mixed + {3} change · fee {4}": "vos {0} pièces {1} → {2} mélangés + {3} de monnaie · frais {4}",
+"your coin {0} → {1} paid to {2} recipient(s) · fee {3}": "votre pièce {0} → {1} payés à {2} destinataire(s) · frais {3}",
+"your coin {0} → {1} paid to {2} recipient(s) + {3} change · fee {4}": "votre pièce {0} → {1} payés à {2} destinataire(s) + {3} de monnaie · frais {4}",
+"your {0} coins {1} → {2} paid to {3} recipient(s) · fee {4}": "vos {0} pièces {1} → {2} payés à {3} destinataire(s) · frais {4}",
+"your {0} coins {1} → {2} paid to {3} recipient(s) + {4} change · fee {5}": "vos {0} pièces {1} → {2} payés à {3} destinataire(s) + {4} de monnaie · frais {5}",
+"the payments go to: {0}": "les paiements vont à : {0}",
+"Not paid yet. ": "Pas encore payé. ",
+"closes in": "ferme dans"
 }
