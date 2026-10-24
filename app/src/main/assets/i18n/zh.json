@@ -2247,5 +2247,14 @@
 "Together they add up to {0} sats: a pool needs at least {1} sats in all.": "合计 {0} sats：一个池总共至少需要 {1} sats。",
 "CONTINUE WITH YOUR COIN": "用你的币继续",
 "CONTINUE WITH YOUR {0} COINS": "用你的 {0} 枚币继续",
-"CONTINUE WITH YOUR COINS": "用你的币继续"
+"CONTINUE WITH YOUR COINS": "用你的币继续",
+"checking… (over Tor it can take a few minutes)": "检查中…（通过 Tor 可能需要几分钟）",
+"SHOW TOR'S LOG": "查看 TOR 日志",
+"HIDE TOR'S LOG": "隐藏 TOR 日志",
+"COPY THE LOG": "复制日志",
+"(Tor has not run yet)": "（Tor 尚未运行）",
+"Tor still connecting after 3 minutes ({0}): not sent over the clear net": "3 分钟后 Tor 仍在连接（{0}）：未通过明网发送",
+"Tor stopped ({0}): not sent over the clear net": "Tor 已停止（{0}）：未通过明网发送",
+"Tor still connecting after 3 minutes: not sent over the clear net": "3 分钟后 Tor 仍在连接：未通过明网发送",
+"Tor stopped: not sent over the clear net": "Tor 已停止：未通过明网发送"
 }

@@ -2259,5 +2259,14 @@
 "Together they add up to {0} sats: a pool needs at least {1} sats in all.": "Junts sumen {0} sats: un pool necessita com a mínim {1} sats en total.",
 "CONTINUE WITH YOUR COIN": "CONTINUAR AMB LA TEVA MONEDA",
 "CONTINUE WITH YOUR {0} COINS": "CONTINUAR AMB LES TEVES {0} MONEDES",
-"CONTINUE WITH YOUR COINS": "CONTINUAR AMB LES TEVES MONEDES"
+"CONTINUE WITH YOUR COINS": "CONTINUAR AMB LES TEVES MONEDES",
+"checking… (over Tor it can take a few minutes)": "comprovant… (per Tor pot trigar uns minuts)",
+"SHOW TOR'S LOG": "VEURE EL REGISTRE DE TOR",
+"HIDE TOR'S LOG": "AMAGAR EL REGISTRE DE TOR",
+"COPY THE LOG": "COPIAR EL REGISTRE",
+"(Tor has not run yet)": "(Tor encara no s'ha executat)",
+"Tor still connecting after 3 minutes ({0}): not sent over the clear net": "Tor continua connectant després de 3 minuts ({0}): no s'envia per la xarxa oberta",
+"Tor stopped ({0}): not sent over the clear net": "Tor s'ha aturat ({0}): no s'envia per la xarxa oberta",
+"Tor still connecting after 3 minutes: not sent over the clear net": "Tor continua connectant després de 3 minuts: no s'envia per la xarxa oberta",
+"Tor stopped: not sent over the clear net": "Tor s'ha aturat: no s'envia per la xarxa oberta"
 }

@@ -187,7 +187,13 @@ object CoinjoinAlerts {
      * uses https, and the switch says so there.
      */
     private fun post(ctx: Context, path: String, body: String): Pair<Int, String> {
-        val proxy = if (Tor.available) { Tor.start(ctx); Tor.proxy(60_000) ?: throw TorDown("Tor did not start: not sent over the clear net") } else null
+        // The first start downloads Tor's directory, which on a phone can take a couple of minutes.
+        val proxy = if (Tor.available) {
+            Tor.start(ctx)
+            Tor.proxy(180_000) ?: throw TorDown(
+                (if (Tor.alive) "Tor still connecting after 3 minutes" else "Tor stopped") +
+                    (Tor.lastLine.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: "") + ": not sent over the clear net")
+        } else null
         val base = if (proxy != null) ONION else CLEARNET
         val u = java.net.URL(base + path)
         if (proxy == null) {

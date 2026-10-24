@@ -1405,8 +1405,24 @@ private fun TelegramAlertsPanel(accent: Color, mine: List<com.kilombino.pyblockw
                     checking = false
                 }
             }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
-                Text(if (checking) "checking… (over Tor it can take a minute)" else "CHECK THE CONNECTION TO THE BOT",
+                Text(if (checking) "checking… (over Tor it can take a few minutes)" else "CHECK THE CONNECTION TO THE BOT",
                     color = accent, style = MaterialTheme.typography.labelSmall)
+            }
+            // Why Tor doesn't come up, to copy and send: Arti's own log, without addresses or keys.
+            if (com.kilombino.pyblockwatch.chain.Tor.available) {
+                var torLog by remember { mutableStateOf<String?>(null) }
+                val clip = androidx.compose.ui.platform.LocalClipboardManager.current
+                TextButton(onClick = { torLog = if (torLog == null) com.kilombino.pyblockwatch.chain.Tor.logTail(ctx).ifBlank { "(Tor has not run yet)" } else null },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                    Text(if (torLog == null) "SHOW TOR'S LOG" else "HIDE TOR'S LOG", color = accent, style = MaterialTheme.typography.labelSmall)
+                }
+                torLog?.let { l ->
+                    Text(l, style = MaterialTheme.typography.bodySmall, color = TextFaint)
+                    TextButton(onClick = { clip.setText(androidx.compose.ui.text.AnnotatedString(l)) },
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                        Text("COPY THE LOG", color = accent, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
             }
         }
     }

@@ -2259,5 +2259,14 @@
 "Together they add up to {0} sats: a pool needs at least {1} sats in all.": "Insieme fanno {0} sats: un pool richiede almeno {1} sats in tutto.",
 "CONTINUE WITH YOUR COIN": "CONTINUA CON LA TUA MONETA",
 "CONTINUE WITH YOUR {0} COINS": "CONTINUA CON LE TUE {0} MONETE",
-"CONTINUE WITH YOUR COINS": "CONTINUA CON LE TUE MONETE"
+"CONTINUE WITH YOUR COINS": "CONTINUA CON LE TUE MONETE",
+"checking… (over Tor it can take a few minutes)": "controllo… (via Tor può volerci qualche minuto)",
+"SHOW TOR'S LOG": "MOSTRA IL LOG DI TOR",
+"HIDE TOR'S LOG": "NASCONDI IL LOG DI TOR",
+"COPY THE LOG": "COPIA IL LOG",
+"(Tor has not run yet)": "(Tor non è ancora partito)",
+"Tor still connecting after 3 minutes ({0}): not sent over the clear net": "Tor si sta ancora connettendo dopo 3 minuti ({0}): non inviato in chiaro",
+"Tor stopped ({0}): not sent over the clear net": "Tor si è fermato ({0}): non inviato in chiaro",
+"Tor still connecting after 3 minutes: not sent over the clear net": "Tor si sta ancora connettendo dopo 3 minuti: non inviato in chiaro",
+"Tor stopped: not sent over the clear net": "Tor si è fermato: non inviato in chiaro"
 }
