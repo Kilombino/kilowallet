@@ -151,18 +151,19 @@ fun WatchAddressesCard(state: UiState, vm: WalletViewModel, chain: Chain, accent
         TxDetailDialog(addr, accent, vm.explorerFor(chain), status = status,
             onSpeedUp = null, onClose = { open = null }, vm = vm, chain = chain, kind = "address")
     }
-    val next = vm.nextReceiveIndex()
-    val unused = (next until next + 5).mapNotNull { i -> vm.receiveAddress(i)?.let { i to it } }
+    // From just past the last used address: the ones a coinjoin round holds show as such, not skipped.
+    val unused = remember(cs.rows) { vm.receiveSlots() }
     var all by remember { mutableStateOf(false) }
     Panel(accent = accent) {
         SectionLabel("Addresses · unused and used", accent)
         Spacer(Modifier.height(8.dp))
-        unused.forEach { (i, a) ->
-            Row(Modifier.fillMaxWidth().clickable { open = a.first to "${a.second} · receive · unused" }.padding(vertical = 4.dp),
+        unused.forEach { slot ->
+            val what = if (slot.reserved) "reserved for a coinjoin" else "unused"
+            Row(Modifier.fillMaxWidth().clickable { open = slot.address to "${slot.path} · receive · $what" }.padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(shortAddress(a.first), style = MaterialTheme.typography.bodyMedium, color = TextMain)
-                    Text("#$i · unused", style = MaterialTheme.typography.bodySmall, color = Good)
+                    Text(shortAddress(slot.address), style = MaterialTheme.typography.bodyMedium, color = if (slot.reserved) TextSoft else TextMain)
+                    Text("#${slot.index} · $what", style = MaterialTheme.typography.bodySmall, color = if (slot.reserved) Warn else Good)
                 }
             }
         }

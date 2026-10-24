@@ -2130,5 +2130,9 @@
 "looking…": "查找中…",
 "could not reach the server": "无法连接服务器",
 "The next unused receive address of that wallet, as of now. Compare it with the wallet itself (in Sparrow or Shrike: Addresses › Receive).": "该钱包当前下一个未使用的收款地址。请与钱包本身核对（在 Sparrow 或 Shrike 中：Addresses › Receive）。",
-"The next unused receive addresses of that wallet, as of now. Compare them with the wallet itself (in Sparrow or Shrike: Addresses › Receive).": "该钱包当前接下来未使用的收款地址。请与钱包本身核对（在 Sparrow 或 Shrike 中：Addresses › Receive）。"
+"The next unused receive addresses of that wallet, as of now. Compare them with the wallet itself (in Sparrow or Shrike: Addresses › Receive).": "该钱包当前接下来未使用的收款地址。请与钱包本身核对（在 Sparrow 或 Shrike 中：Addresses › Receive）。",
+"reserved for a coinjoin": "已为混币预留",
+"The leftover comes back to a fresh change address.": "剩余部分退回到一个新的找零地址。",
+"unused": "未使用",
+"used": "已使用"
 }

@@ -1852,6 +1852,26 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun nextReceiveIndex(): Int = nextUnused(0)
 
+    /** A receive address past the last used one: [reserved] when a coinjoin round (or a perfect coin) holds it. */
+    data class ReceiveSlot(val index: Int, val address: String, val path: String, val reserved: Boolean)
+
+    /**
+     * Every receive address from just past the last used one to [ahead] past the next one handed
+     * out, so none is hidden: those in between are held by coinjoin rounds going to this wallet,
+     * or were counted as used before. At most 30.
+     */
+    fun receiveSlots(ahead: Int = 5): List<ReceiveSlot> {
+        val lastUsed = _state.value.chains.values.flatMap { it.rows }
+            .filter { it.chainIndex == 0 && it.type == newTag && it.isUsed }.maxOfOrNull { it.index } ?: -1
+        val next = nextReceiveIndex()
+        val held = runCatching { com.kilombino.pyblockwatch.coinjoin.Destination.reserved(getApplication()) }.getOrDefault(emptySet())
+        return (lastUsed + 1 until next + ahead).take(30).mapNotNull { i ->
+            val (addr, path) = receiveAddress(i) ?: return@mapNotNull null
+            val sp = runCatching { com.kilombino.pyblockwatch.crypto.Address.decodeToScriptPubKey(addr).toList() }.getOrNull()
+            ReceiveSlot(i, addr, path, sp != null && sp in held)
+        }
+    }
+
     /**
      * Receive indexes of the account new addresses come from that hold nothing and never did:
      * the ones skipped below the last used address (handed out and never paid) and [ahead] past

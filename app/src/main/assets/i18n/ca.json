@@ -2142,5 +2142,9 @@
 "looking…": "cercant…",
 "could not reach the server": "no s'ha pogut contactar amb el servidor",
 "The next unused receive address of that wallet, as of now. Compare it with the wallet itself (in Sparrow or Shrike: Addresses › Receive).": "La següent adreça de recepció sense usar d'aquesta cartera, ara mateix. Compara-la amb la mateixa cartera (a Sparrow o Shrike: Addresses › Receive).",
-"The next unused receive addresses of that wallet, as of now. Compare them with the wallet itself (in Sparrow or Shrike: Addresses › Receive).": "Les següents adreces de recepció sense usar d'aquesta cartera, ara mateix. Compara-les amb la mateixa cartera (a Sparrow o Shrike: Addresses › Receive)."
+"The next unused receive addresses of that wallet, as of now. Compare them with the wallet itself (in Sparrow or Shrike: Addresses › Receive).": "Les següents adreces de recepció sense usar d'aquesta cartera, ara mateix. Compara-les amb la mateixa cartera (a Sparrow o Shrike: Addresses › Receive).",
+"reserved for a coinjoin": "reservada per a un coinjoin",
+"The leftover comes back to a fresh change address.": "El que sobra torna a una adreça de canvi nova.",
+"unused": "sense usar",
+"used": "usada"
 }
