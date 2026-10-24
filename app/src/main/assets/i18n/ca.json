@@ -2232,5 +2232,12 @@
 "one address per payment": "una adreça per pagament",
 "the payments must add up to what each joiner gets": "els pagaments han de sumar el que rep cadascun dels altres",
 "{0} coin(s) · {1} sats → {2} paid + {3} change · fee {4}": "{0} moneda/es · {1} sats → {2} pagats + {3} de canvi · comissió {4}",
-"Only Kilowallet 1.2.7 or newer (Kilojoin v5) sees this pool.": "Només Kilowallet 1.2.7 o posterior (Kilojoin v5) veu aquest pool."
+"Only Kilowallet 1.2.7 or newer (Kilojoin v5) sees this pool.": "Només Kilowallet 1.2.7 o posterior (Kilojoin v5) veu aquest pool.",
+"{0}/{1} people · min. {2}": "{0}/{1} persones · mín. {2}",
+"{0}/{1} · min. {2}": "{0}/{1} · mín. {2}",
+"Your coin is still in your wallet. ": "La teva moneda continua al teu moneder. ",
+"Not paid yet: the payment goes out when the pool closes. ": "Encara sense pagar: el pagament surt quan el pool es tanqui. ",
+"It can close now: waiting for someone to close it.": "Ja es pot tancar: esperant que algú el tanqui.",
+"Waiting for one more person.": "Esperant una persona més.",
+"Waiting for {0} more people.": "Esperant {0} persones més."
 }

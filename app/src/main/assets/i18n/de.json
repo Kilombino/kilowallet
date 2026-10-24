@@ -2232,5 +2232,12 @@
 "one address per payment": "eine Adresse pro Zahlung",
 "the payments must add up to what each joiner gets": "die Zahlungen müssen ergeben, was jeder der anderen bekommt",
 "{0} coin(s) · {1} sats → {2} paid + {3} change · fee {4}": "{0} Münze(n) · {1} sats → {2} gezahlt + {3} Wechselgeld · Gebühr {4}",
-"Only Kilowallet 1.2.7 or newer (Kilojoin v5) sees this pool.": "Nur Kilowallet 1.2.7 oder neuer (Kilojoin v5) sieht diesen Pool."
+"Only Kilowallet 1.2.7 or newer (Kilojoin v5) sees this pool.": "Nur Kilowallet 1.2.7 oder neuer (Kilojoin v5) sieht diesen Pool.",
+"{0}/{1} people · min. {2}": "{0}/{1} Personen · min. {2}",
+"{0}/{1} · min. {2}": "{0}/{1} · min. {2}",
+"Your coin is still in your wallet. ": "Deine Münze ist noch in deiner Wallet. ",
+"Not paid yet: the payment goes out when the pool closes. ": "Noch nicht bezahlt: die Zahlung geht raus, wenn der Pool schließt. ",
+"It can close now: waiting for someone to close it.": "Er kann jetzt schließen: warte, bis jemand ihn schließt.",
+"Waiting for one more person.": "Warte auf eine weitere Person.",
+"Waiting for {0} more people.": "Warte auf {0} weitere Personen."
 }

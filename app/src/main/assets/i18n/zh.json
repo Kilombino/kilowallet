@@ -2220,5 +2220,12 @@
 "one address per payment": "每笔付款一个地址",
 "the payments must add up to what each joiner gets": "付款合计必须等于其他每个人得到的金额",
 "{0} coin(s) · {1} sats → {2} paid + {3} change · fee {4}": "{0} 个币 · {1} sats → 已付 {2} + 找零 {3} · 手续费 {4}",
-"Only Kilowallet 1.2.7 or newer (Kilojoin v5) sees this pool.": "只有 Kilowallet 1.2.7 或更新版本（Kilojoin v5）能看到这个池。"
+"Only Kilowallet 1.2.7 or newer (Kilojoin v5) sees this pool.": "只有 Kilowallet 1.2.7 或更新版本（Kilojoin v5）能看到这个池。",
+"{0}/{1} people · min. {2}": "{0}/{1} 人 · 至少 {2}",
+"{0}/{1} · min. {2}": "{0}/{1} · 至少 {2}",
+"Your coin is still in your wallet. ": "你的币仍在你的钱包里。 ",
+"Not paid yet: the payment goes out when the pool closes. ": "尚未支付：池关闭时才会付款。 ",
+"It can close now: waiting for someone to close it.": "现在可以关闭了：等待有人关闭它。",
+"Waiting for one more person.": "还在等一个人。",
+"Waiting for {0} more people.": "还在等 {0} 个人。"
 }

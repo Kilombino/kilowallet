@@ -71,7 +71,8 @@ object RoundNotifications {
         // The bar of dots already says the step.
         val status = when (st.phase) {
             PoolSession.Phase.JOINING -> "Asking to join"
-            PoolSession.Phase.OPEN -> "$people/${st.terms.maxPeers} people · waiting for more"
+            // The fewest it needs to close, not "waiting for more": whether it can already close is below.
+            PoolSession.Phase.OPEN -> "$people/${st.terms.maxPeers} people · min. ${st.terms.minPeers}"
             PoolSession.Phase.VOTING -> "$people people · closing vote"
             PoolSession.Phase.CLOSING -> "$people people · collecting outputs"
             PoolSession.Phase.SIGNING -> if (st.postedSig) "$people people · signed, waiting for the others" else "$people people · signing"
@@ -91,6 +92,12 @@ object RoundNotifications {
                 (if (st.seat.changeValue > 0) ", plus ${sats(st.seat.changeValue, masked)} sats change." else ".")
             PoolSession.Phase.ABORTED, PoolSession.Phase.REJECTED -> "${st.reason.replaceFirstChar { it.uppercase() }}. " +
                 if (pay) "Nothing was paid: send it normally if you like." else "Your coin did not move."
+            PoolSession.Phase.OPEN -> (if (pay) "Not paid yet: the payment goes out when the pool closes. " else "Your coin is still in your wallet. ") +
+                when (val missing = st.terms.minPeers - people) {
+                    in Int.MIN_VALUE..0 -> "It can close now: waiting for someone to close it."
+                    1 -> "Waiting for one more person."
+                    else -> "Waiting for $missing more people."
+                }
             else -> if (pay) "Not paid yet: the payment goes out when the pool closes." else "Your coin is still in your wallet — it hasn't left."
         }
         val color = when {
@@ -105,7 +112,7 @@ object RoundNotifications {
             // Folded there is room for one line: the amount and the people (the dots say the step).
             setTextViewText(R.id.cj_title, com.kilombino.pyblockwatch.ui.i18n.I18n.tr(if (big) title else "${sats(st.terms.amount, masked)} sats · " + when (st.phase) {
                 PoolSession.Phase.JOINING -> "joining"
-                PoolSession.Phase.OPEN -> "$people/${st.terms.maxPeers} people"
+                PoolSession.Phase.OPEN -> "$people/${st.terms.maxPeers} · min. ${st.terms.minPeers}"
                 PoolSession.Phase.VOTING -> "$people people · vote"
                 PoolSession.Phase.CLOSING, PoolSession.Phase.SIGNING -> "$people people · signing"
                 PoolSession.Phase.BROADCAST -> "$people people · sent"
