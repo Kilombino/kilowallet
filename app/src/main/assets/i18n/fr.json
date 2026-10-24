@@ -2255,5 +2255,6 @@
 "joining": "adhésion",
 "vote": "vote",
 "signing": "signature",
-"{0} people": "{0} personnes"
+"{0} people": "{0} personnes",
+"Together they add up to {0} sats: a pool needs at least {1} sats in all.": "Ensemble ils font {0} sats : un pool demande au moins {1} sats au total."
 }

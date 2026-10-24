@@ -2255,5 +2255,6 @@
 "joining": "unint-se",
 "vote": "votació",
 "signing": "signant",
-"{0} people": "{0} persones"
+"{0} people": "{0} persones",
+"Together they add up to {0} sats: a pool needs at least {1} sats in all.": "Junts sumen {0} sats: un pool necessita com a mínim {1} sats en total."
 }
