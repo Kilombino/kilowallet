@@ -70,13 +70,13 @@ fun LightningScreen(vm: WalletViewModel, accent: Color, settings: Boolean) {
     LaunchedEffect(Unit) { Lightning.resume(ctx) }
     DisposableEffect(Unit) { Lightning.watch(true); onDispose { Lightning.watch(false) } }
 
-    // Restore, migrate and backups show with the app's own settings (the button by ⏻):
-    // closed, the tab shows only the node.
+    // Restore, migrate and backups are the tab's settings (the button by ⏻), shown in place of
+    // the node; closed, the tab shows only the node.
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         when (val s = status) {
             is Lightning.Status.Off -> {
-                LnIntro(accent) { onError -> turnOn(activity, vm, onError) }
-                if (settings) {
+                if (!settings) LnIntro(accent) { onError -> turnOn(activity, vm, onError) }
+                else {
                     Panel(accent = accent) {
                         SectionLabel("Restore", accent)
                         Spacer(Modifier.height(6.dp))
@@ -223,6 +223,17 @@ private fun LnNode(s: Lightning.Status.Running, accent: Color, settings: Boolean
     speeding?.let { c -> SpeedUpCloseDialog(c, accent) { speeding = null } }
     var resizing by remember { mutableStateOf<Lnd.Channel?>(null) }
     resizing?.let { c -> ResizeChannelDialog(c, accent, vm, onTx = { showTx = "Resize transaction" to it }) { resizing = null } }
+    if (settings) {
+        AliasPanel(accent, s.info.alias)
+        FeeLimitPanel(accent)
+        ConnectPeer(accent)
+        LnLog(accent)
+        SaveChannelBackup(accent)
+        RestoreChannelsLive(accent)
+        MoveOut(accent)
+        DeleteEmptyNode(accent, s)
+        return
+    }
     val book = remember(s) { ledger(s) }
     var sheet by remember { mutableStateOf(LnSheet.None) }
     val i = s.info
@@ -397,16 +408,6 @@ private fun LnNode(s: Lightning.Status.Running, accent: Color, settings: Boolean
 
     InboundPanel(accent, s, onTx = { showTx = "Funding transaction" to it })
 
-    if (settings) {
-        AliasPanel(accent, s.info.alias)
-        FeeLimitPanel(accent)
-        ConnectPeer(accent)
-        LnLog(accent)
-        SaveChannelBackup(accent)
-        RestoreChannelsLive(accent)
-        MoveOut(accent)
-        DeleteEmptyNode(accent, s)
-    }
 
     Panel(accent = Warn) {
         Explain("Beta. Never run Lightning with these words on another phone or profile at the same time. Node: ${i.pubkey.take(20)}…")

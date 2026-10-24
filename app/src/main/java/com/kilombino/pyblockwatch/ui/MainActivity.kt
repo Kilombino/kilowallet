@@ -316,7 +316,8 @@ class MainActivity : FragmentActivity() {
                         Column(Modifier.verticalScroll(rememberScrollState())) {
                             CoinjoinIntro(Good,
                                 onAccept = { vm.answerCoinjoin(true); askCoinjoin = false; askNotif() },
-                                onDecline = { vm.answerCoinjoin(false); askCoinjoin = false })
+                                onDecline = { vm.answerCoinjoin(false); askCoinjoin = false },
+                                onLookOnly = { vm.answerCoinjoin(true, notify = false); askCoinjoin = false })
                         }
                     }
                     if (state.jamView && !state.setupMode) {
@@ -374,6 +375,7 @@ private fun OnboardingScreen(state: UiState, vm: WalletViewModel) {
     }
 
     var xpub by remember { mutableStateOf("") }
+    var picked by remember { mutableStateOf<ScriptType?>(null) }
     var label by remember { mutableStateOf("") }
     var showScanner by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -459,6 +461,7 @@ private fun OnboardingScreen(state: UiState, vm: WalletViewModel) {
                 modifier = Modifier.fillMaxWidth(),
             )
             state.inputError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Bad) }
+            XpubTypeChoice(xpub, picked, Orange) { picked = it }
 
             TextButton(onClick = {
                 if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
@@ -477,8 +480,8 @@ private fun OnboardingScreen(state: UiState, vm: WalletViewModel) {
 
             Spacer(Modifier.height(10.dp))
             Button(
-                onClick = { vm.setXpub(xpub, label) },
-                enabled = xpub.isNotBlank(),
+                onClick = { vm.setXpub(xpub, label, picked.takeIf { xpubNeedsType(xpub) }) },
+                enabled = xpub.isNotBlank() && (picked != null || !xpubNeedsType(xpub)),
                 colors = ButtonDefaults.buttonColors(containerColor = Orange, contentColor = Ink),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth(),
@@ -613,6 +616,10 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
             refreshing = false
         }
     }
+    // Settings open in place of the screen, from its top (not after everything else); back closes them.
+    val scroll = rememberScrollState()
+    LaunchedEffect(showSettings) { scroll.scrollTo(0) }
+    androidx.activity.compose.BackHandler(enabled = showSettings) { showSettings = false }
     @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
     androidx.compose.material3.pulltorefresh.PullToRefreshBox(
         isRefreshing = refreshing,
@@ -620,7 +627,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
         modifier = Modifier.fillMaxSize(),
     ) {
     Column(
-        Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.fillMaxSize().imePadding().verticalScroll(scroll).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Spacer(Modifier.height(28.dp))
@@ -642,6 +649,17 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
 
         // A watch-only wallet stays that: no Ark, no coinjoin (it cannot sign).
         if (!state.isHot && (arkTab || cjTab || lnTab)) { arkTab = false; cjTab = false; lnTab = false }
+        if (showSettings) {
+            // On the LIGHTNING tab, Lightning's own settings; on the others, the wallet's.
+            if (lnTab) LightningScreen(vm, LnGold, true)
+            else {
+                SettingsPanel(state, vm, accent, onToggleNotifications) { vm.forget() }
+                // The recovery words live at the very end of settings.
+                if (state.isHot) HotWordsPanel(vm, accent)
+            }
+            Spacer(Modifier.height(30.dp))
+            return@Column
+        }
         AdvancedTabs(chain, arkTab, cjTab, lnTab, state.isHot,
             onBtc = { arkTab = false; cjTab = false; lnTab = false; if (chain != Chain.BLAKE2B) vm.select(Chain.BLAKE2B) },
             onArk = { arkTab = true; cjTab = false; lnTab = false; showSend = false; showReceive = false },
@@ -649,8 +667,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
             onLn = { lnTab = true; arkTab = false; cjTab = false; showSend = false; showReceive = false; if (chain != Chain.BLAKE2B) vm.select(Chain.BLAKE2B) })
 
         if (lnTab) {
-            // On this tab settings shows Lightning's own; the wallet's are on the BTC tab.
-            LightningScreen(vm, LnGold, showSettings)
+            LightningScreen(vm, LnGold, false)
             Spacer(Modifier.height(30.dp))
             return@Column
         }
@@ -717,14 +734,6 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
                     Text("I have checked the fingerprint: trust", color = Warn,
                          style = MaterialTheme.typography.bodySmall)
                 }
-            }
-        }
-
-        Reveal(showSettings) {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                SettingsPanel(state, vm, accent, onToggleNotifications) { vm.forget() }
-                // The recovery words live at the very end of settings.
-                if (state.isHot) HotWordsPanel(vm, accent)
             }
         }
 
@@ -1460,15 +1469,17 @@ internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, v
     // Tapping a movement asks before leaving the app: opening it reveals the txid (and so
     // which addresses are yours) to whoever runs that explorer.
     var asking by remember { mutableStateOf<TxConf?>(null) }
-    // A stuck send is replaced (RBF); a stuck payment TO this wallet is pulled along (CPFP).
-    var bumping by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
-    bumping?.let { (txid, cpfp) -> BumpDialog(vm, txid, accent, explorer, cpfp) { bumping = null; vm.resetSend() } }
+    // A stuck send is replaced (RBF) or cancelled (RBF back to us); a stuck payment TO this wallet is pulled along (CPFP).
+    var bumping by remember { mutableStateOf<Pair<String, BumpMode>?>(null) }
+    bumping?.let { (txid, mode) -> BumpDialog(vm, txid, accent, explorer, mode) { bumping = null; vm.resetSend() } }
     val site = explorer.removePrefix("https://").removePrefix("http://")
     asking?.let { t ->
         TxDetailDialog(t.txid, accent, explorer,
             status = if (t.pending) "in mempool · 0 confirmations" else "${t.confirmations} confirmation" + if (t.confirmations == 1) "" else "s",
-            onSpeedUp = if (t.pending && isHot) ({ asking = null; bumping = t.txid to ((t.amount ?: 0) > 0) }) else null,
+            onSpeedUp = if (t.pending && isHot) ({ asking = null; bumping = t.txid to (if ((t.amount ?: 0) > 0) BumpMode.CPFP else BumpMode.RBF) }) else null,
             speedUpLabel = if ((t.amount ?: 0) > 0) "⚡ SPEED UP (CPFP)" else "⚡ SPEED UP (RBF)",
+            // Only a send of ours can be cancelled: a payment to us isn't ours to take back.
+            onCancel = if (t.pending && isHot && (t.amount ?: 0) <= 0) ({ asking = null; bumping = t.txid to BumpMode.CANCEL }) else null,
             onClose = { asking = null }, vm = vm, chain = chain)
     }
     Panel(accent = accent) {
@@ -1506,10 +1517,18 @@ internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, v
                     )
                 }
                 if (t.pending) {
-                    Text("in mempool · 0 conf",
-                         style = MaterialTheme.typography.bodySmall, color = Warn)
-                    if (isHot) TextButton(onClick = { bumping = t.txid to ((t.amount ?: 0) > 0) }) {
-                        Text("⚡ speed up", style = MaterialTheme.typography.bodySmall, color = accent)
+                    // Status above, actions below: side by side they squeezed the amount column.
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("in mempool · 0 conf",
+                             style = MaterialTheme.typography.bodySmall, color = Warn)
+                        if (isHot) Row {
+                            TextButton(onClick = { bumping = t.txid to (if ((t.amount ?: 0) > 0) BumpMode.CPFP else BumpMode.RBF) }) {
+                                Text("⚡ speed up", style = MaterialTheme.typography.bodySmall, color = accent)
+                            }
+                            if ((t.amount ?: 0) <= 0) TextButton(onClick = { bumping = t.txid to BumpMode.CANCEL }) {
+                                Text("✕ cancel", style = MaterialTheme.typography.bodySmall, color = Warn)
+                            }
+                        }
                     }
                 } else {
                     Text(
@@ -1527,18 +1546,23 @@ internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, v
     }
 }
 
+/** What [BumpDialog] does with an unconfirmed transaction. */
+internal enum class BumpMode { RBF, CPFP, CANCEL }
+
 /**
  * Speed up an unconfirmed send by replacing it (RBF) with the same payment at a higher fee,
- * paid from its change. Only sends from this wallet with a change output qualify; anything
- * else explains why it can't be replaced.
+ * paid from its change, or cancel it (RBF back to a fresh address of this wallet). Only sends
+ * from this wallet qualify; anything else explains why it can't be replaced.
  */
 @Composable
-private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, explorer: String, cpfp: Boolean, onClose: () -> Unit) {
+private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, explorer: String, mode: BumpMode, onClose: () -> Unit) {
+    val cpfp = mode == BumpMode.CPFP
+    val cancel = mode == BumpMode.CANCEL
     FlowOpenWhileShown()
     val sent = (vm.state.collectAsState().value.sendPhase as? SendPhase.Sent)?.txid
     if (sent != null) {
         // With the wallet and its chain, so an explorer already chosen opens straight away.
-        TxDetailDialog(sent, accent, explorer, status = (if (cpfp) "speed-up sent ✓" else "replacement sent ✓") + " · in mempool",
+        TxDetailDialog(sent, accent, explorer, status = (if (cpfp) "speed-up sent ✓" else if (cancel) "cancellation sent ✓" else "replacement sent ✓") + " · in mempool",
             onSpeedUp = null, onClose = onClose, vm = vm, chain = vm.state.collectAsState().value.selected)
         return
     }
@@ -1550,13 +1574,19 @@ private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, explore
     var feeOk by remember(reviewed) { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onClose,
-        title = { Text("Speed up ${txid.take(8)}…") },
+        title = { Text(if (cancel) "Cancel ${txid.take(8)}…" else "Speed up ${txid.take(8)}…") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 when (val p = state.sendPhase) {
                     is SendPhase.Review -> {
                         val d = p.draft
-                        if (d.cpfpParent != null) {
+                        if (d.cancels) {
+                            Text("Replaces the payment with one that sends everything back to a fresh address of yours. " +
+                                "The recipients get nothing, unless the original confirms first: then this one is refused.",
+                                style = MaterialTheme.typography.bodySmall)
+                            Text("Back to you: ${shortAddress(d.toAddress)} · ${groupSats(d.amount)} sats", style = MaterialTheme.typography.bodySmall)
+                            Text("Fee: ${groupSats(d.replacedFee)} → ${groupSats(d.fee)} sats", style = MaterialTheme.typography.bodySmall, color = accent)
+                        } else if (d.cpfpParent != null) {
                             Text("Pulls the stuck payment along: a payment to yourself that spends what it brought you, " +
                                 "with a fee big enough for both. Miners take the two together.", style = MaterialTheme.typography.bodySmall)
                             Text("Back to you: ${groupSats(d.amount)} sats", style = MaterialTheme.typography.bodySmall)
@@ -1571,16 +1601,19 @@ private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, explore
                         }
                         // A payment that makes a perfect coin: say what happens to its pool.
                         if (com.kilombino.pyblockwatch.coinjoin.PerfectCoin.waiting.collectAsState().value.any { it.txid == txid })
-                            Text("This payment makes a perfect coin for a coinjoin pool. Speeding it up keeps it: the pool follows the " +
+                            Text(if (d.cancels) "This payment makes a perfect coin for a coinjoin pool. Cancelling it drops the coin, " +
+                                "and the pool it was going to open or join with it." else "This payment makes a perfect coin for a coinjoin pool. Speeding it up keeps it: the pool follows the " +
                                 "new transaction and opens (or joins) once it confirms.", style = MaterialTheme.typography.bodySmall, color = Warn)
                         feeConcern?.let { FeeGate(it, feeOk) { feeOk = !feeOk } }
                     }
-                    is SendPhase.Sent -> Text((if (cpfp) "Speed-up sent ✓\n" else "Replacement sent ✓\n") + p.txid,
+                    is SendPhase.Sent -> Text((if (cpfp) "Speed-up sent ✓\n" else if (cancel) "Cancellation sent ✓\n" else "Replacement sent ✓\n") + p.txid,
                         style = MaterialTheme.typography.bodySmall, color = Good)
                     SendPhase.Preparing, SendPhase.Broadcasting -> Text("working…", style = MaterialTheme.typography.bodySmall, color = accent)
                     else -> {
                         if (p is SendPhase.Failed) Text(p.message, style = MaterialTheme.typography.bodySmall, color = Bad)
                         Text(if (cpfp) "Fee rate for the stuck payment and the speed-up together. Most pools only mine from 1 sat/vB." else
+                            if (cancel) "Fee rate for the cancellation. It must beat the old fee by at least 1 sat/vB of its size, " +
+                            "and the higher it is, the likelier it gets mined before the original." else
                             "New fee rate. It must beat the old fee by at least 1 sat/vB of the transaction's size; " +
                             "most pools only mine from 1 sat/vB.", style = MaterialTheme.typography.bodySmall)
                         OutlinedTextField(value = rate, onValueChange = { rate = it.filter { c -> c.isDigit() || c == '.' } },
@@ -1593,14 +1626,19 @@ private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, explore
             when (state.sendPhase) {
                 is SendPhase.Review -> TextButton(enabled = feeConcern == null || feeOk, onClick = {
                     vm.seedCipherOrToast()?.let { cipher ->
-                        Biometric.authenticate(activity, "Speed up payment", "Unlock to sign the speed-up", cipher,
+                        Biometric.authenticate(activity, if (cancel) "Cancel payment" else "Speed up payment",
+                            if (cancel) "Unlock to sign the cancellation" else "Unlock to sign the speed-up", cipher,
                             onSuccess = { authed -> vm.confirmSend(authed) }, onError = { vm.toast(it) })
                     }
                 }) { Text("CONFIRM & SIGN", color = accent) }
                 is SendPhase.Sent -> TextButton(onClick = onClose) { Text("DONE", color = accent) }
                 SendPhase.Preparing, SendPhase.Broadcasting -> {}
                 else -> TextButton(onClick = {
-                    if (cpfp) vm.prepareCpfp(txid, rate.toDoubleOrNull() ?: 3.0) else vm.prepareBump(txid, rate.toDoubleOrNull() ?: 3.0)
+                    when (mode) {
+                        BumpMode.CPFP -> vm.prepareCpfp(txid, rate.toDoubleOrNull() ?: 3.0)
+                        BumpMode.CANCEL -> vm.prepareCancel(txid, rate.toDoubleOrNull() ?: 3.0)
+                        BumpMode.RBF -> vm.prepareBump(txid, rate.toDoubleOrNull() ?: 3.0)
+                    }
                 }) {
                     Text("REVIEW", color = accent)
                 }
@@ -1621,6 +1659,8 @@ internal fun TxDetailDialog(
     txid: String, accent: Color, explorer: String, status: String,
     onSpeedUp: (() -> Unit)?, onClose: () -> Unit,
     vm: WalletViewModel? = null, chain: Chain = Chain.BLAKE2B, speedUpLabel: String = "⚡ SPEED UP (RBF)",
+    /** Cancel an unconfirmed send of ours (RBF back to the wallet); null hides it. */
+    onCancel: (() -> Unit)? = null,
     /** "tx" for a transaction, "address" for one of the wallet's addresses (the explorer path). */
     kind: String = "tx",
     extra: (@Composable () -> Unit)? = null,
@@ -1678,6 +1718,9 @@ internal fun TxDetailDialog(
                 }
                 onSpeedUp?.let {
                     TextButton(onClick = it) { Text(speedUpLabel, color = accent) }
+                }
+                onCancel?.let {
+                    TextButton(onClick = it) { Text("✕ CANCEL (RBF)", color = Warn) }
                 }
             }
         },

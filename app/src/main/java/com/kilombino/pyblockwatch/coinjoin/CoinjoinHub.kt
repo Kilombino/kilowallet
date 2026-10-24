@@ -28,6 +28,7 @@ object CoinjoinHub {
     private const val PREFS = "coinjoin"
     private const val KEY_SESSIONS = "sessions"
     private const val KEY_LAST_POOL_SEEN = "last_pool_seen"
+    private const val KEY_POOLS_NOTIFIED = "pools_notified"
     private const val KEY_TEST_POOLS = "test_pools"
     const val CHANNEL = "coinjoin"
 
@@ -275,8 +276,23 @@ object CoinjoinHub {
         val ours = synchronized(this) { sessions.keys.toSet() }
         val open = fetchPools().filter { it.amount >= Protocol.MIN_AMOUNT && !it.private && it.id !in ours }
         open.maxOfOrNull { it.createdAt }?.let { prefs(ctx).edit().putLong(KEY_LAST_POOL_SEEN, it).apply() }
-        open.firstOrNull()?.let { t -> notify(ctx, t.id.hashCode(), "Coinjoin pool open now",
+        open.firstOrNull { firstNotice(ctx, it.id) }?.let { t -> notify(ctx, t.id.hashCode(), "Coinjoin pool open now",
             "${amountOf(t)} sats${kind(t)} · ${t.peers}/${t.maxPeers} people · ${t.feeRate} sat/vB") }
+    }
+
+    /**
+     * True the first time a pool is to be notified, and remembered: its creator publishes it again
+     * on every change (someone joins, a vote), with a newer time, and each of those read as a new
+     * pool. Kept three days, longer than any pool stays open.
+     */
+    private fun firstNotice(ctx: Context, poolId: String): Boolean {
+        val p = prefs(ctx)
+        val now = System.currentTimeMillis() / 1000
+        val kept = (p.getStringSet(KEY_POOLS_NOTIFIED, null) ?: emptySet())
+            .filter { (it.substringAfterLast(':').toLongOrNull() ?: 0) > now - 3 * 86400 }
+        if (kept.any { it.substringBeforeLast(':') == poolId }) return false
+        p.edit().putStringSet(KEY_POOLS_NOTIFIED, (kept + "$poolId:$now").toSet()).apply()
+        return true
     }
 
     /** For the background watcher: notify pools opened since the last look, other than ours. */
@@ -292,7 +308,7 @@ object CoinjoinHub {
             it.createdAt > last && it.id !in ours && (test || it.amount >= Protocol.MIN_AMOUNT) && !it.private
         }
         pools.maxOfOrNull { it.createdAt }?.let { p.edit().putLong(KEY_LAST_POOL_SEEN, it).apply() }
-        for (t in pools.take(3)) notify(ctx, t.id.hashCode(), "New coinjoin pool" + if (t.amount < Protocol.MIN_AMOUNT) " (test)" else "",
+        for (t in pools.asSequence().filter { firstNotice(ctx, it.id) }.take(3)) notify(ctx, t.id.hashCode(), "New coinjoin pool" + if (t.amount < Protocol.MIN_AMOUNT) " (test)" else "",
             "${amountOf(t)} sats${kind(t)} · ${t.peers}/${t.maxPeers} people · ${t.feeRate} sat/vB")
     }
 

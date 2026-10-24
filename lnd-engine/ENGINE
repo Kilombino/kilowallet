@@ -1,9 +1,9 @@
-sha256-arm64=dd871e8b33e573911df97c9a6b48f3914b3f6c8195bb5ee9b82ea226973c1169
+sha256-arm64=f319f38bdb930f34d780589790c0f89a5d55d92a4ea169f5bba1293edebbcc44
 repo=https://github.com/paulscode/lightning-fork
-tag=v0.21.4-beta-blake2b.21
-commit=eb0848bad
+tag=v0.21.4-beta-blake2b.21.1
+commit=7c8f252b1
 build=lnd-engine/build.sh
-go=1.26.8
+go=1.27.3
 gomobile=v0.0.0-20261011034528-197770444867
 ndk=27.1.12297006
 abi=arm64-v8a (x86_64 too, for the emulator; release ships arm64 only)

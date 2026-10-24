@@ -174,6 +174,11 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel, onToggleNotifications: (Bo
             refreshing = false
         }
     }
+    var showSettings by remember { mutableStateOf(false) }
+    // Settings open in place of the screen, from its top (not after everything else); back closes them.
+    val scroll = rememberScrollState()
+    LaunchedEffect(showSettings) { scroll.scrollTo(0) }
+    androidx.activity.compose.BackHandler(enabled = showSettings) { showSettings = false }
     @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
     androidx.compose.material3.pulltorefresh.PullToRefreshBox(
         isRefreshing = refreshing,
@@ -181,11 +186,10 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel, onToggleNotifications: (Bo
         modifier = Modifier.fillMaxSize(),
     ) {
     Column(
-        Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.fillMaxSize().imePadding().verticalScroll(scroll).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Spacer(Modifier.height(28.dp))
-        var showSettings by remember { mutableStateOf(false) }
         Row(verticalAlignment = Alignment.CenterVertically) {
             // The switch gets what is left once ⚙, ⏻ and the logo are placed (it never pushes them out).
             Box(Modifier.weight(1f)) { WalletModeSwitch(state, vm, accent) }
@@ -198,6 +202,14 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel, onToggleNotifications: (Bo
             QuitButton(accent)
             Spacer(Modifier.width(4.dp))
             AppLogo(34)
+        }
+
+        if (showSettings) {
+            // Settings, with the recovery words at their very end.
+            SettingsPanel(state, vm, accent, onToggleNotifications) { vm.forget() }
+            if (state.isHot) HotWordsPanel(vm, accent)
+            Spacer(Modifier.height(30.dp))
+            return@Column
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -243,14 +255,6 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel, onToggleNotifications: (Bo
             MovementsCard(cs.transactions, accent, vm.explorerFor(chain), vm, state.isHot,
                 if (chain == Chain.BLAKE2B) "sats" else "poolsats", balance = cs.total)
         if (!showSend && !showReceive && !state.isHot) WatchAddressesCard(state, vm, chain, accent)
-
-        // Settings, with the recovery words at their very end.
-        Reveal(showSettings) {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                SettingsPanel(state, vm, accent, onToggleNotifications) { vm.forget() }
-                if (state.isHot) HotWordsPanel(vm, accent)
-            }
-        }
 
         AddWidgetButton(accent)
         Spacer(Modifier.height(30.dp))

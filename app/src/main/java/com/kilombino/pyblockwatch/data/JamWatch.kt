@@ -37,7 +37,7 @@ object JamWatch {
         accounts(e).forEach { a ->
             val key = JoinMarket.parseKey(a.xpub)
             for (chainIndex in 0..1) {
-                val depth = store.usedTop(a.xpub, chainIndex) + gap
+                val depth = store.usedTop(a.xpub, chainIndex, ScriptType.P2WPKH) + gap
                 Scanner.derivedRange(key, ScriptType.P2WPKH, chainIndex, depth).forEachIndexed { i, (address, sh) ->
                     out += AddressRow(chainIndex, i, address, "m/84'/0'/${a.accountIndex}'/$chainIndex/$i", sh, jar = a.jar)
                 }
@@ -51,7 +51,7 @@ object JamWatch {
     fun noteUsed(e: JoinMarket.Export, store: Store, rows: List<AddressRow>) {
         val keys = accounts(e)
         rows.filter { it.isUsed && it.jar != null && it.chainIndex in 0..1 }.groupBy { it.jar!! to it.chainIndex }
-            .forEach { (k, rs) -> store.noteUsedTop(keys[k.first].xpub, k.second, rs.maxOf { it.index } + 1) }
+            .forEach { (k, rs) -> store.noteUsedTop(keys[k.first].xpub, k.second, rs.maxOf { it.index } + 1, ScriptType.P2WPKH) }
     }
 
     /**

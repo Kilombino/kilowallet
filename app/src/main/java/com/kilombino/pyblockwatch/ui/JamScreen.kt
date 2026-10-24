@@ -84,8 +84,12 @@ fun JamScreen(vm: WalletViewModel, jvm: JamViewModel, onToggleNotifications: (Bo
         containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
     )
 
+    // Settings open in place of the screen, from its top (not after everything else); back closes them.
+    val scroll = rememberScrollState()
+    LaunchedEffect(showSettings) { scroll.scrollTo(0) }
+    androidx.activity.compose.BackHandler(enabled = showSettings) { showSettings = false }
     Column(
-        Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.fillMaxSize().imePadding().verticalScroll(scroll).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Spacer(Modifier.height(28.dp))
@@ -100,6 +104,22 @@ fun JamScreen(vm: WalletViewModel, jvm: JamViewModel, onToggleNotifications: (Bo
             QuitButton(accent)
             Spacer(Modifier.width(4.dp))
             AppLogo(34)
+        }
+
+        if (showSettings) {
+            Panel(accent = accent) {
+                SectionLabel("JoinMarket wallet", accent)
+                Spacer(Modifier.height(6.dp))
+                Explain("Watched from Jam's export: the account keys of the five jars and your fidelity bonds, no private key. " +
+                    "Created a new bond? In Jam open Settings › View in Kilowallet (read-only) again and import it here: " +
+                    "it replaces this import with the full current set.")
+                TextButton(onClick = { reimport = true }) { Text("IMPORT AGAIN FROM JAM", color = accent) }
+                Explain("Notifications: movements like the watch-only wallet, plus a warning 7 days before a bond " +
+                    "unlocks, when it unlocks and when it no longer counts. They follow the app's notification settings.")
+                TextButton(onClick = { askForget = true }) { Text("FORGET THE JOINMARKET WALLET", color = Bad) }
+            }
+            Spacer(Modifier.height(30.dp))
+            return@Column
         }
 
         // Read-only, and obviously so.
@@ -175,19 +195,6 @@ fun JamScreen(vm: WalletViewModel, jvm: JamViewModel, onToggleNotifications: (Bo
 
         if (js.txs.isNotEmpty()) MovementsCard(js.txs, accent, vm.explorerFor(Chain.BLAKE2B), vm, isHot = false, balance = js.total)
 
-        Reveal(showSettings) {
-            Panel(accent = accent) {
-                SectionLabel("JoinMarket wallet", accent)
-                Spacer(Modifier.height(6.dp))
-                Explain("Watched from Jam's export: the account keys of the five jars and your fidelity bonds, no private key. " +
-                    "Created a new bond? In Jam open Settings › View in Kilowallet (read-only) again and import it here: " +
-                    "it replaces this import with the full current set.")
-                TextButton(onClick = { reimport = true }) { Text("IMPORT AGAIN FROM JAM", color = accent) }
-                Explain("Notifications: movements like the watch-only wallet, plus a warning 7 days before a bond " +
-                    "unlocks, when it unlocks and when it no longer counts. They follow the app's notification settings.")
-                TextButton(onClick = { askForget = true }) { Text("FORGET THE JOINMARKET WALLET", color = Bad) }
-            }
-        }
         Spacer(Modifier.height(30.dp))
     }
 }

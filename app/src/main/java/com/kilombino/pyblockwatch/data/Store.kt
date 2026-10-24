@@ -107,17 +107,32 @@ class Store(context: Context, private val profile: String = HOT) {
 
     /**
      * One past the highest used index of a branch (0 receive, 1 change) on either chain, for
-     * this xpub. Only grows: an address once used stays used.
+     * this xpub and address [type]. Only grows: an address once used stays used.
+     *
+     * Kept per type because one watch-only key can be read as bc1q or as Taproot: its bc1q
+     * addresses being used says nothing about its Taproot ones. Before 1.2.4 it was kept per
+     * key only; that old number is still read for every type but Taproot (a Taproot account
+     * used to be its own key, and a watch-only key switched to Taproot is what this fixes).
      */
-    fun usedTop(xpub: String, chainIndex: Int): Int = prefs.getInt(keyUsedTop(xpub, chainIndex), 0)
+    fun usedTop(xpub: String, chainIndex: Int, type: ScriptType): Int =
+        prefs.getInt(keyUsedTop(xpub, chainIndex, type),
+            if (type == ScriptType.P2TR) 0 else prefs.getInt(keyUsedTop(xpub, chainIndex, null), 0))
 
-    fun noteUsedTop(xpub: String, chainIndex: Int, top: Int) {
-        if (top > usedTop(xpub, chainIndex)) prefs.edit().putInt(keyUsedTop(xpub, chainIndex), top).apply()
+    /**
+     * For the background watcher, which only re-derives what was found: the most any count says,
+     * this type's or the one kept before counts were per type. Looking at a few unused addresses
+     * too costs little; missing used ones made the watcher see coins vanish ("Sent") and come back.
+     */
+    fun usedTopToWatch(xpub: String, chainIndex: Int, type: ScriptType): Int =
+        maxOf(usedTop(xpub, chainIndex, type), prefs.getInt(keyUsedTop(xpub, chainIndex, null), 0))
+
+    fun noteUsedTop(xpub: String, chainIndex: Int, top: Int, type: ScriptType) {
+        if (top > usedTop(xpub, chainIndex, type)) prefs.edit().putInt(keyUsedTop(xpub, chainIndex, type), top).apply()
     }
 
-    private fun keyUsedTop(xpub: String, chainIndex: Int) =
-        "used_top_${chainIndex}_" + com.kilombino.pyblockwatch.crypto.Hashes.sha256(xpub.toByteArray()).take(8)
-            .joinToString("") { "%02x".format(it) }
+    private fun keyUsedTop(xpub: String, chainIndex: Int, type: ScriptType?) =
+        "used_top_${chainIndex}_" + (type?.let { "${it.name}_" } ?: "") +
+            com.kilombino.pyblockwatch.crypto.Hashes.sha256(xpub.toByteArray()).take(8).joinToString("") { "%02x".format(it) }
 
     /** Last known total per chain, so the service can tell "changed" from "first run". */
     fun lastTotal(chain: Chain): Long = prefs.getLong(k(keyTotal(chain)), -1L)
@@ -249,6 +264,16 @@ class Store(context: Context, private val profile: String = HOT) {
         set(v) = prefs.edit().putString(k(KEY_SCRIPT), v.name).apply()
 
     /**
+     * Watch-only: whether [scriptType] is known to be the wallet's own and not just the default a
+     * plain `xpub` gets: a ypub/zpub says it, and so does picking it on import or in settings.
+     * Coinjoin outputs go to a watch-only wallet only then, or they could land on addresses of a
+     * type the other wallet never looks at.
+     */
+    var typeChosen: Boolean
+        get() = prefs.getBoolean(k("type_chosen"), false)
+        set(v) = prefs.edit().putBoolean(k("type_chosen"), v).apply()
+
+    /**
      * Hot wallet only: the seed's Taproot account (BIP-86, m/86'/0'/0'), next to the BIP-84 one in
      * [xpub]. Once set it is always scanned, so its coins stay visible and spendable whichever
      * kind of address [receiveTaproot] hands out. Null until Taproot is turned on.
@@ -328,7 +353,7 @@ class Store(context: Context, private val profile: String = HOT) {
 
     fun clearWallet() {
         prefs.edit().apply {
-            remove(k(KEY_XPUB)); remove(k(KEY_LABEL)); remove(k("taproot_xpub")); remove(k("receive_taproot"))
+            remove(k(KEY_XPUB)); remove(k(KEY_LABEL)); remove(k("taproot_xpub")); remove(k("receive_taproot")); remove(k("type_chosen"))
             if (profile == JM) {
                 remove(k("export"))
                 prefs.all.keys.filter { it.startsWith(k("alert_")) || it.startsWith(k("conft_")) || it.startsWith(k("full_look_")) }.forEach { remove(it) }

@@ -32,10 +32,14 @@ object Destination {
     fun options(ctx: Context, type: ScriptType): List<Kind> {
         val out = mutableListOf(Kind.HOT)
         val watch = Store(ctx, Store.WATCH)
-        if (watch.xpub != null && watch.scriptType == type) out += Kind.WATCH
+        if (watch.xpub != null && watch.scriptType == type && typeKnown(watch)) out += Kind.WATCH
         if (type == ScriptType.P2WPKH && jamExport(ctx) != null) out += Kind.JAM
         return out
     }
+
+    /** The watch-only wallet's address type is its own, not a plain xpub's default (see [Store.typeChosen]). */
+    fun typeKnown(watch: Store): Boolean = watch.typeChosen ||
+        watch.xpub?.let { com.kilombino.pyblockwatch.data.Scanner.scriptTypeOf(it) }.let { it == ScriptType.P2WPKH || it == ScriptType.P2SH_P2WPKH }
 
     private fun jamExport(ctx: Context): JoinMarket.Export? =
         Store(ctx, Store.JM).jmExport?.let { runCatching { JoinMarket.parse(it) }.getOrNull() }
@@ -62,14 +66,64 @@ object Destination {
      * cancelled round leaves no gap for the other wallet's scan to stumble on. Network: call it off
      * the main thread. Throws with a readable message when that wallet can't take them.
      */
-    fun scripts(ctx: Context, kind: Kind, type: ScriptType, n: Int): List<ByteArray> {
+    fun scripts(ctx: Context, kind: Kind, type: ScriptType, n: Int): List<ByteArray> =
+        pick(ctx, kind, type, n).let { (account, idx) -> idx.map { i -> Address.scriptPubKey(Bip32.derivePath(account, 0, i).pubkey(), type) } }
+
+    /** An address a round's mixed output goes to, with its place in that wallet, to check it against the wallet itself. */
+    data class Shown(val address: String, val path: String)
+
+    /**
+     * The addresses [scripts] would pick now for [kind], to compare with the other wallet before
+     * joining (the same ones, unless something reaches them first). Network: off the main thread.
+     */
+    fun preview(ctx: Context, kind: Kind, type: ScriptType, n: Int): List<Shown> =
+        pick(ctx, kind, type, n).let { (account, idx) ->
+            idx.map { i -> Shown(Address.encode(Bip32.derivePath(account, 0, i).pubkey(), type), pathOf(kind, 0, i)) }
+        }
+
+    /**
+     * Where a round's [scripts] are in [kind]'s account, found by deriving its receive and change
+     * addresses (no network). One not found (e.g. the wallet was changed since) shows without a path.
+     */
+    fun describe(ctx: Context, kind: Kind, type: ScriptType, scripts: List<ByteArray>): List<Shown> {
+        val account = accountOf(ctx, kind, type)
+        val want = scripts.map { it.toList() }.toMutableSet()
+        val found = HashMap<List<Byte>, Shown>()
+        if (account != null) for (branch in 0..1) for (i in 0 until SEARCH) {
+            if (want.isEmpty()) break
+            val pub = Bip32.derivePath(account, branch, i).pubkey()
+            val sp = Address.scriptPubKey(pub, type).toList()
+            if (want.remove(sp)) found[sp] = Shown(Address.encode(pub, type), pathOf(kind, branch, i))
+        }
+        return scripts.map { sp -> found[sp.toList()] ?: Shown(sp.toHex(), "?") }
+    }
+
+    /** [kind]'s account key for [type], if that wallet is here. */
+    private fun accountOf(ctx: Context, kind: Kind, type: ScriptType): Bip32.ExtendedPubKey? = runCatching {
+        when (kind) {
+            Kind.HOT -> Store(ctx, Store.HOT).let { h -> if (type == ScriptType.P2TR) h.taprootXpub else h.xpub }?.let { Bip32.parseExtendedPubKey(it) }
+            Kind.WATCH -> Store(ctx, Store.WATCH).xpub?.let { Bip32.parseExtendedPubKey(it) }
+            Kind.JAM -> jamExport(ctx)?.let { JoinMarket.parseKey(it.xpubs[0]) }
+        }
+    }.getOrNull()
+
+    /**
+     * The path as that wallet shows it: Jam's Apricot is jar 0 (m/84'/0'/0'); the others from
+     * their account key, which is how Sparrow-like wallets list them too.
+     */
+    private fun pathOf(kind: Kind, branch: Int, i: Int): String =
+        if (kind == Kind.JAM) "m/84'/0'/0'/$branch/$i" else "…/$branch/$i"
+
+    /** Checks [kind] can take [type]'s outputs and walks its receive branch for [n] unused indexes. */
+    private fun pick(ctx: Context, kind: Kind, type: ScriptType, n: Int): Pair<Bip32.ExtendedPubKey, List<Int>> {
         require(kind != Kind.HOT) { "the hot wallet's addresses come from its own seed" }
         val (account, from) = when (kind) {
             Kind.WATCH -> {
                 val w = Store(ctx, Store.WATCH)
                 val xpub = w.xpub ?: error("There is no watch-only wallet any more.")
                 require(w.scriptType == type) { "The watch-only wallet's addresses are not of this pool's type." }
-                Bip32.parseExtendedPubKey(xpub) to w.usedTop(xpub, 0)
+                require(typeKnown(w)) { "Choose the watch-only wallet's address type in its settings first." }
+                Bip32.parseExtendedPubKey(xpub) to w.usedTop(xpub, 0, type)
             }
             Kind.JAM -> {
                 val e = jamExport(ctx) ?: error("There is no JoinMarket wallet any more.")
@@ -84,8 +138,8 @@ object Destination {
         val c = ElectrumClient(endpoint, store.pinnedFingerprint(endpoint))
         try {
             c.connect()
-            return pickUnused(n, from, held,
-                derive = { i -> Address.scriptPubKey(Bip32.derivePath(account, 0, i).pubkey(), type) },
+            val derive = { i: Int -> Address.scriptPubKey(Bip32.derivePath(account, 0, i).pubkey(), type) }
+            return account to pickUnusedIndexes(n, from, held, derive,
                 hasHistory = { sp -> c.history(Address.electrumScriptHash(sp)).isNotEmpty() })
         } finally { c.close() }
     }
@@ -97,7 +151,12 @@ object Destination {
      * would go further than [GAP] past the last used address: the wallet's scan would not find them.
      */
     internal fun pickUnused(n: Int, from: Int, held: Set<List<Byte>>, derive: (Int) -> ByteArray,
-                            hasHistory: (ByteArray) -> Boolean): List<ByteArray> {
+                            hasHistory: (ByteArray) -> Boolean): List<ByteArray> =
+        pickUnusedIndexes(n, from, held, derive, hasHistory).map(derive)
+
+    /** As [pickUnused], the indexes of the addresses picked. */
+    internal fun pickUnusedIndexes(n: Int, from: Int, held: Set<List<Byte>>, derive: (Int) -> ByteArray,
+                                   hasHistory: (ByteArray) -> Boolean): List<Int> {
         var i = from
         var lastUsed = from - 1
         var empty = 0
@@ -105,15 +164,14 @@ object Destination {
             if (hasHistory(derive(i))) { lastUsed = i; empty = 0 } else empty++
             i++
         }
-        val out = mutableListOf<ByteArray>()
+        val out = mutableListOf<Int>()
         var j = lastUsed + 1
         while (out.size < n) {
             require(j - lastUsed <= GAP) {
                 "That wallet has too many addresses waiting for rounds: finish or cancel some first, " +
                     "or its own scan would not see the next ones."
             }
-            val sp = derive(j)
-            if (sp.toList() !in held) out += sp
+            if (derive(j).toList() !in held) out += j
             j++
         }
         return out
@@ -121,15 +179,35 @@ object Destination {
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("coinjoin_dest", Context.MODE_PRIVATE)
 
+    /**
+     * Which wallet of that kind it is, as the card shows it: the watch-only wallet's name, else the
+     * start of its key; for Jam, the start of Apricot's key. Changing the watch-only wallet later
+     * leaves a round already going on the old one, so the card must say which.
+     */
+    fun which(ctx: Context, kind: Kind): String? = when (kind) {
+        Kind.HOT -> null
+        Kind.WATCH -> Store(ctx, Store.WATCH).let { w -> w.label.trim().ifEmpty { null } ?: w.xpub?.take(12)?.plus("…") }
+        Kind.JAM -> jamExport(ctx)?.xpubs?.get(0)?.take(12)?.plus("…")
+    }
+
     /** Notes on this phone (only) where a pool's mixed outputs go, for its card. The hot wallet is not noted. */
     fun remember(ctx: Context, poolId: String, kind: Kind) {
-        if (kind != Kind.HOT) prefs(ctx).edit().putString(poolId, kind.name).apply()
+        if (kind != Kind.HOT) prefs(ctx).edit().putString(poolId, kind.name + "|" + (which(ctx, kind) ?: "")).apply()
     }
 
     /** Where [poolId]'s mixed outputs go: [Kind.HOT] unless noted otherwise. */
     fun of(ctx: Context, poolId: String): Kind =
-        prefs(ctx).getString(poolId, null)?.let { n -> Kind.entries.firstOrNull { it.name == n } } ?: Kind.HOT
+        prefs(ctx).getString(poolId, null)?.substringBefore('|')?.let { n -> Kind.entries.firstOrNull { it.name == n } } ?: Kind.HOT
+
+    /** That wallet's name or key start, as noted when the round began (older notes have none). */
+    fun whichOf(ctx: Context, poolId: String): String? =
+        prefs(ctx).getString(poolId, null)?.substringAfter('|', "")?.ifEmpty { null }
 
     /** The gap limit of Kilowallet's own scan and of JoinMarket-NG (both 20). */
     private const val GAP = 20
+
+    /** How far [describe] looks for a round's address on each branch. */
+    private const val SEARCH = 1000
+
+    private fun ByteArray.toHex() = joinToString("") { "%02x".format(it) }
 }

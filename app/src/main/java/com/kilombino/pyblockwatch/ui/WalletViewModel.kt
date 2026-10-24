@@ -48,6 +48,8 @@ data class SendDraft(
     /** Set when this draft replaces an unconfirmed send (RBF): its txid and the fee it paid. */
     val replaces: String? = null,
     val replacedFee: Long = 0,
+    /** A cancellation (RBF): [replaces] is sent back to this wallet instead of to its recipients. */
+    val cancels: Boolean = false,
     /** More recipients after the first, in output order (address as typed, sats). */
     val extra: List<Pair<String, Long>> = emptyList(),
     /** The BIP-353 handle (user@domain) the first recipient was resolved from, if any. */
@@ -382,7 +384,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 val unconf = rows.sumOf { it.unconfirmed }
                 ws.setLastBalance(chain, conf, unconf)
                 if (ws.notificationsEnabled) {
-                    BalanceWatch.evaluate(store, notifier, chain, conf, unconf, doneTxs)
+                    BalanceWatch.evaluate(ws, nf, chain, conf, unconf, doneTxs)
                 }
                 updateIf(xpub, chain) {
                     it.copy(rows = rows, transactions = doneTxs, height = tip, phase = ScanPhase.Complete, stale = false)
@@ -404,7 +406,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun isRefreshing(chain: Chain): Boolean = refreshJobs[chain]?.isActive == true
 
     /** Validate and store a pasted extended public key, then scan both chains. */
-    fun setXpub(raw: String, label: String) {
+    fun setXpub(raw: String, label: String, picked: ScriptType? = null) {
         val trimmed = raw.trim().replace("\\s".toRegex(), "")
         val type = Scanner.scriptTypeOf(trimmed)
         if (type == null) {
@@ -427,11 +429,12 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         // Default derivation: honour a specific prefix (ypub → nested, zpub → native),
         // but a plain xpub defaults to BIP-84 native segwit rather than legacy. The user
         // can still switch it afterwards with the type selector.
-        val chosen = when (type) {
+        val chosen = picked ?: when (type) {
             ScriptType.P2SH_P2WPKH, ScriptType.P2WPKH -> type
             else -> ScriptType.P2WPKH
         }
         store.scriptType = chosen
+        store.typeChosen = picked != null
         _state.update {
             it.copy(
                 xpub = trimmed, label = label, scriptType = chosen, inputError = null,
@@ -456,6 +459,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Change the address type (BIP-84/49/44/86) and re-scan both chains. */
     fun setScriptType(type: ScriptType) {
+        // Picking it, even the one already shown, says it is the watch-only wallet's own type.
+        if (!_state.value.isHot) store.typeChosen = true
         if (type == store.scriptType) return
         // The hot wallet's xpub is m/84'/0'/0': any other type would show addresses it can't sign for.
         if (_state.value.isHot && type != ScriptType.P2WPKH) return
@@ -961,11 +966,14 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun coinjoinNotify(): Boolean = store.coinjoinNotify
     fun coinjoinAsked(): Boolean = store.coinjoinAsked
 
-    /** The answer to the coinjoin explainer: yes turns the tab and pool notifications on. */
-    fun answerCoinjoin(accept: Boolean) {
+    /**
+     * The answer to the coinjoin explainer: yes turns the tab and pool notifications on; with
+     * [notify] false the tab opens without those notifications.
+     */
+    fun answerCoinjoin(accept: Boolean, notify: Boolean = accept) {
         store.coinjoinAsked = true
         store.coinjoinEnabled = accept
-        setCoinjoinNotify(accept)
+        setCoinjoinNotify(accept && notify)
     }
 
     fun setCoinjoinNotify(on: Boolean) {
@@ -1490,6 +1498,55 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ------------------------------------------------------------------ hot wallet: cancel (RBF)
+
+    /**
+     * Draft a cancellation of unconfirmed send [txid]: a replacement that spends the same coins
+     * into one fresh address of this wallet (of the account they came from), so the recipients
+     * get nothing. Like a speed-up it must pay the old fee plus 1 sat/vB of its own size, and at
+     * least [ratePerVb]. If the original confirms first, the cancellation is simply refused.
+     */
+    fun prepareCancel(txid: String, ratePerVb: Double) {
+        val chain = _state.value.selected
+        val cs = _state.value.chains[chain] ?: return
+        _state.update { it.copy(sendPhase = SendPhase.Preparing) }
+        viewModelScope.launch {
+            runCatching {
+                val endpoint = store.endpoint(chain)
+                val client = com.kilombino.pyblockwatch.chain.ElectrumClient(endpoint, store.pinnedFingerprint(endpoint))
+                val draft = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        client.connect()
+                        val tx = com.kilombino.pyblockwatch.crypto.TxParse.parse(client.transaction(txid))
+                        val byHash = cs.rows.associateBy { it.scriptHash }
+                        val inputs = tx.inputs.map { i ->
+                            val prev = com.kilombino.pyblockwatch.crypto.TxParse.parse(client.transaction(i.txid)).outputs[i.vout]
+                            val row = byHash[com.kilombino.pyblockwatch.crypto.Address.electrumScriptHash(prev.scriptPubKey)]
+                                ?: error("This transaction spends coins that are not in this wallet: it can't be cancelled from here.")
+                            com.kilombino.pyblockwatch.data.Scanner.SpendableUtxo(i.txid, i.vout, prev.value, row.chainIndex, row.index, 0, row.type)
+                        }
+                        val oldFee = inputs.sumOf { it.value } - tx.outputs.sumOf { it.value }
+                        // Back to the account the coins came from (the first one's), at a fresh change address.
+                        val tag = inputs.first().type
+                        val to = changeScriptPubKey(nextUnused(1, tag), tag)
+                        val newFee = maxOf(
+                            estimateFee(inputs.size, listOf(to), ratePerVb.coerceIn(0.1, 1000.0), taprootIn(inputs)),
+                            oldFee + estimateFee(inputs.size, listOf(to), 1.0, taprootIn(inputs)) + 1,
+                        )
+                        val back = inputs.sumOf { it.value } - newFee
+                        require(back >= dustFor(to)) { "The coins (${inputs.sumOf { it.value }} sats) can't cover a $newFee-sat fee." }
+                        SendDraft(scriptToAddress(to), back, newFee, 0, inputs,
+                            listOf(com.kilombino.pyblockwatch.crypto.TxBuilder.Output(to, back)), chain,
+                            replaces = txid, replacedFee = oldFee, cancels = true)
+                    } finally { client.close() }
+                }
+                _state.update { it.copy(sendPhase = SendPhase.Review(draft)) }
+            }.onFailure { e ->
+                _state.update { it.copy(sendPhase = SendPhase.Failed(e.message ?: "Could not prepare the cancellation.")) }
+            }
+        }
+    }
+
     /** A readable address for an output script (bc1q/bc1p/1/3), for the review screen. */
     private fun scriptToAddress(spk: ByteArray): String = when {
         spk.size == 22 && spk[0] == 0.toByte() -> com.kilombino.pyblockwatch.crypto.Bech32.encodeSegwit("bc", 0, spk.copyOfRange(2, 22))
@@ -1594,8 +1651,12 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     dustFor(o.scriptPubKey).let { d -> require(o.value >= d) { "Recipient ${i + 2}: enter at least $d sats for that kind of address." } }
                 }
 
+                // A perfect coin's change goes to the pool's account, like the coin itself: change
+                // of another type would stand out as the change, and isn't where the user expects it.
+                val exactTag = exactPending?.takeIf { exactFor != null }
+                val changeTag = if (exactTag != null) exactTag.second else newTag
                 val changeScript = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                    changeScriptPubKey(nextChangeIndex(cs.rows))
+                    changeScriptPubKey(nextUnused(1, changeTag), changeTag)
                 }
                 val withChange = listOf(toScript) + extraOuts.map { it.scriptPubKey } + changeScript
                 val noChange = listOf(toScript) + extraOuts.map { it.scriptPubKey }
@@ -1791,6 +1852,26 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun nextReceiveIndex(): Int = nextUnused(0)
 
+    /** A receive address past the last used one: [reserved] when a coinjoin round (or a perfect coin) holds it. */
+    data class ReceiveSlot(val index: Int, val address: String, val path: String, val reserved: Boolean)
+
+    /**
+     * Every receive address from just past the last used one to [ahead] past the next one handed
+     * out, so none is hidden: those in between are held by coinjoin rounds going to this wallet,
+     * or were counted as used before. At most 30.
+     */
+    fun receiveSlots(ahead: Int = 5): List<ReceiveSlot> {
+        val lastUsed = _state.value.chains.values.flatMap { it.rows }
+            .filter { it.chainIndex == 0 && it.type == newTag && it.isUsed }.maxOfOrNull { it.index } ?: -1
+        val next = nextReceiveIndex()
+        val held = runCatching { com.kilombino.pyblockwatch.coinjoin.Destination.reserved(getApplication()) }.getOrDefault(emptySet())
+        return (lastUsed + 1 until next + ahead).take(30).mapNotNull { i ->
+            val (addr, path) = receiveAddress(i) ?: return@mapNotNull null
+            val sp = runCatching { com.kilombino.pyblockwatch.crypto.Address.decodeToScriptPubKey(addr).toList() }.getOrNull()
+            ReceiveSlot(i, addr, path, sp != null && sp in held)
+        }
+    }
+
     /**
      * Receive indexes of the account new addresses come from that hold nothing and never did:
      * the ones skipped below the last used address (handed out and never paid) and [ahead] past
@@ -1861,7 +1942,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     private fun nextUnused(chainIndex: Int, tag: ScriptType? = newTag): Int {
         val seen = _state.value.chains.values.flatMap { it.rows }.filter { it.chainIndex == chainIndex && it.type == tag }
             .maxOfOrNull { it.index }?.plus(1) ?: 0
-        val top = maxOf(seen, xpubFor(tag)?.let { store.usedTop(it, chainIndex) } ?: 0)
+        val top = maxOf(seen, xpubFor(tag)?.let { store.usedTop(it, chainIndex, typeFor(tag)) } ?: 0)
         // Addresses a coinjoin seat holds (native SegWit pools take bc1q ones, Taproot pools bc1p).
         return maxOf(top, coinjoinReservedTop(chainIndex, top, tag))
     }
@@ -1914,7 +1995,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         for (tag in listOf(null, ScriptType.P2TR)) {
             val xpub = xpubFor(tag) ?: continue
             for (ci in 0..1) rows.filter { it.chainIndex == ci && it.type == tag }.maxOfOrNull { it.index }
-                ?.let { store.noteUsedTop(xpub, ci, it + 1) }
+                ?.let { store.noteUsedTop(xpub, ci, it + 1, typeFor(tag)) }
         }
     }
 
@@ -1997,6 +2078,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 _state.update { it.copy(sendPhase = SendPhase.Sent(txid)) }
                 // A coin of a waiting pool went: give up that seat, so the pool doesn't wait on it.
                 com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.leavePools(getApplication(), draft.leavesPools)
+                // A cancelled payment that made a perfect coin: the coin is gone, and its pool with it.
+                if (draft.cancels) draft.replaces?.let { com.kilombino.pyblockwatch.coinjoin.PerfectCoin.cancel(getApplication(), it) }
                 exact?.let { (i, tag, value) -> exactKey?.let { k -> runCatching { expectPerfectCoin(txid, draft, i, tag, value, k) } } }
                 exactFor = null; exactPending = null
                 refresh(chain)
@@ -2316,7 +2399,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     "Not enough coins that were never mixed to make ${target} sats (mixed outputs are kept apart)."
                 }
                 // The pool's coin is of the pool's type, whichever kind of address the wallet hands out.
-                val i = nextUnused(0, tag); store.noteUsedTop(xpub, 0, i + 1)
+                val i = nextUnused(0, tag); store.noteUsedTop(xpub, 0, i + 1, typeFor(tag))
                 val to = receiveAddress(i, tag)?.first ?: error("no address")
                 exactPending = Triple(i, tag, target)
                 _state.update { it.copy(utxos = (coins + selected).distinctBy { c -> "${c.txid}:${c.vout}" }, utxosChain = Chain.BLAKE2B) }
@@ -2344,7 +2427,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         // To another wallet (found before the payment), or fresh addresses of this one.
         val mixes = f.destScripts?.takeIf { it.size == outputs } ?: run {
             val mixIndex = maxOf(nextUnused(0, tag), index + 1)
-            store.noteUsedTop(xpub, 0, mixIndex + outputs)
+            store.noteUsedTop(xpub, 0, mixIndex + outputs, type)
             (0 until outputs).map { j ->
                 com.kilombino.pyblockwatch.crypto.Address.scriptPubKey(
                     com.kilombino.pyblockwatch.crypto.Bip32.derivePath(parsed, 0, mixIndex + j).pubkey(), type)
@@ -2352,7 +2435,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         }
         // One past what the payment itself may have used for its own change.
         val changeIndex = nextUnused(1, tag) + 1
-        store.noteUsedTop(xpub, 1, changeIndex + 1)
+        store.noteUsedTop(xpub, 1, changeIndex + 1, type)
         com.kilombino.pyblockwatch.coinjoin.PerfectCoin.expect(getApplication(),
             com.kilombino.pyblockwatch.coinjoin.PerfectCoin.Waiting(txid, vout, value, type,
                 "m/${Scanner.purposeFor(type)}'/0'/0'/0/$index", script, mixes, changeScriptPubKey(changeIndex, tag),
@@ -2371,7 +2454,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 val parsed = com.kilombino.pyblockwatch.crypto.Bip32.parseExtendedPubKey(xpub)
                 (0..1).any { ci ->
                     val branch = com.kilombino.pyblockwatch.crypto.Bip32.deriveChild(parsed, ci)
-                    (0 until store.usedTop(xpub, ci) + store.gapLimit).any { i ->
+                    (0 until store.usedTop(xpub, ci, typeFor(tag)) + store.gapLimit).any { i ->
                         com.kilombino.pyblockwatch.crypto.Address.encode(
                             com.kilombino.pyblockwatch.crypto.Bip32.deriveChild(branch, i).pubkey(), typeFor(tag)) == a
                     }

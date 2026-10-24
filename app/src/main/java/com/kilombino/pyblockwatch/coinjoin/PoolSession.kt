@@ -484,7 +484,8 @@ class PoolSession(private val env: Env, private val s: State) {
         val placed = if (terms.v3) seat.copy(tokenHash = th, joinPub = from, proofs = proofs) else seat.copy(tokenHash = th)
         s.tokens[th] = token; s.joinPubs[from] = th; s.seats.add(placed)
         val roster = roster()
-        direct(from, JSONObject().put("type", "welcome").put("pool_secret", s.poolSecret).put("token", token)
+        // Always 64 hex chars: pools made before 1.2.4 stored the key without leading zeros.
+        direct(from, JSONObject().put("type", "welcome").put("pool_secret", s.poolSecret?.padStart(64, '0')).put("token", token)
             .put("seq", s.rosterSeq), replyKey!!)
         creatorChannel(roster)
         announce()
@@ -1126,10 +1127,10 @@ class PoolSession(private val env: Env, private val s: State) {
                     // One output each stays v3, which every v3 wallet can join; more need v4.
                     minPeers, private, if (outputs > 1) Protocol.V4 else Protocol.V3, script, maxInputs, NostrEvent.pubOf(ck),
                     blind.public.encode(), outputs),
-                    k.toString(16), ck.toString(16), blind.encodePrivate())
+                    k.toString(16).padStart(64, '0'), ck.toString(16).padStart(64, '0'), blind.encodePrivate())
             }
             return NewPool(Protocol.Terms(id, NostrEvent.pubOf(k), amount, feeRate, maxPeers, now + hours * 3600L, "open", 1, now,
-                minPeers, private, if (v1) Protocol.V1 else Protocol.VERSION, script, maxInputs), k.toString(16))
+                minPeers, private, if (v1) Protocol.V1 else Protocol.VERSION, script, maxInputs), k.toString(16).padStart(64, '0'))
         }
     }
 }

@@ -3,11 +3,13 @@ package com.kilombino.pyblockwatch.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.TextButton
 import com.kilombino.pyblockwatch.ui.i18n.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -18,10 +20,12 @@ import com.kilombino.pyblockwatch.coinjoin.Protocol
 /**
  * What coinjoin is, before using it: shown once to a new spending wallet, and whenever the
  * COINJOIN tab is opened without having accepted it. Accepting turns on the tab and the
- * notifications of open pools (both can be switched off in settings).
+ * notifications of open pools (both can be switched off in settings); [onLookOnly], when given,
+ * opens the tab without those notifications.
  */
 @Composable
-fun CoinjoinIntro(accent: Color, onAccept: () -> Unit, onDecline: () -> Unit, declineLabel: String = "NO THANKS") {
+fun CoinjoinIntro(accent: Color, onAccept: () -> Unit, onDecline: () -> Unit, declineLabel: String = "NO THANKS",
+                  onLookOnly: (() -> Unit)? = null) {
     Panel(accent = accent) {
         SectionLabel("Coinjoin · mix your coins", accent)
         Spacer(Modifier.height(8.dp))
@@ -46,6 +50,9 @@ fun CoinjoinIntro(accent: Color, onAccept: () -> Unit, onDecline: () -> Unit, de
                 shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text(declineLabel) }
             Button(onClick = onAccept, colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
                 shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text("YES, NOTIFY ME") }
+        }
+        if (onLookOnly != null) TextButton(onClick = onLookOnly, modifier = Modifier.fillMaxWidth()) {
+            Text("OPEN WITHOUT NOTIFICATIONS", color = accent)
         }
     }
 }
