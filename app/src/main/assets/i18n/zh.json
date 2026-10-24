@@ -2244,5 +2244,7 @@
 "vote": "投票",
 "signing": "签名中",
 "{0} people": "{0} 人",
-"Together they add up to {0} sats: a pool needs at least {1} sats in all.": "合计 {0} sats：一个池总共至少需要 {1} sats。"
+"Together they add up to {0} sats: a pool needs at least {1} sats in all.": "合计 {0} sats：一个池总共至少需要 {1} sats。",
+"CONTINUE WITH YOUR COIN": "用你的币继续",
+"CONTINUE WITH YOUR {0} COINS": "用你的 {0} 枚币继续"
 }

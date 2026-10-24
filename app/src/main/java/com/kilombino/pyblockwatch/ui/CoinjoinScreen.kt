@@ -852,7 +852,10 @@ private fun CreatePool(
                 shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text(if (dests.size > 1) "CONTINUE" else "OPEN THE POOL") }
             else Button(onClick = { pickCoin = true }, enabled = error == null,
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
-                shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text("CHOOSE COINS") }
+                shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
+                // Coins ticked in SEND already: the picker opens with them ticked, only to confirm.
+                Text(pay?.coins?.size?.takeIf { it > 0 }?.let { if (it == 1) "CONTINUE WITH YOUR COIN" else "CONTINUE WITH YOUR $it COINS" } ?: "CHOOSE COINS")
+            }
         }
     }
 }

@@ -2256,5 +2256,7 @@
 "vote": "vote",
 "signing": "signature",
 "{0} people": "{0} personnes",
-"Together they add up to {0} sats: a pool needs at least {1} sats in all.": "Ensemble ils font {0} sats : un pool demande au moins {1} sats au total."
+"Together they add up to {0} sats: a pool needs at least {1} sats in all.": "Ensemble ils font {0} sats : un pool demande au moins {1} sats au total.",
+"CONTINUE WITH YOUR COIN": "CONTINUER AVEC TA PIÈCE",
+"CONTINUE WITH YOUR {0} COINS": "CONTINUER AVEC TES {0} PIÈCES"
 }

@@ -2256,5 +2256,7 @@
 "vote": "votación",
 "signing": "firmando",
 "{0} people": "{0} personas",
-"Together they add up to {0} sats: a pool needs at least {1} sats in all.": "Juntos suman {0} sats: un pool necesita al menos {1} sats en total."
+"Together they add up to {0} sats: a pool needs at least {1} sats in all.": "Juntos suman {0} sats: un pool necesita al menos {1} sats en total.",
+"CONTINUE WITH YOUR COIN": "SEGUIR CON TU MONEDA",
+"CONTINUE WITH YOUR {0} COINS": "SEGUIR CON TUS {0} MONEDAS"
 }
