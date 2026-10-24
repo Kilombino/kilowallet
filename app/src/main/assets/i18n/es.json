@@ -1854,7 +1854,6 @@
 "{0}:{1}, meant for emergencies.": "{0}:{1}, pensado para emergencias.",
 "• Each person pays their own share of the fee.\n": "• Cada persona paga su parte de la comisión.\n",
 "• Signed so it is valid only on BTC, never on the spamchain.": "• Firmado para que solo valga en BTC, nunca en la spamchain.",
-"• Someone opens a pool (from {0} sats to 1 BTC) and ": "• Alguien abre un pool (de {0} sats a 1 BTC) y ",
 "• With enough people in, anyone asks to close and the rest accept.\n": "• Cuando hay gente suficiente, cualquiera pide cerrar y los demás aceptan.\n",
 "• Your wallet checks the transaction and you sign with your fingerprint. Nobody holds your ": "• Tu monedero comprueba la transacción y tú firmas con tu huella. Nadie guarda tus ",
 "← back to wallet": "← volver al monedero",
@@ -2276,5 +2275,9 @@
 "Over Tor when it is already running, otherwise over https (cjbot.kilombino.com): the bot's server sees this phone's address, as Telegram already does.": "Por Tor cuando ya está en marcha, y si no por https (cjbot.kilombino.com): el servidor del bot ve la dirección de este teléfono, como ya hace Telegram.",
 "each pool when it ends. The app talks to it over Tor; turning \"Only over Tor\" off lets it use https from your IP when Tor isn't running (Telegram already sees it). If that is too much, leave this off: the app's own notifications already tell you everything.": "cada pool cuando termina. La app habla con él por Tor; si apagas \"Solo por Tor\", puede usar https desde tu IP cuando Tor no está en marcha (Telegram ya la ve). Si te parece demasiado, déjalo apagado: las notificaciones de la propia app ya te lo cuentan todo.",
 "Could not reach the bot to check whether you pressed Start in @{0}: trying again.": "No se pudo llegar al bot para comprobar si pulsaste Start en @{0}: se vuelve a intentar.",
-"Checking with @{0}…": "Comprobando con @{0}…"
+"Checking with @{0}…": "Comprobando con @{0}…",
+"• Someone opens a pool (from {0} sats each to 1 BTC per output) and ": "• Alguien abre un pool (desde {0} sats por persona hasta 1 BTC por salida) y ",
+"These coins make {0} sats in all: a pool takes at least {1} each, and {2} per output.": "Estas monedas dan {0} sats en total: un pool pide al menos {1} por persona y {2} por salida.",
+"Amount per output: {0} to {1} sats (1 BTC).": "Importe por salida: de {0} a {1} sats (1 BTC).",
+"{0} × {1} = {2} sats each: a pool takes at least {3} each in all.": "{0} × {1} = {2} sats por persona: un pool pide al menos {3} por persona en total."
 }

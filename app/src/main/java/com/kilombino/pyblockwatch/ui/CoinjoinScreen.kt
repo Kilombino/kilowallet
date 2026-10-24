@@ -294,13 +294,13 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
         PoolSession.Phase.CONFIRMED, PoolSession.Phase.BROADCAST) }.map { it.poolId }.toSet() +
         // A perfect coin being made for a pool: it is already in progress, not one to join again.
         waitingPerfect.mapNotNull { it.poolId }
-    val shown = pools.orEmpty().filter { it.id !in ours && (testPools || it.amount >= Protocol.MIN_AMOUNT) }
+    val shown = pools.orEmpty().filter { it.id !in ours && (testPools || !Protocol.isTest(it)) }
     if (pools != null && shown.isEmpty()) Explain("No open pools right now. Open one and others will be notified.")
     shown.forEach { t ->
         Panel(accent = accent) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text((if (t.private) "🔒 " else "") + "${poolAmount(t)} sats" + if (t.amount < Protocol.MIN_AMOUNT) "  · TEST" else "",
+                    Text((if (t.private) "🔒 " else "") + "${poolAmount(t)} sats" + if (Protocol.isTest(t)) "  · TEST" else "",
                         style = MaterialTheme.typography.titleMedium, color = TextMain)
                     Text(poolTypeLine(t), style = MaterialTheme.typography.bodySmall, color = accent)
                     Text("${t.peers}/${t.maxPeers} people (min ${t.minPeers}) · ${t.feeRate} sat/vB · closes in ${remaining(t.expiresAt)}",
@@ -614,9 +614,10 @@ private fun CreatePool(
     var hoursText by remember { mutableStateOf("6") }
     var pickCoin by remember { mutableStateOf(false) }
     var choosingDest by remember { mutableStateOf(false) }
+    // What each person puts in, in all (amount × outputs); each output at least TEST_MIN_AMOUNT.
     val minAmount = if (allowTest) Protocol.TEST_MIN_AMOUNT else Protocol.MIN_AMOUNT
     // v5: the payments' total split for the others: the outputs asked for when it splits evenly, else one.
-    val split = payV5?.let { Protocol.v5Split(it.sum(), outputsText.toIntOrNull() ?: 1, minAmount) }
+    val split = payV5?.let { Protocol.v5Split(it.sum(), outputsText.toIntOrNull() ?: 1) }
     val outputs = split?.second ?: outputsText.toIntOrNull()
     val rate = rateText.replace(',', '.').toDoubleOrNull()
     val peers = peersText.toIntOrNull()
@@ -640,12 +641,14 @@ private fun CreatePool(
         fromCoins && picked.isEmpty() -> "Tick the coins to put in."
         fromCoins && (maxInputs == null || maxInputs !in 1..Protocol.MAX_INPUTS) -> "Coins per person: 1 to ${Protocol.MAX_INPUTS}."
         fromCoins && picked.size > maxInputs!! -> "You ticked ${picked.size} coins: set the most coins per person to at least ${picked.size}."
-        fromCoins && (amount == null || amount < minAmount) ->
-            "These coins make ${groupSats(amount ?: 0)} sats per output: a pool takes at least ${groupSats(minAmount)}."
+        fromCoins && (amount == null || amount < Protocol.TEST_MIN_AMOUNT || amount * outputs!! < minAmount) ->
+            "These coins make ${groupSats(maxOf(0L, amount ?: 0L) * outputs!!)} sats in all: a pool takes at least ${groupSats(minAmount)} each, and ${groupSats(Protocol.TEST_MIN_AMOUNT)} per output."
         fromCoins && amount!! > Protocol.MAX_AMOUNT ->
             "These coins make ${groupSats(amount)} sats per output: a pool takes at most ${groupSats(Protocol.MAX_AMOUNT)} (1 BTC). Tick fewer coins or give more outputs."
-        amount == null || amount < minAmount || amount > Protocol.MAX_AMOUNT ->
-            "Amount: ${groupSats(minAmount)} to ${groupSats(Protocol.MAX_AMOUNT)} sats (1 BTC)."
+        amount == null || amount < Protocol.TEST_MIN_AMOUNT || amount > Protocol.MAX_AMOUNT ->
+            "Amount per output: ${groupSats(Protocol.TEST_MIN_AMOUNT)} to ${groupSats(Protocol.MAX_AMOUNT)} sats (1 BTC)."
+        outputs != null && amount * outputs < minAmount ->
+            "${groupSats(amount)} × $outputs = ${groupSats(amount * outputs)} sats each: a pool takes at least ${groupSats(minAmount)} each in all."
         rate == null || rate < 1.0 || rate > 500.0 -> "Fee: 1 to 500 sat/vB."
         peers == null || peers !in Protocol.MIN_PEERS..Protocol.MAX_PEERS -> "Most people: ${Protocol.MIN_PEERS} to ${Protocol.MAX_PEERS}."
         minPeers == null || minPeers < Protocol.MIN_PEERS || minPeers > peers -> "Fewest people: ${Protocol.MIN_PEERS} to $peers (the most)."

@@ -101,10 +101,14 @@ object Protocol {
     /** BLAKE2b mainnet. Tests against a regtest node set another name so their pools never list here. */
     @Volatile var NETWORK = "blake2b"
 
+    /** Least each person puts in a pool (amount × outputs); below it a pool is only a test. */
     const val MIN_AMOUNT = 10_000L
     const val MAX_AMOUNT = 100_000_000L
-    /** Smallest amount a pool may announce at all; the app itself only lists and creates from [MIN_AMOUNT]. */
+    /** Smallest output a pool may announce at all: a test pool's amount, or each of several outputs. */
     const val TEST_MIN_AMOUNT = 1_000L
+
+    /** A test pool: less than [MIN_AMOUNT] each in all. The app lists and creates only real ones. */
+    fun isTest(t: Terms): Boolean = t.amount * t.outputs < MIN_AMOUNT
     const val MIN_PEERS = 2
     const val MAX_PEERS = 20
 
@@ -218,10 +222,11 @@ object Protocol {
 
     /**
      * v5: how a joiner gets the payments' [total] back: [wanted] equal outputs when the total splits
-     * evenly into that many of at least [minAmount], else one output of the whole total. Returns
+     * evenly into that many of at least [minAmount] (the smallest output: the total itself has
+     * passed [MIN_AMOUNT]), else one output of the whole total. Returns
      * (amount of each output, outputs).
      */
-    fun v5Split(total: Long, wanted: Int = 1, minAmount: Long = MIN_AMOUNT): Pair<Long, Int> =
+    fun v5Split(total: Long, wanted: Int = 1, minAmount: Long = TEST_MIN_AMOUNT): Pair<Long, Int> =
         if (wanted in 2..MAX_OUTPUTS && total % wanted == 0L && total / wanted >= minAmount) total / wanted to wanted
         else total to 1
 

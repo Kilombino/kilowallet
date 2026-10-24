@@ -1,5 +1,6 @@
 package com.kilombino.pyblockwatch
 
+import com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment
 import com.kilombino.pyblockwatch.coinjoin.CoinjoinTx
 import com.kilombino.pyblockwatch.coinjoin.NostrEvent
 import com.kilombino.pyblockwatch.coinjoin.PerfectCoin
@@ -12,6 +13,7 @@ import com.kilombino.pyblockwatch.crypto.TxBuilder
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -57,11 +59,22 @@ class CoinjoinV5Test {
         try { PoolSession.newPool(200_000, 2.0, 5, 1, v3 = false, payments = pays); fail() } catch (_: IllegalArgumentException) {}
     }
 
+    @Test fun theMinimumIsPerPersonNotPerOutput() {
+        fun t(amount: Long, outputs: Int) = PoolSession.newPool(amount, 1.0, 5, 1, outputs = outputs, v3 = true).terms
+        assertTrue(Protocol.isTest(t(9_000, 1)))
+        assertFalse(Protocol.isTest(t(10_000, 1)))
+        assertFalse(Protocol.isTest(t(5_000, 2)))       // 2 × 5 000: a real pool
+        assertTrue(Protocol.isTest(t(3_000, 3)))        // 9 000 each: still a test
+        assertNull(CoinjoinPayment.check(listOf(Address.encode(Secp256k1.compress(Secp256k1.multiply(BigInteger.valueOf(7), Secp256k1.G)), ScriptType.P2WPKH) to 5_000L, Address.encode(Secp256k1.compress(Secp256k1.multiply(BigInteger.valueOf(8), Secp256k1.G)), ScriptType.P2WPKH) to 5_000L), false).reason)
+        assertEquals(5_000L, CoinjoinPayment.check(listOf(Address.encode(Secp256k1.compress(Secp256k1.multiply(BigInteger.valueOf(7), Secp256k1.G)), ScriptType.P2WPKH) to 5_000L, Address.encode(Secp256k1.compress(Secp256k1.multiply(BigInteger.valueOf(8), Secp256k1.G)), ScriptType.P2WPKH) to 5_000L), false).amount)
+    }
+
     @Test fun splitPrefersOneOutputAndNeedsAnEvenSplit() {
         assertEquals(200_000L to 1, Protocol.v5Split(200_000))
         assertEquals(100_000L to 2, Protocol.v5Split(200_000, 2))
         assertEquals(200_001L to 1, Protocol.v5Split(200_001, 2))         // not divisible
-        assertEquals(15_000L to 1, Protocol.v5Split(15_000, 2))           // 7 500 each is under the minimum
+        assertEquals(7_500L to 2, Protocol.v5Split(15_000, 2))            // the minimum is per person, not per output
+        assertEquals(1_500L to 1, Protocol.v5Split(1_500, 2))             // 750 each is under the smallest output
         assertEquals(40_000L to 5, Protocol.v5Split(200_000, 5))
         assertEquals(200_000L to 1, Protocol.v5Split(200_000, 6))
     }

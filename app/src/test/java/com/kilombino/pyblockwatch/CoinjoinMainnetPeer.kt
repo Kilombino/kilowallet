@@ -50,8 +50,10 @@ class CoinjoinMainnetPeer {
             .add(BigInteger.valueOf(System.getenv("KILOJOIN_KEY_OFFSET")?.toLong() ?: 0L)).mod(Secp256k1.N)
         val pub = Secp256k1.compress(Secp256k1.multiply(key, Secp256k1.G))
         fun derived(n: Long) = key.add(BigInteger.valueOf(n)).mod(Secp256k1.N)
-        val mix = Address.scriptPubKey(Secp256k1.compress(Secp256k1.multiply(derived(1), Secp256k1.G)), ScriptType.P2WPKH)
-        val change = Address.scriptPubKey(Secp256k1.compress(Secp256k1.multiply(derived(2), Secp256k1.G)), ScriptType.P2WPKH)
+        // KILOJOIN_OUTPUTS mixed outputs per person (1 by default): keys +1…+n, change on the next one.
+        val outs = System.getenv("KILOJOIN_OUTPUTS")?.toInt() ?: 1
+        val mixes = (1..outs).map { Address.scriptPubKey(Secp256k1.compress(Secp256k1.multiply(derived(it.toLong()), Secp256k1.G)), ScriptType.P2WPKH) }
+        val change = Address.scriptPubKey(Secp256k1.compress(Secp256k1.multiply(derived(outs + 1L), Secp256k1.G)), ScriptType.P2WPKH)
         val addr = Address.encode(pub, ScriptType.P2WPKH)
         println("peer address $addr · mix ${Address.encode(Secp256k1.compress(Secp256k1.multiply(derived(1), Secp256k1.G)), ScriptType.P2WPKH)}")
 
@@ -70,9 +72,9 @@ class CoinjoinMainnetPeer {
             require(System.currentTimeMillis() < end) { "no test pool showed up" }
             terms = CoinjoinHub.fetchPools(3600).firstOrNull { t ->
                 val c = all.take(t.maxInputs)
-                t.amount == wanted && t.outputs == 1 && CoinjoinTx.change(c.sumOf { it.value }, t.amount, t.feeRate, c.size, t.script, 1) != null
+                t.amount == wanted && t.outputs == outs && CoinjoinTx.change(c.sumOf { it.value }, t.amount, t.feeRate, c.size, t.script, outs) != null
             }
-            if (terms == null) { println("waiting for a pool of $wanted sats…"); Thread.sleep(15_000) }
+            if (terms == null) { println("waiting for a pool of $outs × $wanted sats…"); Thread.sleep(15_000) }
         }
         println("joining pool ${terms.id}: v${terms.version} ${terms.amount} sats, ${terms.feeRate} sat/vB, payments ${terms.payments}")
         val coins = all.take(terms.maxInputs)
@@ -91,7 +93,7 @@ class CoinjoinMainnetPeer {
             override fun log(msg: String) = println("  $msg")
             override fun event(e: PoolSession.Event) { if (e !is PoolSession.Event.Changed) println("EVENT ${e.javaClass.simpleName}") }
         }
-        val s = PoolSession(env, PoolSession.newState(terms, false, null, coins, coins.map { key }, coins.map { "file" }, listOf(mix), change,
+        val s = PoolSession(env, PoolSession.newState(terms, false, null, coins, coins.map { key }, coins.map { "file" }, mixes, change,
             password = System.getenv("KILOJOIN_PASSWORD")))
         s.start()
         var voted: String? = null; var signed = false
@@ -119,7 +121,7 @@ class CoinjoinMainnetPeer {
         val (cred, host) = System.getenv("KILOJOIN_RPC")!!.split("@")
         auth = cred; rpcUrl = "http://$host/"
         val key = BigInteger(java.io.File(keyFile).readText().trim(), 16)
-        val keys = (0L..12L).map { key.add(BigInteger.valueOf(it)).mod(Secp256k1.N) }
+        val keys = (0L..30L).map { key.add(BigInteger.valueOf(it)).mod(Secp256k1.N) }
         // One scan for every key: each scantxoutset walks the whole UTXO set, so one per key is slow.
         val byAddr = keys.associateBy { k -> Address.encode(Secp256k1.compress(Secp256k1.multiply(k, Secp256k1.G)), ScriptType.P2WPKH) }
         val scan = rpc("scantxoutset", "start", JSONArray().also { a -> byAddr.keys.forEach { a.put("addr($it)") } }) as JSONObject

@@ -88,7 +88,8 @@ object CoinjoinPayment {
         val total = amounts.sum()
         // A payment pool (v5): any amounts above dust, all of them together within a pool's limits.
         val paymentOk = amounts.all { it >= Protocol.MIN_PAYMENT } && total in minAmount..Protocol.MAX_AMOUNT
-        val equal = amounts.all { it == amount } && amount in minAmount..Protocol.MAX_AMOUNT
+        // The same amount to everyone (a v4 pool): each a pool's output, all of them together a person's minimum.
+        val equal = amounts.all { it == amount } && amount in Protocol.TEST_MIN_AMOUNT..Protocol.MAX_AMOUNT && total >= minAmount
         // Short of a pool's minimum is the usual case, while the amounts are still being typed: say how short.
         if (!equal && !paymentOk && total < minAmount && amounts.all { it >= Protocol.MIN_PAYMENT }) return Check(type, 0, scripts,
             "Together they add up to $total sats: a pool needs at least $minAmount sats in all.", amounts, false)

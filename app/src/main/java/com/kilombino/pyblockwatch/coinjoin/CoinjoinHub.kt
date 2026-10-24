@@ -276,7 +276,7 @@ object CoinjoinHub {
     fun notifyOpenNow(ctx: Context) {
         load(ctx)
         val ours = synchronized(this) { sessions.keys.toSet() }
-        val open = fetchPools().filter { it.amount >= Protocol.MIN_AMOUNT && !it.private && it.id !in ours }
+        val open = fetchPools().filter { !Protocol.isTest(it) && !it.private && it.id !in ours }
         open.maxOfOrNull { it.createdAt }?.let { prefs(ctx).edit().putLong(KEY_LAST_POOL_SEEN, it).apply() }
         open.firstOrNull { firstNotice(ctx, it.id) }?.let { t -> notify(ctx, t.id.hashCode(), "Coinjoin pool open now",
             "${amountOf(t)} sats${kind(t)} · ${t.peers}/${t.maxPeers} people · ${t.feeRate} sat/vB") }
@@ -307,10 +307,10 @@ object CoinjoinHub {
         val test = testPools(ctx)
         // Test pools only for whoever switched them on; private pools are announced by their creator.
         val pools = fetchPools(sinceSeconds = 86400).filter {
-            it.createdAt > last && it.id !in ours && (test || it.amount >= Protocol.MIN_AMOUNT) && !it.private
+            it.createdAt > last && it.id !in ours && (test || !Protocol.isTest(it)) && !it.private
         }
         pools.maxOfOrNull { it.createdAt }?.let { p.edit().putLong(KEY_LAST_POOL_SEEN, it).apply() }
-        for (t in pools.asSequence().filter { firstNotice(ctx, it.id) }.take(3)) notify(ctx, t.id.hashCode(), "New coinjoin pool" + if (t.amount < Protocol.MIN_AMOUNT) " (test)" else "",
+        for (t in pools.asSequence().filter { firstNotice(ctx, it.id) }.take(3)) notify(ctx, t.id.hashCode(), "New coinjoin pool" + if (Protocol.isTest(t)) " (test)" else "",
             "${amountOf(t)} sats${kind(t)} · ${t.peers}/${t.maxPeers} people · ${t.feeRate} sat/vB")
     }
 

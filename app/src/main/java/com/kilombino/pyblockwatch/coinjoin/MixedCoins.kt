@@ -52,7 +52,7 @@ object MixedCoins {
         val tx = TxParse.parse(rawHex)
         val mine = tx.outputs.getOrNull(vout) ?: return false
         val v = mine.value
-        if (v < 10_000 || v % 1000 != 0L) return false
+        if (v < Protocol.TEST_MIN_AMOUNT || v % 1000 != 0L) return false
         val equal = tx.outputs.count { it.value == v }
         if (equal < 2 || tx.inputs.size < 2 || tx.outputs.size - equal > tx.inputs.size) return false
         if (tx.outputs.any { it.scriptPubKey.size != mine.scriptPubKey.size || it.scriptPubKey[0] != mine.scriptPubKey[0] }) return false
