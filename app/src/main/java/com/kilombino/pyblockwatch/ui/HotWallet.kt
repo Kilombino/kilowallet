@@ -844,6 +844,28 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                     }
                 }
 
+                // Paying through a new coinjoin pool (BTC hot wallet): equal amounts to addresses of one type.
+                if (multi && state.isHot && vm.coinjoinSupported() && to.isNotBlank() && (amount.toLongOrNull() ?: 0L) > 0) {
+                    val recipients = listOf(to.trim() to (amount.toLongOrNull() ?: 0L)) +
+                        extraTo.indices.map { extraTo[it].trim() to (extraAmount[it].toLongOrNull() ?: 0L) }
+                    val check = remember(recipients) { com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.check(recipients, vm.taprootPools()) }
+                    Spacer(Modifier.height(8.dp))
+                    if (check.ok) {
+                        androidx.compose.material3.OutlinedButton(onClick = {
+                            val sel = if (coinControl) (state.utxos ?: emptyList()).filter { "${it.txid}:${it.vout}" in selectedOutpoints } else emptyList()
+                            com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.pending.value = com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.Request(
+                                check.amount, check.type!!, check.scripts, recipients.map { it.first }, sel, feeRate.toDoubleOrNull() ?: 1.0)
+                            vm.resetSend(); onClose()
+                            com.kilombino.pyblockwatch.data.OpenTab.flow.value = com.kilombino.pyblockwatch.data.OpenTab.COINJOIN
+                        }, modifier = Modifier.fillMaxWidth()) {
+                            Text("🌀 PAY THROUGH A NEW COINJOIN POOL", color = accent, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Text("The payment goes out only when the pool closes, which can take hours. If it doesn't fill, " +
+                            "nothing is paid and you can send normally.", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                    } else Text("Pay through a coinjoin: not available. " + check.reason,
+                        color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                }
+
                 Spacer(Modifier.height(10.dp))
                 Button(
                     onClick = {

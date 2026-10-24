@@ -80,6 +80,18 @@ object CoinjoinTx {
     fun minimumCoin(amount: Long, feeRate: Double, type: ScriptType = ScriptType.P2WPKH, outputs: Int = 1): Long =
         amount * outputs + feeShare(feeRate, false, 1, type, outputs)
 
+    /**
+     * The amount of each output for a pool opened from whole coins worth [total] together
+     * ([inputs] of them), so that they go in with no change: what is left after the fee share
+     * without change, split in [outputs] and rounded down. The rounding (under [outputs] sats)
+     * goes to the miners, well inside the no-change window of [change]. Null when the coins don't
+     * even cover the fee.
+     */
+    fun noChangeAmount(total: Long, inputs: Int, feeRate: Double, type: ScriptType = ScriptType.P2WPKH, outputs: Int = 1): Long? {
+        val left = total - feeShare(feeRate, false, inputs, type, outputs)
+        return if (left <= 0 || outputs < 1) null else left / outputs
+    }
+
     data class Plan(
         val coins: List<Coin>,
         val outputs: List<TxBuilder.Output>,

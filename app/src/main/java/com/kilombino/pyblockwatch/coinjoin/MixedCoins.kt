@@ -20,6 +20,8 @@ object MixedCoins {
         val kept = prefs(ctx).getStringSet("scripts", emptySet())!!
         val live = CoinjoinHub.states.value
             .filter { it.phase == PoolSession.Phase.BROADCAST || it.phase == PoolSession.Phase.CONFIRMED }
+            // A payment's outputs are the recipients' coins, not ours.
+            .filter { Destination.of(ctx, it.poolId) != Destination.Kind.PAY }
             .flatMap { st -> st.mixScripts.map { it.toHex() } }
         return kept + live
     }

@@ -80,12 +80,18 @@ object RoundNotifications {
             PoolSession.Phase.ABORTED -> "Cancelled"
             PoolSession.Phase.REJECTED -> "Refused"
         }
+        // A payment through the pool: its outputs went to the recipients, not to this wallet.
+        val pay = Destination.of(ctx, st.poolId) == Destination.Kind.PAY
         val where = when (st.phase) {
-            PoolSession.Phase.BROADCAST -> "Your coin left in the group transaction. Waiting for a block."
-            PoolSession.Phase.CONFIRMED -> "Done: ${sats(st.terms.amount, masked)} sats mixed in your wallet" +
+            PoolSession.Phase.BROADCAST -> if (pay) "The payment left in the group transaction. Waiting for a block."
+                else "Your coin left in the group transaction. Waiting for a block."
+            PoolSession.Phase.CONFIRMED -> if (pay) "Done: paid ${sats(st.terms.mixTotal, masked)} sats to the recipients" +
+                (if (st.seat.changeValue > 0) ", plus ${sats(st.seat.changeValue, masked)} sats change in your wallet." else ".")
+                else "Done: ${sats(st.terms.amount, masked)} sats mixed in your wallet" +
                 (if (st.seat.changeValue > 0) ", plus ${sats(st.seat.changeValue, masked)} sats change." else ".")
-            PoolSession.Phase.ABORTED, PoolSession.Phase.REJECTED -> "${st.reason.replaceFirstChar { it.uppercase() }}. Your coin did not move."
-            else -> "Your coin is still in your wallet — it hasn't left."
+            PoolSession.Phase.ABORTED, PoolSession.Phase.REJECTED -> "${st.reason.replaceFirstChar { it.uppercase() }}. " +
+                if (pay) "Nothing was paid: send it normally if you like." else "Your coin did not move."
+            else -> if (pay) "Not paid yet: the payment goes out when the pool closes." else "Your coin is still in your wallet — it hasn't left."
         }
         val color = when {
             step == 0 -> 0xFFFF5D5D.toInt()

@@ -17,15 +17,19 @@ import com.kilombino.pyblockwatch.data.Store
  *
  * Nothing about this leaves the phone: the round only ever sees an output script, the same as
  * any other, and the pool's announcements and Telegram alerts never carry addresses.
+ *
+ * [Kind.PAY] is a payment paid through a pool ([CoinjoinPayment]): the mixed outputs are the
+ * recipients' own addresses, given by the user, never derived or reserved from any wallet here.
  */
 object Destination {
-    enum class Kind { HOT, WATCH, JAM }
+    enum class Kind { HOT, WATCH, JAM, PAY }
 
     /** How each choice is named on screen. */
     fun label(kind: Kind): String = when (kind) {
         Kind.HOT -> "Hot wallet"
         Kind.WATCH -> "Watch-only wallet"
         Kind.JAM -> "JoinMarket · Apricot"
+        Kind.PAY -> "Payment recipients"
     }
 
     /** The choices for a pool of [type]: the hot wallet always first (the default), then whichever fits. */
@@ -86,6 +90,10 @@ object Destination {
      * addresses (no network). One not found (e.g. the wallet was changed since) shows without a path.
      */
     fun describe(ctx: Context, kind: Kind, type: ScriptType, scripts: List<ByteArray>): List<Shown> {
+        // A payment's recipients are not in any wallet here: their addresses, as typed in SEND.
+        if (kind == Kind.PAY) return scripts.mapIndexed { i, sp ->
+            Shown(runCatching { CoinjoinPayment.address(sp) }.getOrElse { sp.toHex() }, "recipient ${i + 1}")
+        }
         val account = accountOf(ctx, kind, type)
         val want = scripts.map { it.toList() }.toMutableSet()
         val found = HashMap<List<Byte>, Shown>()
@@ -104,6 +112,7 @@ object Destination {
             Kind.HOT -> Store(ctx, Store.HOT).let { h -> if (type == ScriptType.P2TR) h.taprootXpub else h.xpub }?.let { Bip32.parseExtendedPubKey(it) }
             Kind.WATCH -> Store(ctx, Store.WATCH).xpub?.let { Bip32.parseExtendedPubKey(it) }
             Kind.JAM -> jamExport(ctx)?.let { JoinMarket.parseKey(it.xpubs[0]) }
+            Kind.PAY -> null
         }
     }.getOrNull()
 
@@ -117,6 +126,7 @@ object Destination {
     /** Checks [kind] can take [type]'s outputs and walks its receive branch for [n] unused indexes. */
     private fun pick(ctx: Context, kind: Kind, type: ScriptType, n: Int): Pair<Bip32.ExtendedPubKey, List<Int>> {
         require(kind != Kind.HOT) { "the hot wallet's addresses come from its own seed" }
+        require(kind != Kind.PAY) { "a payment's addresses are the recipients' own" }
         val (account, from) = when (kind) {
             Kind.WATCH -> {
                 val w = Store(ctx, Store.WATCH)
@@ -130,7 +140,7 @@ object Destination {
                 require(type == ScriptType.P2WPKH) { "JoinMarket's addresses are native SegWit (bc1q): they only fit a bc1q pool." }
                 JoinMarket.parseKey(e.xpubs[0]) to 0
             }
-            Kind.HOT -> error("unreachable")
+            Kind.HOT, Kind.PAY -> error("unreachable")
         }
         val held = reserved(ctx)
         val store = Store(ctx)
@@ -185,7 +195,7 @@ object Destination {
      * leaves a round already going on the old one, so the card must say which.
      */
     fun which(ctx: Context, kind: Kind): String? = when (kind) {
-        Kind.HOT -> null
+        Kind.HOT, Kind.PAY -> null
         Kind.WATCH -> Store(ctx, Store.WATCH).let { w -> w.label.trim().ifEmpty { null } ?: w.xpub?.take(12)?.plus("…") }
         Kind.JAM -> jamExport(ctx)?.xpubs?.get(0)?.take(12)?.plus("…")
     }
