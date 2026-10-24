@@ -60,7 +60,7 @@ object PerfectCoin {
     /** What the user agreed to when choosing [t]: the parts of the pool's terms that decide what is signed. */
     fun agreed(t: Protocol.Terms): JSONObject = JSONObject().put("pub", t.poolPub).put("amount", t.amount).put("feeRate", t.feeRate)
         .put("script", t.script.name).put("version", t.version).put("maxInputs", t.maxInputs).put("maxPeers", t.maxPeers)
-        .put("outputs", t.outputs)
+        .put("outputs", t.outputs).put("payments", t.payments.joinToString(","))
 
     /**
      * Why the pool as it reads now is not the one the user agreed to, or null. Joining on its own
@@ -78,6 +78,7 @@ object PerfectCoin {
             a.optString("script") != now.script.name || a.optInt("version") != now.version -> "its kind changed"
             a.optInt("maxInputs") != now.maxInputs || a.optInt("maxPeers") != now.maxPeers -> "its size changed"
             a.optInt("outputs", 1) != now.outputs -> "its outputs changed"
+            a.optString("payments") != now.payments.joinToString(",") -> "its payments changed"
             now.state != "open" -> "it is no longer open"
             else -> null
         }

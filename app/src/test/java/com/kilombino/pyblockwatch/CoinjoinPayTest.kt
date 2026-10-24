@@ -63,8 +63,15 @@ class CoinjoinPayTest {
         }
         assertEquals(ScriptType.P2TR, CoinjoinPayment.check(listOf(p1 to 20_000L, p2 to 20_000L), taprootOk = true).type)
         assertEquals(ScriptType.P2WPKH, CoinjoinPayment.check(listOf(q1 to 10_000L), taprootOk = false).type)
-        // Different amounts, or bc1q and bc1p together: not one pool.
-        assertEquals(CoinjoinPayment.NEEDS, CoinjoinPayment.check(listOf(q1 to 50_000L, q2 to 50_001L), true).reason)
+        // Different amounts: not equal outputs, but a payment pool (v5); bc1q and bc1p together: neither.
+        CoinjoinPayment.check(listOf(q1 to 50_000L, q2 to 50_001L, q3 to 400L), true).let {
+            assertFalse(it.ok); assertTrue(it.paymentOk); assertNull(it.reason); assertEquals(listOf(50_000L, 50_001L, 400L), it.amounts)
+        }
+        // Equal amounts can be either.
+        CoinjoinPayment.check(listOf(q1 to 50_000L, q2 to 50_000L), true).let { assertTrue(it.ok && it.paymentOk) }
+        // A payment under dust, or a total under the pool minimum: neither.
+        assertFalse(CoinjoinPayment.check(listOf(q1 to 50_000L, q2 to 300L), true).any)
+        assertFalse(CoinjoinPayment.check(listOf(q1 to 4_000L, q2 to 5_000L), true).any)
         assertEquals(CoinjoinPayment.NEEDS, CoinjoinPayment.check(listOf(q1 to 50_000L, p1 to 50_000L), true).reason)
         // Neither bc1q nor bc1p (a legacy address), a handle, a silent payment.
         val legacy = "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"

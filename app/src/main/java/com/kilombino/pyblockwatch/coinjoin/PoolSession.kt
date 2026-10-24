@@ -107,6 +107,8 @@ class PoolSession(private val env: Env, private val s: State) {
         val blindSigs: MutableMap<String, String> = mutableMapOf(),
         val blindedOf: MutableMap<String, String> = mutableMapOf(),
         val regOutputs: MutableSet<String> = linkedSetOf(),
+        // v5: the creator's payments as listed when the round closed, "script hex:sats".
+        val payOutputs: MutableList<String> = mutableListOf(),
     ) {
         val poolId: String get() = terms.id
         val joinProof: String get() = joinProofs.first()
@@ -138,6 +140,7 @@ class PoolSession(private val env: Env, private val s: State) {
             .put("handed_in", org.json.JSONArray(handedIn.toList()))
             .put("blind_sigs", JSONObject(blindSigs as Map<*, *>)).put("blinded_of", JSONObject(blindedOf as Map<*, *>))
             .put("reg_outputs", org.json.JSONArray(regOutputs.toList()))
+            .put("pay_outputs", org.json.JSONArray(payOutputs))
 
         companion object {
             private fun JSONObject.str(k: String): String? = optString(k).ifEmpty { null }
@@ -156,7 +159,8 @@ class PoolSession(private val env: Env, private val s: State) {
                     else Protocol.parseScript(t.getString("script")) ?: error("unknown script"),
                     if (v == Protocol.V1) 1 else t.getInt("max_inputs"),
                     t.optString("creator").ifEmpty { null }, t.optString("blind_key").ifEmpty { null },
-                    if (v >= Protocol.V4) t.getInt("outputs") else 1)
+                    if (v >= Protocol.V4) t.getInt("outputs") else 1,
+                    t.optJSONArray("payments")?.let { a -> (0 until a.length()).map { a.getLong(it) } } ?: emptyList())
                 val type = terms.script
                 fun list(k: String, one: String): List<String> = o.optJSONArray(k)?.let { a -> (0 until a.length()).map { a.getString(it) } }
                     ?: listOf(o.getString(one))
@@ -184,6 +188,7 @@ class PoolSession(private val env: Env, private val s: State) {
                     o.optJSONArray("handed_in")?.let { a -> (0 until a.length()).map { a.getInt(it) } }?.toMutableSet() ?: mutableSetOf(),
                     o.map("blind_sigs"), o.map("blinded_of"),
                     o.optJSONArray("reg_outputs")?.let { a -> (0 until a.length()).map { a.getString(it) } }?.toMutableSet() ?: linkedSetOf(),
+                    o.optJSONArray("pay_outputs")?.let { a -> (0 until a.length()).map { a.getString(it) } }?.toMutableList() ?: mutableListOf(),
                 )
             }
         }
@@ -209,8 +214,14 @@ class PoolSession(private val env: Env, private val s: State) {
     private var lastBlindSent = 0L
     /** Our outputs waiting for their random moment to be handed in (by index). */
     private val outputScheduled = mutableSetOf<Int>()
-    /** Mixed outputs each person gets: 1 before v4. */
+    /** Mixed outputs each person gets: 1 before v4 (each joiner, in v5). */
     private val perPerson: Int get() = terms.outputs
+
+    /** v5: the creator's seat, the one it joined with the pool's own key. */
+    private fun isCreatorSeat(seat: Protocol.Seat) = seat.joinPub == terms.poolPub
+
+    /** Seats whose mixed outputs are handed in blindly: all of them, but the creator's in v5. */
+    private val handingIn: Int get() = if (terms.v5) s.round.count { !isCreatorSeat(it) } else s.round.size
 
     val state: State get() = s
 
@@ -584,6 +595,11 @@ class PoolSession(private val env: Env, private val s: State) {
             "closing" -> {
                 if (!fromCreator || s.phase !in setOf(Phase.OPEN, Phase.VOTING)) return
                 val seats = Protocol.parseSeats(o.getJSONArray("seats"), terms.script)
+                // v5: a payment round needs its creator, whose payments are the round's other side.
+                if (terms.v5 && seats.count { isCreatorSeat(it) } != 1) {
+                    s.phase = Phase.ABORTED; s.reason = "the round closed without the payment"; save()
+                    env.event(Event.Aborted(s.poolId, s.reason)); return
+                }
                 if (myTokenHash == null || seats.none { it.tokenHash == myTokenHash }) {
                     s.phase = Phase.ABORTED; s.reason = "the round closed without us"; save()
                     env.event(Event.Aborted(s.poolId, s.reason)); return
@@ -608,7 +624,9 @@ class PoolSession(private val env: Env, private val s: State) {
                 if (!v3) scheduleOutput()
                 else if (s.creator) {
                     // The creator's own output needs no blinding from itself: it goes straight in.
-                    s.mixScripts.forEach { s.regOutputs.add(it.toHex()) }; s.postedOutput = true; save()
+                    // v5: its outputs are the payments, listed with the others at the end.
+                    if (!terms.v5) s.mixScripts.forEach { s.regOutputs.add(it.toHex()) }
+                    s.postedOutput = true; save()
                     listOutputsIfAll()
                 } else sendBlind()
             }
@@ -654,8 +672,17 @@ class PoolSession(private val env: Env, private val s: State) {
             "outputs" -> if (v3 && fromCreator && s.phase == Phase.CLOSING && o.optString("round_id") == s.roundId) {
                 val a = o.getJSONArray("scripts")
                 val list = (0 until a.length()).map { a.getString(it) }
-                if (list.size != s.round.size * perPerson || list.toSet().size != list.size || !list.all { scriptOk(it) }) return abort("the list of mixed outputs is wrong")
-                s.outputs.clear(); s.outputs.addAll(list); save()
+                if (list.size != handingIn * perPerson || list.toSet().size != list.size || !list.all { scriptOk(it) }) return abort("the list of mixed outputs is wrong")
+                // v5: the creator's payments, exactly the amounts announced, of the pool's type, none
+                // of them an address already in the round.
+                val pays = if (!terms.v5) emptyList() else {
+                    val p = o.optJSONArray("payments") ?: return abort("the payments are missing")
+                    val l = (0 until p.length()).map { p.getJSONObject(it) }.map { it.getString("script") to it.getLong("value") }
+                    if (l.map { it.second }.sorted() != terms.payments.sorted() || !l.all { scriptOk(it.first) } ||
+                        l.map { it.first }.toSet().size != l.size || l.any { it.first in list }) return abort("the payments are not the ones announced")
+                    l.map { "${it.first}:${it.second}" }
+                }
+                s.outputs.clear(); s.outputs.addAll(list); s.payOutputs.clear(); s.payOutputs.addAll(pays); save()
                 toSigning()
             }
             "sig" -> {
@@ -782,12 +809,17 @@ class PoolSession(private val env: Env, private val s: State) {
     /** v3 creator: once every seat of the round has its outputs in, list them all at once. */
     private fun listOutputsIfAll() {
         if (s.phase != Phase.CLOSING) return
-        val want = s.round.size * perPerson
+        val want = handingIn * perPerson
         if (s.regOutputs.size > want) return abort("more mixed outputs than people")
         if (s.regOutputs.size < want) return
         // Sorted, so the list says nothing about who handed in first.
-        creatorChannel(JSONObject().put("type", "outputs").put("round_id", s.roundId)
-            .put("scripts", org.json.JSONArray(s.regOutputs.sorted())))
+        val o = JSONObject().put("type", "outputs").put("round_id", s.roundId)
+            .put("scripts", org.json.JSONArray(s.regOutputs.sorted()))
+        // v5: our payments, shown for the first time now that the round is closed.
+        if (terms.v5) o.put("payments", org.json.JSONArray(s.mixScripts.indices.map { i ->
+            JSONObject().put("script", s.mixScripts[i].toHex()).put("value", terms.payments[i])
+        }))
+        creatorChannel(o)
     }
 
     /**
@@ -839,20 +871,37 @@ class PoolSession(private val env: Env, private val s: State) {
         finally { runCatching { r.close() } }
     }
 
+    /** v5: the creator's payments as listed at closing. */
+    private fun payments(): List<TxBuilder.Output> = s.payOutputs.map {
+        TxBuilder.Output(Hashes.hexToBytes(it.substringBefore(':')), it.substringAfter(':').toLong())
+    }
+
     private fun buildPlan(): CoinjoinTx.Plan? {
-        if (s.round.size < Protocol.MIN_PEERS || s.outputs.size != s.round.size * perPerson) return null
+        if (s.round.size < Protocol.MIN_PEERS || s.outputs.size != handingIn * perPerson) return null
+        if (terms.v5 && s.payOutputs.size != terms.payments.size) return null
         return CoinjoinTx.plan(
             s.round.flatMap { it.coins },
             s.outputs.map { Hashes.hexToBytes(it) },
             s.round.filter { it.changeScript != null && it.changeValue > 0 }.map { TxBuilder.Output(it.changeScript!!, it.changeValue) },
-            terms.amount, perPerson,
+            terms.amount, perPerson, payments(),
         )
+    }
+
+    /** What we check before signing [plan]: null when it pays us right, else why not. */
+    private fun checkPlan(plan: CoinjoinTx.Plan): String? {
+        val change = s.seat.changeScript?.let { TxBuilder.Output(it, s.seat.changeValue) }
+        if (!terms.v5) return CoinjoinTx.checkOurs(plan, s.mixScripts, change, terms.amount, terms.feeRate, s.round.map { it.coins.size }, perPerson)
+        // v5: ours are the payments (creator) or our mixed outputs; the creator's seat has as many outputs as payments.
+        val mine = if (s.creator) s.mixScripts.indices.map { TxBuilder.Output(s.mixScripts[it], terms.payments[it]) }
+            else s.mixScripts.map { TxBuilder.Output(it, terms.amount) }
+        return CoinjoinTx.checkPayment(plan, mine, change, terms.amount, terms.feeRate, s.round.map { it.coins.size },
+            s.round.map { if (isCreatorSeat(it)) terms.payments.size else perPerson }, perPerson, terms.payments,
+            s.round.count { it.changeScript != null && it.changeValue > 0 })
     }
 
     private fun toSigning() {
         val plan = runCatching { buildPlan() }.getOrElse { return abort("the transaction does not add up: ${it.message}") } ?: return
-        val change = s.seat.changeScript?.let { TxBuilder.Output(it, s.seat.changeValue) }
-        CoinjoinTx.checkOurs(plan, s.mixScripts, change, terms.amount, terms.feeRate, s.round.map { it.coins.size }, perPerson)?.let { return abort(it) }
+        checkPlan(plan)?.let { return abort(it) }
         s.phase = Phase.SIGNING; s.phaseDeadline = env.now() + Protocol.SIGN_SECONDS; save()
         autoKeys?.let { keys ->
             runCatching { sign(keys) }
@@ -871,8 +920,7 @@ class PoolSession(private val env: Env, private val s: State) {
         check(s.phase == Phase.SIGNING) { "nothing to sign right now" }
         require(privateKeys.size == s.seat.coins.size) { "one key per coin is needed" }
         val plan = buildPlan() ?: error("the transaction is not complete")
-        val change = s.seat.changeScript?.let { TxBuilder.Output(it, s.seat.changeValue) }
-        CoinjoinTx.checkOurs(plan, s.mixScripts, change, terms.amount, terms.feeRate, s.round.map { it.coins.size }, perPerson)?.let { error(it) }
+        checkPlan(plan)?.let { error(it) }
         s.seat.coins.forEachIndexed { i, c ->
             val mine = plan.coins.first { it.outpoint == c.outpoint }
             val sig = CoinjoinTx.sign(plan, mine, privateKeys[i]).toHex()
@@ -1076,11 +1124,13 @@ class PoolSession(private val env: Env, private val s: State) {
             require(coins.size <= terms.maxInputs) { "this pool takes at most ${terms.maxInputs} coin(s) per person" }
             require(coins.all { it.type == terms.script }) { "these coins are not of the pool's address type" }
             require(coins.map { it.outpoint }.toSet().size == coins.size) { "the same coin twice" }
-            require(mixScripts.size == terms.outputs) { "this pool gives ${terms.outputs} mixed output(s) each" }
+            // v5: the creator's outputs are its payments, one script per announced amount.
+            val outs = if (terms.v5 && creator) terms.payments.size else terms.outputs
+            require(mixScripts.size == outs) { if (terms.v5 && creator) "one address per payment" else "this pool gives ${terms.outputs} mixed output(s) each" }
             require(mixScripts.all { CoinjoinTx.isType(it, terms.script) }) { "the mixed output is not of the pool's address type" }
             require(mixScripts.map { it.toHex() }.toSet().size == mixScripts.size) { "the same mixed address twice" }
             require(changeScript == null || mixScripts.none { it.contentEquals(changeScript) }) { "the change and a mixed output share an address" }
-            val changeValue = CoinjoinTx.change(coins.sumOf { it.value }, terms.amount, terms.feeRate, coins.size, terms.script, terms.outputs)
+            val changeValue = CoinjoinTx.changeOf(coins.sumOf { it.value }, terms.mixTotal, terms.feeRate, coins.size, terms.script, outs)
                 ?: error("these coins are too small for the pool")
             val cs = if (changeValue > 0) changeScript ?: error("a change address is needed") else null
             cs?.let { require(CoinjoinTx.isType(it, terms.script)) { "the change is not of the pool's address type" } }
@@ -1111,7 +1161,9 @@ class PoolSession(private val env: Env, private val s: State) {
 
         fun newPool(amount: Long, feeRate: Double, maxPeers: Int, hours: Int, minPeers: Int = Protocol.MIN_PEERS,
                     private: Boolean = false, script: com.kilombino.pyblockwatch.crypto.ScriptType = com.kilombino.pyblockwatch.crypto.ScriptType.P2WPKH,
-                    maxInputs: Int = 1, v3: Boolean = false, outputs: Int = 1): NewPool {
+                    maxInputs: Int = 1, v3: Boolean = false, outputs: Int = 1,
+                    /** v5: the creator's payments, summing to [outputs] × [amount]. */
+                    payments: List<Long> = emptyList()): NewPool {
             val k = NostrEvent.newSecret()
             val id = ByteArray(8).also { SecureRandom().nextBytes(it) }.toHex()
             val now = System.currentTimeMillis() / 1000
@@ -1120,13 +1172,16 @@ class PoolSession(private val env: Env, private val s: State) {
             val v1 = script == com.kilombino.pyblockwatch.crypto.ScriptType.P2WPKH && maxInputs == 1
             require(outputs in 1..Protocol.MAX_OUTPUTS) { "1 to ${Protocol.MAX_OUTPUTS} mixed outputs per person" }
             require(outputs == 1 || v3) { "several outputs each need a v4 pool" }
+            require(payments.isEmpty() || (v3 && Protocol.paymentsOk(payments, amount, outputs))) {
+                "the payments must add up to what each joiner gets"
+            }
             if (v3) {
                 val ck = NostrEvent.newSecret()
                 val blind = BlindRsa.generate()
                 return NewPool(Protocol.Terms(id, NostrEvent.pubOf(k), amount, feeRate, maxPeers, now + hours * 3600L, "open", 1, now,
                     // One output each stays v3, which every v3 wallet can join; more need v4.
-                    minPeers, private, if (outputs > 1) Protocol.V4 else Protocol.V3, script, maxInputs, NostrEvent.pubOf(ck),
-                    blind.public.encode(), outputs),
+                    minPeers, private, if (payments.isNotEmpty()) Protocol.V5 else if (outputs > 1) Protocol.V4 else Protocol.V3,
+                    script, maxInputs, NostrEvent.pubOf(ck), blind.public.encode(), outputs, payments),
                     k.toString(16).padStart(64, '0'), ck.toString(16).padStart(64, '0'), blind.encodePrivate())
             }
             return NewPool(Protocol.Terms(id, NostrEvent.pubOf(k), amount, feeRate, maxPeers, now + hours * 3600L, "open", 1, now,

@@ -58,6 +58,21 @@ import org.json.JSONObject
  * fresh key, its own connection, its own random wait, so not even the creator can tell which
  * outputs belong to the same person. A pool of one output each is still announced as v3, so
  * every v3 wallet can join it; wallets before v4 don't list v4 pools.
+ *
+ * Kilojoin v5 (Kilowallet 1.2.7): a payment through a pool, with amounts that differ. The creator
+ * pays 1 to [MAX_OUTPUTS] recipients, announced as `payments` (their amounts only, which the
+ * chain shows anyway; the recipients' addresses stay with the creator until the round closes).
+ * Every member puts the same sum into the mix, S = sum of the payments; each joiner gets it back
+ * as `outputs` (1 to [MAX_OUTPUTS]) equal outputs of `denomination` d, S = `outputs` × d, signed
+ * blindly and handed in anonymously exactly as in v4. The creator asks for no blind signatures:
+ * its outputs are the payments, listed by itself (script and amount) next to the joiners' outputs
+ * once they are all in. Each person pays their own fee share as always, the creator's counted with
+ * its real number of payment outputs. Before signing every member checks its own outputs and
+ * change, that there are exactly (members − 1) × `outputs` outputs of d plus exactly the announced
+ * payments, each once, of the pool's address type, and that the fee matches every seat's share.
+ * What it hides: which coins paid (among the members, all the more with perfect coins), and
+ * which joiner got which output. What it can't hide: the payments themselves, odd amounts that
+ * belong to one person. Wallets before v5 don't list v5 pools.
  */
 object Protocol {
     const val RELAY = "wss://relay.kilombino.com"
@@ -74,7 +89,11 @@ object Protocol {
     const val V3 = 3
     /** v4 pools: v3 with several mixed outputs per person. */
     const val V4 = 4
-    /** Most mixed outputs one person may get in a v4 pool. */
+    /** v5 pools: the creator pays recipients of different amounts; joiners get equal outputs. */
+    const val V5 = 5
+    /** Smallest payment in a v5 pool: the dust limit of a Taproot output, the highest of the two types. */
+    const val MIN_PAYMENT = 330L
+    /** Most mixed outputs one person may get in a v4 pool (and most payments in a v5 one). */
     const val MAX_OUTPUTS = 5
     const val V1 = 1
     /** Most coins one person may bring to a v2 pool. */
@@ -132,10 +151,14 @@ object Protocol {
         val creatorPub: String? = null,
         /** v3: the RSA key the creator signs mixed outputs blindly with ([BlindRsa.PublicKey.encode]). */
         val blindKey: String? = null,
-        /** v4: mixed outputs each person gets, every one of [amount] (1 before v4). */
+        /** v4: mixed outputs each person gets, every one of [amount] (1 before v4; each joiner's in v5). */
         val outputs: Int = 1,
+        /** v5: the creator's payments, in sats, summing to [mixTotal]; empty before v5. */
+        val payments: List<Long> = emptyList(),
     ) {
         val v3: Boolean get() = version >= V3
+        /** A v5 payment pool: the creator's outputs are [payments], the joiners' [outputs] × [amount]. */
+        val v5: Boolean get() = version >= V5
         /** What each person puts into the mix: [outputs] × [amount]. */
         val mixTotal: Long get() = amount * outputs
         fun toJson(): JSONObject = JSONObject()
@@ -146,12 +169,13 @@ object Protocol {
             .also { if (version >= 2) it.put("script", scriptName(script)).put("max_inputs", maxInputs) }
             .also { if (version >= V3) it.put("creator", creatorPub).put("blind_key", blindKey) }
             .also { if (version >= V4) it.put("outputs", outputs) }
+            .also { if (version >= V5) it.put("payments", JSONArray(payments)) }
 
         companion object {
             fun parse(ev: NostrEvent): Terms? = runCatching {
                 val o = JSONObject(ev.content)
                 val v = o.getInt("v")
-                if (v != V1 && v != VERSION && v != V3 && v != V4 || o.getString("network") != NETWORK) return null
+                if (v != V1 && v != VERSION && v != V3 && v != V4 && v != V5 || o.getString("network") != NETWORK) return null
                 val t = Terms(
                     id = o.getString("id"), poolPub = o.getString("public_key"),
                     amount = o.getLong("denomination"), feeRate = o.getDouble("fee_rate"),
@@ -164,9 +188,11 @@ object Protocol {
                     creatorPub = if (v >= V3) o.getString("creator") else null,
                     blindKey = if (v >= V3) o.getString("blind_key") else null,
                     outputs = if (v >= V4) o.getInt("outputs") else 1,
+                    payments = if (v >= V5) o.getJSONArray("payments").let { a -> (0 until a.length()).map { a.getLong(it) } } else emptyList(),
                 )
                 // A v4 pool always has several outputs each; one each is announced as v3.
-                if (v >= V4 && t.outputs !in 2..MAX_OUTPUTS) return null
+                if (v == V4 && t.outputs !in 2..MAX_OUTPUTS) return null
+                if (v == V5 && !paymentsOk(t.payments, t.amount, t.outputs)) return null
                 if (t.v3) {
                     if (!t.creatorPub!!.matches(Regex("[0-9a-f]{64}")) || t.creatorPub == t.poolPub) return null
                     BlindRsa.PublicKey.decode(t.blindKey!!)
@@ -181,6 +207,23 @@ object Protocol {
             }.getOrNull()
         }
     }
+
+    /**
+     * v5: 1 to [MAX_OUTPUTS] payments of at least [MIN_PAYMENT] each, summing to exactly what each
+     * joiner gets, [outputs] (1 to [MAX_OUTPUTS]) × [amount].
+     */
+    fun paymentsOk(payments: List<Long>, amount: Long, outputs: Int): Boolean =
+        payments.size in 1..MAX_OUTPUTS && outputs in 1..MAX_OUTPUTS && payments.all { it >= MIN_PAYMENT } &&
+            payments.sum() == amount * outputs
+
+    /**
+     * v5: how a joiner gets the payments' [total] back: [wanted] equal outputs when the total splits
+     * evenly into that many of at least [minAmount], else one output of the whole total. Returns
+     * (amount of each output, outputs).
+     */
+    fun v5Split(total: Long, wanted: Int = 1, minAmount: Long = MIN_AMOUNT): Pair<Long, Int> =
+        if (wanted in 2..MAX_OUTPUTS && total % wanted == 0L && total / wanted >= minAmount) total / wanted to wanted
+        else total to 1
 
     fun scriptName(t: ScriptType): String = if (t == ScriptType.P2TR) "p2tr" else "p2wpkh"
     fun parseScript(s: String): ScriptType? = when (s) { "p2wpkh" -> ScriptType.P2WPKH; "p2tr" -> ScriptType.P2TR; else -> null }

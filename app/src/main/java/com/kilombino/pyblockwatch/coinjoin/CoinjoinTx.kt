@@ -66,10 +66,17 @@ object CoinjoinTx {
      * [feeRate], or 0 when it would be dust (the dust then goes to the fee). Null if the coins
      * are too small for the pool.
      */
-    fun change(inputValue: Long, amount: Long, feeRate: Double, inputs: Int = 1, type: ScriptType = ScriptType.P2WPKH, outputs: Int = 1): Long? {
-        val withChange = inputValue - amount * outputs - feeShare(feeRate, true, inputs, type, outputs)
+    fun change(inputValue: Long, amount: Long, feeRate: Double, inputs: Int = 1, type: ScriptType = ScriptType.P2WPKH, outputs: Int = 1): Long? =
+        changeOf(inputValue, amount * outputs, feeRate, inputs, type, outputs)
+
+    /**
+     * The same for a seat that puts [mixTotal] into the round over [outputs] outputs of any amounts
+     * (v5: the creator's payments).
+     */
+    fun changeOf(inputValue: Long, mixTotal: Long, feeRate: Double, inputs: Int = 1, type: ScriptType = ScriptType.P2WPKH, outputs: Int = 1): Long? {
+        val withChange = inputValue - mixTotal - feeShare(feeRate, true, inputs, type, outputs)
         if (withChange > DUST) return withChange
-        val without = inputValue - amount * outputs - feeShare(feeRate, false, inputs, type, outputs)
+        val without = inputValue - mixTotal - feeShare(feeRate, false, inputs, type, outputs)
         return if (without >= 0) 0L else null
     }
 
@@ -110,24 +117,29 @@ object CoinjoinTx {
      * person, v4), every (script, value) in [changes] its change. Throws if the pieces do not add
      * up to a sane coinjoin.
      */
-    fun plan(coins: List<Coin>, mixScripts: List<ByteArray>, changes: List<TxBuilder.Output>, amount: Long, perPerson: Int = 1): Plan {
+    fun plan(coins: List<Coin>, mixScripts: List<ByteArray>, changes: List<TxBuilder.Output>, amount: Long, perPerson: Int = 1,
+             /** v5: the creator's payments (script and amount), on top of the joiners' [mixScripts]. */
+             payments: List<TxBuilder.Output> = emptyList()): Plan {
         require(perPerson >= 1 && mixScripts.size % perPerson == 0) { "every person gets the same number of mixed outputs" }
-        val people = mixScripts.size / perPerson
+        val people = mixScripts.size / perPerson + (if (payments.isEmpty()) 0 else 1)
         require(people >= 2) { "a coinjoin needs at least two people" }
+        require(payments.all { it.value >= Protocol.MIN_PAYMENT }) { "a payment is dust" }
         require(coins.size >= people) { "every person brings at least one coin" }
         require(coins.map { it.outpoint }.toSet().size == coins.size) { "the same coin was registered twice" }
         // One address type for everything: a P2WPKH coin or output in a Taproot round (or the
         // other way round) would point at its owner.
         val type = coins.first().type
         require(coins.all { it.type == type }) { "coins of two address types" }
-        require((mixScripts + changes.map { it.scriptPubKey }).all { isType(it, type) }) { "an output of another address type" }
-        val allScripts = (mixScripts + changes.map { it.scriptPubKey }).map { it.toHex() }
+        val others = (payments + changes).map { it.scriptPubKey }
+        require((mixScripts + others).all { isType(it, type) }) { "an output of another address type" }
+        val allScripts = (mixScripts + others).map { it.toHex() }
         require(allScripts.toSet().size == allScripts.size) { "an address appears twice" }
         val inputScripts = coins.map { it.script.toHex() }.toSet()
         require(allScripts.none { it in inputScripts }) { "an output pays back to an input address" }
         require(changes.all { it.value > DUST }) { "a change output is dust" }
+        // v5: the payments sorted in with the changes, by script like them.
         val outs = mixScripts.sortedWith(::cmp).map { TxBuilder.Output(it, amount) } +
-            changes.sortedWith { a, b -> cmp(a.scriptPubKey, b.scriptPubKey) }
+            (changes + payments).sortedWith { a, b -> cmp(a.scriptPubKey, b.scriptPubKey) }
         val p = Plan(coins.sortedWith(compareBy({ it.txid }, { it.vout })), outs)
         require(p.fee >= 0) { "the outputs spend more than the inputs" }
         return p
@@ -196,6 +208,40 @@ object CoinjoinTx {
         if (plan.fee < kotlin.math.floor(feeRate * vb * 0.95)) return "the fee is too low"
         // Each person's fixed share, plus any dust folded into the fee; past that is a mistake.
         if (plan.fee > seatInputs.sumOf { feeShare(feeRate, true, it, type, perPerson) } + (DUST + 1) * people) return "the fee is too high"
+        return null
+    }
+
+    /**
+     * v5: what every member checks before signing. [mine]: our own outputs (a joiner's mixed outputs
+     * of [amount], or the creator's payments), each there once with its exact value; [change] ours.
+     * [seatInputs] and [seatOutputs]: coins and outputs of every seat of the round (the creator's
+     * outputs are its payments), [perPerson] each joiner's outputs, [payments] the announced ones.
+     * The transaction must hold exactly the joiners' outputs of [amount], the payments (each once),
+     * and [changes] changes; and pay a fee in line with every seat's own share.
+     */
+    fun checkPayment(plan: Plan, mine: List<TxBuilder.Output>, change: TxBuilder.Output?, amount: Long, feeRate: Double,
+                     seatInputs: List<Int>, seatOutputs: List<Int>, perPerson: Int, payments: List<Long>, changes: Int): String? {
+        val type = plan.coins.first().type
+        val people = seatInputs.size
+        if (seatOutputs.size != people || payments.isEmpty()) return "the seats do not match the round"
+        if (mine.isEmpty() || mine.map { it.scriptPubKey.toHex() }.toSet().size != mine.size) return "our mixed outputs are wrong"
+        for (m in mine) if (plan.outputs.count { it.scriptPubKey.contentEquals(m.scriptPubKey) && it.value == m.value } != 1)
+            return "our mixed output is missing"
+        val mixed = (people - 1) * perPerson
+        if (plan.outputs.size != mixed + payments.size + changes) return "the transaction has other outputs than the round's"
+        // Every announced payment there (an amount equal to the joiners' counts on top of theirs)...
+        val values = plan.outputs.groupingBy { it.value }.eachCount()
+        for ((v, n) in payments.groupingBy { it }.eachCount())
+            if ((values[v] ?: 0) < n + (if (v == amount) mixed else 0)) return "a payment is missing or changed"
+        // ...and the joiners' outputs, all of the same amount.
+        if ((values[amount] ?: 0) < mixed + payments.count { it == amount }) return "the mixed outputs are not all equal"
+        if (seatInputs.sum() != plan.coins.size) return "the coins do not match the seats"
+        if (change != null && plan.outputs.none { it.scriptPubKey.contentEquals(change.scriptPubKey) && it.value == change.value })
+            return "our change is missing or wrong"
+        val vb = OVERHEAD_VB + inputVb(type) * plan.coins.size + outputVb(type) * plan.outputs.size
+        if (plan.fee < kotlin.math.floor(feeRate * vb * 0.95)) return "the fee is too low"
+        if (plan.fee > seatInputs.indices.sumOf { feeShare(feeRate, true, seatInputs[it], type, seatOutputs[it]) } + (DUST + 1) * people)
+            return "the fee is too high"
         return null
     }
 

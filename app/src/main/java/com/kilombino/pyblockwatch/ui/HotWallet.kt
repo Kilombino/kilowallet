@@ -844,24 +844,41 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                     }
                 }
 
-                // Paying through a new coinjoin pool (BTC hot wallet): equal amounts to addresses of one type.
-                if (multi && state.isHot && vm.coinjoinSupported() && to.isNotBlank() && (amount.toLongOrNull() ?: 0L) > 0) {
+                // Paying through a new coinjoin pool (BTC hot wallet), recipients of one address type: equal
+                // amounts make a pool of equal outputs (v4); different ones, or by choice, a payment pool (v5).
+                // Said only once every recipient row is filled in: a row being typed is not a reason.
+                if (multi && state.isHot && vm.coinjoinSupported() && to.isNotBlank() && (amount.toLongOrNull() ?: 0L) > 0 &&
+                    extraTo.indices.all { extraTo[it].isNotBlank() && (extraAmount[it].toLongOrNull() ?: 0L) > 0 }) {
                     val recipients = listOf(to.trim() to (amount.toLongOrNull() ?: 0L)) +
                         extraTo.indices.map { extraTo[it].trim() to (extraAmount[it].toLongOrNull() ?: 0L) }
                     val check = remember(recipients) { com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.check(recipients, vm.taprootPools()) }
+                    fun payThroughPool(v5: Boolean) {
+                        val sel = if (coinControl) (state.utxos ?: emptyList()).filter { "${it.txid}:${it.vout}" in selectedOutpoints } else emptyList()
+                        com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.pending.value = com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.Request(
+                            if (v5) check.amounts.sum() else check.amount, check.type!!, check.scripts, recipients.map { it.first }, sel,
+                            feeRate.toDoubleOrNull() ?: 1.0, if (v5) check.amounts else null)
+                        vm.resetSend(); onClose()
+                        com.kilombino.pyblockwatch.data.OpenTab.flow.value = com.kilombino.pyblockwatch.data.OpenTab.COINJOIN
+                    }
                     Spacer(Modifier.height(8.dp))
-                    if (check.ok) {
-                        androidx.compose.material3.OutlinedButton(onClick = {
-                            val sel = if (coinControl) (state.utxos ?: emptyList()).filter { "${it.txid}:${it.vout}" in selectedOutpoints } else emptyList()
-                            com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.pending.value = com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.Request(
-                                check.amount, check.type!!, check.scripts, recipients.map { it.first }, sel, feeRate.toDoubleOrNull() ?: 1.0)
-                            vm.resetSend(); onClose()
-                            com.kilombino.pyblockwatch.data.OpenTab.flow.value = com.kilombino.pyblockwatch.data.OpenTab.COINJOIN
-                        }, modifier = Modifier.fillMaxWidth()) {
-                            Text("🌀 PAY THROUGH A NEW COINJOIN POOL", color = accent, style = MaterialTheme.typography.bodyMedium)
+                    if (check.any) {
+                        androidx.compose.material3.OutlinedButton(onClick = { payThroughPool(!check.ok) }, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (check.ok) "🌀 PAY THROUGH A NEW COINJOIN POOL" else "🌀 PAY THROUGH A NEW PAYMENT POOL",
+                                color = accent, style = MaterialTheme.typography.bodyMedium)
                         }
-                        Text("The payment goes out only when the pool closes, which can take hours. If it doesn't fill, " +
-                            "nothing is paid and you can send normally.", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                        Text(if (check.ok) "The payment goes out only when the pool closes, which can take hours. If it doesn't fill, " +
+                            "nothing is paid and you can send normally."
+                            else "Different amounts: the others in the pool each put in the same total and get it back in equal outputs. " +
+                                "Your payments still show on the chain as odd amounts, and as one person's; which coins paid them stays " +
+                                "hidden among the members (best when everyone uses perfect coins), and the others mix among themselves. " +
+                                "It goes out only when the pool closes; if it doesn't fill, nothing is paid.",
+                            color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                        // Equal amounts can still go as a payment pool, if the user prefers it.
+                        if (check.ok && check.paymentOk) TextButton(onClick = { payThroughPool(true) },
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                            Text("or as a payment pool (the others get the total back in equal outputs)", color = accent,
+                                style = MaterialTheme.typography.labelSmall)
+                        }
                     } else Text("Pay through a coinjoin: not available. " + check.reason,
                         color = TextFaint, style = MaterialTheme.typography.bodySmall)
                 }
