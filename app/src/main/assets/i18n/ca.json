@@ -2258,5 +2258,6 @@
 "{0} people": "{0} persones",
 "Together they add up to {0} sats: a pool needs at least {1} sats in all.": "Junts sumen {0} sats: un pool necessita com a mínim {1} sats en total.",
 "CONTINUE WITH YOUR COIN": "CONTINUAR AMB LA TEVA MONEDA",
-"CONTINUE WITH YOUR {0} COINS": "CONTINUAR AMB LES TEVES {0} MONEDES"
+"CONTINUE WITH YOUR {0} COINS": "CONTINUAR AMB LES TEVES {0} MONEDES",
+"CONTINUE WITH YOUR COINS": "CONTINUAR AMB LES TEVES MONEDES"
 }

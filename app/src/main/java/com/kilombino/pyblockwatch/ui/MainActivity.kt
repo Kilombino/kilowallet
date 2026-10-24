@@ -582,6 +582,14 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
     var showSettings by remember { mutableStateOf(false) }
     var showSend by remember { mutableStateOf(false) }
     var showReceive by remember { mutableStateOf(false) }
+    // BACK from a payment's pool sheet: SEND again, on BTC, with what was typed (SendSheet takes it).
+    val backToSend by com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.backToSend.collectAsState()
+    LaunchedEffect(backToSend) {
+        if (backToSend == null) return@LaunchedEffect
+        cjTab = false; arkTab = false; lnTab = false
+        if (state.selected != Chain.BLAKE2B) vm.select(Chain.BLAKE2B)
+        vm.resetSend(); showSend = true
+    }
 
     // One person, one node: remind when the app comes to the screen, and on a manual refresh,
     // while BTC is read from our server; on the spamchain, warn about the public servers.

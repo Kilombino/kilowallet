@@ -31,7 +31,18 @@ object CoinjoinPayment {
         val coins: List<Scanner.SpendableUtxo>, val feeRate: Double,
         /** A payment pool (v5): each recipient's amount, in the order of [scripts]; null for equal outputs (v4). */
         val payments: List<Long>? = null,
+        /** SEND as it was, for BACK in the pool's sheet. */
+        val draft: Draft? = null,
     )
+
+    /** The SEND form as it was when its payment went to a pool: what was typed and ticked. */
+    class Draft(
+        val to: String, val amount: String, val feeRate: String, val coinControl: Boolean, val selected: List<String>,
+        val extraTo: List<String>, val extraAmount: List<String>,
+    )
+
+    /** BACK from a payment's pool sheet: SEND opens again with this, then it goes back to null. */
+    val backToSend = MutableStateFlow<Draft?>(null)
 
     /** The payment waiting for its pool to be opened in the coinjoin tab; null once done or cancelled. */
     val pending = MutableStateFlow<Request?>(null)

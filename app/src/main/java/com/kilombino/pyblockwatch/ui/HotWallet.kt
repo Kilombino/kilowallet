@@ -508,6 +508,14 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
         ActivityResultContracts.RequestPermission(),
     ) { granted -> if (granted) showScanner = true }
     LaunchedEffect(state.selected) { vm.loadUtxos() }
+    // Back from a payment's pool sheet: the payment as it was, recipients, amounts and ticked coins.
+    LaunchedEffect(Unit) {
+        val d = com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.backToSend.value ?: return@LaunchedEffect
+        com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.backToSend.value = null
+        to = d.to; amount = d.amount; feeRate = d.feeRate; coinControl = d.coinControl
+        selectedOutpoints.clear(); selectedOutpoints.addAll(d.selected)
+        extraTo.clear(); extraTo.addAll(d.extraTo); extraAmount.clear(); extraAmount.addAll(d.extraAmount)
+    }
     // Each payment gets its own offer to save the destination.
     val sent = state.sendPhase is SendPhase.Sent
     LaunchedEffect(sent) { if (!sent) askedSave = false }
@@ -856,7 +864,9 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                         val sel = if (coinControl) (state.utxos ?: emptyList()).filter { "${it.txid}:${it.vout}" in selectedOutpoints } else emptyList()
                         com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.pending.value = com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.Request(
                             if (v5) check.amounts.sum() else check.amount, check.type!!, check.scripts, recipients.map { it.first }, sel,
-                            feeRate.toDoubleOrNull() ?: 1.0, if (v5) check.amounts else null)
+                            feeRate.toDoubleOrNull() ?: 1.0, if (v5) check.amounts else null,
+                            com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.Draft(to, amount, feeRate, coinControl,
+                                selectedOutpoints.toList(), extraTo.toList(), extraAmount.toList()))
                         vm.resetSend(); onClose()
                         com.kilombino.pyblockwatch.data.OpenTab.flow.value = com.kilombino.pyblockwatch.data.OpenTab.COINJOIN
                     }

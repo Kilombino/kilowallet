@@ -219,7 +219,11 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
     val payment by com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.pending.collectAsState()
     if (creating || payment != null) {
         val pay = payment
-        CreatePool(vm, accent, testPools, pay, onCancel = { creating = false; com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.pending.value = null }) { amount, rate, minPeers, peers, hours, password, maxInputs, outputs, u, dest ->
+        CreatePool(vm, accent, testPools, pay, onCancel = {
+            creating = false; com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.pending.value = null
+            // A payment goes back to SEND as it was typed, nothing lost.
+            pay?.draft?.let { com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.backToSend.value = it }
+        }) { amount, rate, minPeers, peers, hours, password, maxInputs, outputs, u, dest ->
             scope.launch {
                 val type = if (u.first().type == ScriptType.P2TR) ScriptType.P2TR else ScriptType.P2WPKH
                 // A payment's outputs are the recipients' addresses as typed; nothing is derived for them.
@@ -571,7 +575,7 @@ private fun CoinPicker(
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onCancel, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = TextSoft),
-                shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text("CANCEL") }
+                shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text(if (payment) "BACK" else "CANCEL") }
             Button(onClick = { if ((change ?: 0) > 0 && !payment) offerPerfect = true else onPicked(chosen.toList(), dest) },
                 enabled = change != null,
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
@@ -846,7 +850,7 @@ private fun CreatePool(
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onCancel, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = TextSoft),
-                shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text("CANCEL") }
+                shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text(if (pay != null) "BACK" else "CANCEL") }
             if (fromCoins) Button(onClick = { if (dests.size > 1) choosingDest = true else open(Destination.Kind.HOT) }, enabled = error == null,
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
                 shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text(if (dests.size > 1) "CONTINUE" else "OPEN THE POOL") }
@@ -854,7 +858,7 @@ private fun CreatePool(
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
                 shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
                 // Coins ticked in SEND already: the picker opens with them ticked, only to confirm.
-                Text(pay?.coins?.size?.takeIf { it > 0 }?.let { if (it == 1) "CONTINUE WITH YOUR COIN" else "CONTINUE WITH YOUR $it COINS" } ?: "CHOOSE COINS")
+                Text(if (pay?.coins.isNullOrEmpty()) "CHOOSE COINS" else "CONTINUE WITH YOUR COINS")
             }
         }
     }

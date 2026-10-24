@@ -2258,5 +2258,6 @@
 "{0} people": "{0} persone",
 "Together they add up to {0} sats: a pool needs at least {1} sats in all.": "Insieme fanno {0} sats: un pool richiede almeno {1} sats in tutto.",
 "CONTINUE WITH YOUR COIN": "CONTINUA CON LA TUA MONETA",
-"CONTINUE WITH YOUR {0} COINS": "CONTINUA CON LE TUE {0} MONETE"
+"CONTINUE WITH YOUR {0} COINS": "CONTINUA CON LE TUE {0} MONETE",
+"CONTINUE WITH YOUR COINS": "CONTINUA CON LE TUE MONETE"
 }
