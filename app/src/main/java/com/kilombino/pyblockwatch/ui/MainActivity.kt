@@ -955,7 +955,8 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
     // Mined rewards still locked, marked on their coins (the balance card looks them up).
     val allImmature by vm.immature.collectAsState()
     val im = vm.immatureFor(chain, allImmature)
-    fun conf(u: Scanner.SpendableUtxo) = if (u.height <= 0 || tip <= 0) 0 else tip - u.height + 1
+    // A coin from a block newer than the tip known here is confirmed all the same: at least 1.
+    fun conf(u: Scanner.SpendableUtxo) = if (u.height <= 0 || tip <= 0) 0 else maxOf(1, tip - u.height + 1)
     fun confText(u: Scanner.SpendableUtxo) = conf(u).let { c -> if (c == 0) "in mempool · 0 conf" else "$c conf" + if (c >= 6) "  ✓" else "" }
     open?.let { row ->
         val cs = coins?.get(row.scriptHash).orEmpty()
@@ -985,6 +986,31 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
         val btc = chain == com.kilombino.pyblockwatch.chain.Chain.BLAKE2B
         held.forEach { row ->
             val cs = coins?.get(row.scriptHash)
+            // An address holding mined rewards still locked (a pool's payout address gets one per
+            // block) is shown coin by coin, each in the same pattern as an address.
+            if (cs.orEmpty().any { im?.of(it) != null }) {
+                cs!!.sortedBy { it.height }.forEach { u ->
+                    val lk = im?.of(u)
+                    Row(Modifier.fillMaxWidth().clickable { open = row }.padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(shortAddress(row.address), style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                            Text("${row.path}  ·  ${if (row.chainIndex == 0) "receive" else "change"}",
+                                style = MaterialTheme.typography.bodySmall, color = TextFaint)
+                            if (btc && vm.isMixedCoin(u)) Text("🌀 mixed", style = MaterialTheme.typography.bodySmall, color = Good)
+                            if ("${u.txid}:${u.vout}" in seated) Text("in a pool waiting for people: sending it leaves that pool",
+                                style = MaterialTheme.typography.bodySmall, color = Warn)
+                            if (lk != null) Text(immatureLine(im!!, lk), style = MaterialTheme.typography.bodySmall, color = Warn)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(street("${groupSats(u.value)} sats"),
+                                style = MaterialTheme.typography.bodyMedium, color = accent, fontWeight = FontWeight.Bold)
+                            Text(confText(u), style = MaterialTheme.typography.bodySmall, color = if (lk != null) Warn else Good)
+                        }
+                    }
+                }
+                return@forEach
+            }
             Row(Modifier.fillMaxWidth().clickable { open = row }.padding(vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -1014,19 +1040,6 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
                         }
                         else -> Text("not yet spendable (mined reward maturing)", style = MaterialTheme.typography.bodySmall, color = Warn)
                     }
-                }
-            }
-            // With mined rewards still locked, each coin of the address in its own row,
-            // spaced as in the coin list: its amount, when it unlocks, its confirmations.
-            if (cs.orEmpty().any { im?.of(it) != null }) cs.orEmpty().sortedBy { it.height }.forEach { u ->
-                val lk = im?.of(u)
-                Row(Modifier.fillMaxWidth().padding(start = 12.dp, top = 6.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(street("${groupSats(u.value)} sats"), style = MaterialTheme.typography.bodyMedium, color = TextMain)
-                        if (lk != null) Text(immatureLine(im!!, lk), style = MaterialTheme.typography.bodySmall, color = Warn)
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Text(confText(u), style = MaterialTheme.typography.bodySmall, color = if (lk != null) Warn else Good)
                 }
             }
         }

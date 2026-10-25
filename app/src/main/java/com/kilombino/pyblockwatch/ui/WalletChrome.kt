@@ -231,7 +231,7 @@ fun CoinsCard(state: UiState, vm: WalletViewModel, chain: Chain, accent: Color) 
     if (coins.isEmpty() && locked.isEmpty()) return
     var open by remember { mutableStateOf<com.kilombino.pyblockwatch.data.Scanner.SpendableUtxo?>(null) }
     open?.let { u ->
-        val conf = if (u.height <= 0 || cs.height <= 0) 0 else cs.height - u.height + 1
+        val conf = if (u.height <= 0 || cs.height <= 0) 0 else maxOf(1, cs.height - u.height + 1)
         // A coin is looked at by its address: copy it, or open the address on the explorer.
         val addr = vm.coinAddress(u)
         val confText = if (conf == 0) "in mempool · 0 confirmations" else "$conf confirmation" + if (conf == 1) "" else "s"
@@ -250,7 +250,7 @@ fun CoinsCard(state: UiState, vm: WalletViewModel, chain: Chain, accent: Color) 
         SectionLabel("Coins · confirmations", accent)
         Spacer(Modifier.height(8.dp))
         coins.sortedByDescending { it.value }.forEach { u ->
-            val conf = if (u.height <= 0 || cs.height <= 0) 0 else cs.height - u.height + 1
+            val conf = if (u.height <= 0 || cs.height <= 0) 0 else maxOf(1, cs.height - u.height + 1)
             Row(Modifier.clickable { open = u }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(street("${groupSats(u.value)} ${if (chain == Chain.BLAKE2B) "sats" else "poolsats"}"),
@@ -265,7 +265,7 @@ fun CoinsCard(state: UiState, vm: WalletViewModel, chain: Chain, accent: Color) 
         }
         locked.forEach { c ->
             val u = c.coin
-            val conf = if (u.height <= 0 || cs.height <= 0) 0 else cs.height - u.height + 1
+            val conf = if (u.height <= 0 || cs.height <= 0) 0 else maxOf(1, cs.height - u.height + 1)
             Row(Modifier.clickable { open = u }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(street("${groupSats(u.value)} ${if (chain == Chain.BLAKE2B) "sats" else "poolsats"}"),
