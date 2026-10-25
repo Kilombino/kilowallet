@@ -4,7 +4,7 @@ Rebuild the published APK yourself and confirm it matches, byte for byte.
 
 ## 1. What is and is not compiled here
 
-The XBT wallet is **pure JVM/Kotlin + Android Gradle Plugin**. secp256k1 arithmetic,
+The BTC wallet is **pure JVM/Kotlin + Android Gradle Plugin**. secp256k1 arithmetic,
 RIPEMD-160, Base58Check, Bech32 and BIP-32 derivation are all Kotlin in
 `app/src/main/java/com/kilombino/pyblockwatch/crypto/`, compiled from this repo; the
 spending wallet's signatures are RFC 6979 and pinned to the published secp256k1 vectors
@@ -15,7 +15,7 @@ Since 0.10.0 the APK carries **one native library of ours**: the **Ark engine**,
 Ark inside the app. It is not a prebuilt blob: it is rebuilt from a pinned commit of
 [Kilombino/paperclip-wallet-app](https://github.com/Kilombino/paperclip-wallet-app),
 reproducibly, and the release build refuses any library whose SHA-256 differs from the
-pin in `ark-engine/ENGINE` (§8). It holds the Ark wallet's keys; the XBT spending
+pin in `ark-engine/ENGINE` (§8). It holds the Ark wallet's keys; the BTC spending
 wallet's keys never reach it except as the shared words, when the user chooses one set
 of words for both. It ships for arm64-v8a only; on other ABIs the wallet runs without Ark.
 

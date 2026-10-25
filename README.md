@@ -2,7 +2,7 @@
 
 # Kilowallet
 
-Kilombino's Bitcoin BLAKE2b (XBT) wallet, formerly "Kilombino Bitcoin-Blake2b wallet".
+Kilombino's Bitcoin BLAKE2b (BTC) wallet, formerly "Kilombino Bitcoin-Blake2b wallet".
 
 <p align="center">
   <img src="screenshots/1-onboarding.jpg" width="200">
@@ -45,7 +45,7 @@ account. Apache-2.0, reproducible, and every line of cryptography is in this rep
   and move all its coins into this wallet in one transaction, after seeing the fee: legacy
   (1…), nested SegWit (3…), native SegWit (bc1q…) and Taproot (bc1p…), compressed or
   uncompressed keys. Signed byte for byte as Bitcoin Knots signs, unified sighash on BLAKE2b.
-- **Rescue XBT from a pre-fork LND seed** (Settings, Advanced). Type the 24 aezeed words
+- **Rescue BTC from a pre-fork LND seed** (Settings, Advanced). Type the 24 aezeed words
   (and passphrase) of a Lightning node created before the fork: its on-chain coins on
   BLAKE2b (BIP-84/49/86 wallet and channel payment keys) are swept with the unified
   sighash, which the SHA-256 chain rejects, so the same node there is untouched.
@@ -70,12 +70,12 @@ account. Apache-2.0, reproducible, and every line of cryptography is in this rep
   `.onion` goes through Tor built into the app (Arti, the Tor Project's Tor in Rust; no Orbot needed).
 - **Balance-change notifications** without a push server: the phone asks the Electrum
   server itself, on a visible foreground service you opt into.
-- **Simple or Advanced.** On first open you choose. *Simple* is one screen: your XBT
+- **Simple or Advanced.** On first open you choose. *Simple* is one screen: your BTC
   balance with its value in USD or EUR, and Send / Receive. *Advanced* is everything
   below. Switch at any time from the top of the wallet.
-- **XBT price widget.** A home-screen widget (formerly the separate XBT Widget app) with
-  the XBT price, the ratio in Poolsats, the 24h range and the block height; at four rows
-  tall it adds what 1 TH/s earns and costs to rent, kWh per XBT, YSH and chain size.
+- **BTC price widget.** A home-screen widget (formerly the separate XBT Widget app) with
+  the BTC price, the ratio in Poolsats, the 24h range and the block height; at four rows
+  tall it adds what 1 TH/s earns and costs to rent, kWh per BTC, YSH and chain size.
 - **Ark (coming).** The Simple screen already has an Ark tab with the real limits of the
   Paperclip Ark server, so they are read before any money goes in.
 - **Open a movement in a block explorer.** In Advanced mode, tap a movement and the
