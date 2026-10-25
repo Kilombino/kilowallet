@@ -558,7 +558,7 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
             SectionLabel("send", accent)
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { vm.resetSend(); onClose() }) {
-                Text("close", color = TextSoft, style = MaterialTheme.typography.bodySmall)
+                Text("✕", color = TextSoft, style = MaterialTheme.typography.titleLarge)
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -1084,7 +1084,7 @@ fun ReceiveSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
             SectionLabel("receive", accent)
             Spacer(Modifier.weight(1f))
             TextButton(onClick = onClose) {
-                Text("close", color = TextSoft, style = MaterialTheme.typography.bodySmall)
+                Text("✕", color = TextSoft, style = MaterialTheme.typography.titleLarge)
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -1195,7 +1195,7 @@ fun SweepSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
             SectionLabel("sweep a private key", accent)
             Spacer(Modifier.weight(1f))
             TextButton(onClick = onClose) {
-                Text("close", color = TextSoft, style = MaterialTheme.typography.bodySmall)
+                Text("✕", color = TextSoft, style = MaterialTheme.typography.titleLarge)
             }
         }
         Spacer(Modifier.height(6.dp))

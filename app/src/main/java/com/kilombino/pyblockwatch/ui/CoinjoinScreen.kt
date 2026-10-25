@@ -1414,7 +1414,7 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, tag:
             }
             is SendPhase.Failed -> {
                 Text(p.message, color = Bad, style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = { vm.resetSend(); onDone(false) }) { Text("close", color = TextSoft) }
+                TextButton(onClick = { vm.resetSend(); onDone(false) }) { Text("✕", color = TextSoft, style = MaterialTheme.typography.titleLarge) }
             }
             // Editing (the other wallet's addresses being found) or Preparing: the wait, said as it goes.
             else -> WorkingLine(accent, "Preparing the payment to yourself…",

@@ -999,10 +999,13 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
                     if (mixed) Text("🌀 mixed", style = MaterialTheme.typography.bodySmall, color = Good)
                     if (inPool) Text("in a pool waiting for people: sending it leaves that pool",
                         style = MaterialTheme.typography.bodySmall, color = Warn)
-                    // An address paid by a pool gets one reward per block: one line for them all
-                    // (each coin's own date is in the address's window).
-                    val locked = cs.orEmpty().mapNotNull { im?.of(it) }.sortedBy { it.maturesAt }
-                    if (locked.isNotEmpty()) Text(immatureSummary(im!!, locked), style = MaterialTheme.typography.bodySmall, color = Warn)
+                    // With a mined reward still locked, each coin gets its own line under the
+                    // address: its amount, and when it unlocks (or its confirmations if it can go).
+                    if (cs.orEmpty().any { im?.of(it) != null }) cs.orEmpty().sortedBy { it.height }.forEach { u ->
+                        val lk = im?.of(u)
+                        Text(street("${groupSats(u.value)} sats") + " · " + (lk?.let { immatureLine(im!!, it) } ?: confText(u)),
+                            style = MaterialTheme.typography.bodySmall, color = if (lk != null) Warn else TextSoft)
+                    }
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(street("${groupSats(row.total)} sats"),

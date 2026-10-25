@@ -2358,6 +2358,5 @@
 "{0} is a .onion: it needs Tor, and Tor is not running on this phone (or did not start).": "{0} 是 .onion 地址：需要 Tor，而这部手机上的 Tor 没有运行（或没有启动）。",
 "Connecting through Tor is on, but Tor is not running on this phone (or did not start): nothing was sent without it.": "已开启通过 Tor 连接，但这部手机上的 Tor 没有运行（或没有启动）：没有在不经 Tor 的情况下发送任何内容。",
 "Could not reach {0} through Tor: {1}": "无法通过 Tor 连接到 {0}：{1}",
-"One person, one node: put your own here (a .onion address works too, through the app's Tor). Leave empty to use {0}:{1}, meant for emergencies.": "一人一节点：在这里填你自己的（.onion 地址也可以，通过应用内的 Tor）。留空则使用 {0}:{1}，仅供应急。",
-"⛏ {0} mined rewards locked · the first matures at block {1} (~{2}), the last at block {3} (~{4})": "⛏ {0} 笔挖矿奖励已锁定 · 第一笔在区块 {1}（~{2}）成熟，最后一笔在区块 {3}（~{4}）"
+"One person, one node: put your own here (a .onion address works too, through the app's Tor). Leave empty to use {0}:{1}, meant for emergencies.": "一人一节点：在这里填你自己的（.onion 地址也可以，通过应用内的 Tor）。留空则使用 {0}:{1}，仅供应急。"
 }

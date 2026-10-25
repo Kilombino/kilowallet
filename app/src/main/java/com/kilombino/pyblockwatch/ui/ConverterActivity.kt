@@ -83,7 +83,7 @@ private fun Converter(onClose: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("BTC converter", style = MaterialTheme.typography.titleMedium, color = Purple,
                  modifier = Modifier.weight(1f))
-            TextButton(onClick = onClose) { Text("close", color = TextSoft, style = MaterialTheme.typography.bodySmall) }
+            TextButton(onClick = onClose) { Text("✕", color = TextSoft, style = MaterialTheme.typography.titleLarge) }
         }
         val m = market
         if (m == null || m.xbtUsd == null) {

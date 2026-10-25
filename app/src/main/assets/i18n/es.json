@@ -2370,6 +2370,5 @@
 "{0} is a .onion: it needs Tor, and Tor is not running on this phone (or did not start).": "{0} es un .onion: necesita Tor, y Tor no está en marcha en este teléfono (o no arrancó).",
 "Connecting through Tor is on, but Tor is not running on this phone (or did not start): nothing was sent without it.": "Conectar a través de Tor está activado, pero Tor no está en marcha en este teléfono (o no arrancó): no se ha enviado nada sin él.",
 "Could not reach {0} through Tor: {1}": "No se pudo llegar a {0} a través de Tor: {1}",
-"One person, one node: put your own here (a .onion address works too, through the app's Tor). Leave empty to use {0}:{1}, meant for emergencies.": "Una persona, un nodo: pon aquí el tuyo (también vale una dirección .onion, a través del Tor de la app). Déjalo vacío para usar {0}:{1}, pensado para emergencias.",
-"⛏ {0} mined rewards locked · the first matures at block {1} (~{2}), the last at block {3} (~{4})": "⛏ {0} recompensas de minería bloqueadas · la primera madura en el bloque {1} (~{2}), la última en el bloque {3} (~{4})"
+"One person, one node: put your own here (a .onion address works too, through the app's Tor). Leave empty to use {0}:{1}, meant for emergencies.": "Una persona, un nodo: pon aquí el tuyo (también vale una dirección .onion, a través del Tor de la app). Déjalo vacío para usar {0}:{1}, pensado para emergencias."
 }
