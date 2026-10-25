@@ -33,7 +33,7 @@ object RoundNotifications {
     fun signature(ctx: Context, st: PoolSession.State): String {
         val masked = ctx.getSharedPreferences("pyblockwatch", Context.MODE_PRIVATE).getBoolean("street_mode_default", true) &&
             com.kilombino.pyblockwatch.ui.StreetMode.hidden
-        return listOf(st.poolId, st.phase, st.seats.size, st.round.size, st.terms.maxPeers, st.postedSig, st.phaseDeadline,
+        return listOf(st.key, st.phase, st.seats.size, st.round.size, st.terms.maxPeers, st.postedSig, st.phaseDeadline,
             st.voteDeadline, st.terms.expiresAt, st.txid, masked, com.kilombino.pyblockwatch.ui.i18n.I18n.lang.value).joinToString("|")
     }
 
@@ -82,7 +82,7 @@ object RoundNotifications {
             PoolSession.Phase.REJECTED -> "Refused"
         }
         // A payment through the pool: its outputs went to the recipients, not to this wallet.
-        val pay = Destination.of(ctx, st.poolId) == Destination.Kind.PAY
+        val pay = Destination.of(ctx, st.key) == Destination.Kind.PAY
         val where = when (st.phase) {
             PoolSession.Phase.BROADCAST -> if (pay) "The payment left in the group transaction. Waiting for a block."
                 else "Your coin left in the group transaction. Waiting for a block."
@@ -107,7 +107,8 @@ object RoundNotifications {
             else -> 0xFF278BF5.toInt()
         }
         val title = (if (st.terms.v5 && st.creator) "${sats(st.terms.mixTotal, masked)} sats to ${st.terms.payments.size} recipient(s)"
-            else "${sats(st.terms.amount, masked)} sats each") + if (st.terms.script == com.kilombino.pyblockwatch.crypto.ScriptType.P2TR) " · Taproot" else ""
+            else "${sats(st.terms.amount, masked)} sats each") + (if (st.terms.script == com.kilombino.pyblockwatch.crypto.ScriptType.P2TR) " · Taproot" else "") +
+            (CoinjoinHub.seatLabel(st)?.let { " · $it" } ?: "") + (if (st.perpId != null) " · ♻ perpetual" else "")
         val counting = st.phase == PoolSession.Phase.OPEN && st.terms.expiresAt > System.currentTimeMillis() / 1000
 
         fun views(layout: Int, big: Boolean) = RemoteViews(ctx.packageName, layout).apply {
@@ -179,19 +180,21 @@ object RoundNotifications {
         val shownFinal = prefs.getStringSet("final", emptySet())!!.toMutableSet()
         val states = CoinjoinHub.states.value
         for (st in states) {
-            val id = idFor(st.poolId)
+            // One card per seat: a pool's first seat under the pool's id as before, another next to it.
+            val k = st.key
+            val id = idFor(k)
             when {
-                st.phase in final -> if (st.poolId !in shownFinal) {
+                st.phase in final -> if (k !in shownFinal) {
                     // Only a round seen going here gets its last card (not old ones loaded at start).
-                    if (prefs.getBoolean("live:" + st.poolId, false)) post(id, st)
-                    shownFinal += st.poolId
+                    if (prefs.getBoolean("live:" + k, false)) post(id, st)
+                    shownFinal += k
                 }
-                st.poolId == skip -> { if (id in showing) nm.cancel(id); drawn.remove(id); prefs.edit().putBoolean("live:" + st.poolId, true).apply() }
-                else -> { post(id, st); prefs.edit().putBoolean("live:" + st.poolId, true).apply() }
+                k == skip -> { if (id in showing) nm.cancel(id); drawn.remove(id); prefs.edit().putBoolean("live:" + k, true).apply() }
+                else -> { post(id, st); prefs.edit().putBoolean("live:" + k, true).apply() }
             }
         }
         // Rounds removed from the list: their cards and marks go too.
-        val ids = states.map { it.poolId }.toSet()
+        val ids = states.map { it.key }.toSet()
         shownFinal.retainAll(ids)
         prefs.edit().putStringSet("final", shownFinal).apply {
             prefs.all.keys.filter { it.startsWith("live:") && it.removePrefix("live:") !in ids }

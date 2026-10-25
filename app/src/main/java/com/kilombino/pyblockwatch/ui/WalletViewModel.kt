@@ -2268,6 +2268,35 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Each chain's immature mined rewards, for the wallet shown ([immatureFor]); looked up by [refreshImmature]. */
+    private val _immature = MutableStateFlow<Map<Chain, Pair<String, Scanner.Immature>>>(emptyMap())
+    val immature: StateFlow<Map<Chain, Pair<String, Scanner.Immature>>> = _immature.asStateFlow()
+    private val immatureAsked = java.util.concurrent.ConcurrentHashMap<Chain, String>()
+
+    /** [chain]'s immature mined rewards for the wallet on screen, or null before they were looked up. */
+    fun immatureFor(chain: Chain, all: Map<Chain, Pair<String, Scanner.Immature>> = _immature.value): Scanner.Immature? =
+        all[chain]?.takeIf { it.first == (_state.value.xpub ?: "") }?.second
+
+    /**
+     * Looks up [chain]'s mined rewards that can't be spent yet (what SEND leaves out), again only when
+     * the wallet, its balance or the tip changed: their transactions are cached as a look caches them.
+     */
+    fun refreshImmature(chain: Chain) {
+        val cs = _state.value.chains[chain] ?: return
+        val xpub = _state.value.xpub ?: ""
+        val rows = cs.rows.filter { it.isUsed }
+        if (rows.isEmpty() || cs.height <= 0) return
+        val key = "$xpub|${cs.height}|${cs.total}|${rows.size}"
+        if (immatureAsked.put(chain, key) == key) return
+        viewModelScope.launch {
+            runCatching {
+                val endpoint = store.endpoint(chain)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { scanner.immature(rows, endpoint, store.pinnedFingerprint(endpoint)) }
+            }.onSuccess { im -> _immature.update { it + (chain to (xpub to im)) } }
+             .onFailure { immatureAsked.remove(chain) }
+        }
+    }
+
     /** Every coin in [rows] (immature mined rewards included), by scripthash: for showing, not spending. */
     suspend fun addressCoins(chain: Chain, rows: List<AddressRow>): Map<String, List<Scanner.SpendableUtxo>> {
         val endpoint = store.endpoint(chain)
@@ -2291,7 +2320,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         // A coin already seated in another pool, even one still waiting for people, is not offered:
         // taking it for this pool would spend it (or make a perfect coin from it) and drop that seat.
         // A normal send may still use it (notInCoinjoin), and leaves that pool.
-        val seated = com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.waitingOutpoints(getApplication()).keys
+        // A perpetual coin between rounds is not offered either: it joins its next pool by itself.
+        val seated = com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.waitingOutpoints(getApplication()).keys +
+            com.kilombino.pyblockwatch.coinjoin.Perpetual.waitingOutpoints(getApplication())
         // One type per pool: every input and output of a round must look the same.
         val coins = notInCoinjoin(Chain.BLAKE2B, u).filter { it.height > 0 && it.type == tag && "${it.txid}:${it.vout}" !in seated }
             .sortedByDescending { it.value }
@@ -2314,7 +2345,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
      * they go to another wallet ([com.kilombino.pyblockwatch.coinjoin.Destination]); the change stays here.
      */
     fun coinjoinPick(decryptCipher: javax.crypto.Cipher, coins: List<Scanner.SpendableUtxo>, outputs: Int = 1,
-                     mixScripts: List<ByteArray>? = null): com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.Pick {
+                     mixScripts: List<ByteArray>? = null,
+                     /** A perpetual coinjoin: the receive branch key of the pool's type comes with the pick. */
+                     perpetual: Boolean = false): com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.Pick {
         require(coins.isNotEmpty()) { "pick a coin" }
         val tag = coins.first().type
         require(coins.all { it.type == tag }) { "all the coins of a seat must be of one address type" }
@@ -2338,7 +2371,14 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         } ?: (0 until outputs).map { j ->
             com.kilombino.pyblockwatch.crypto.Address.scriptPubKey(childPubkey(xpub, 0, mixIndex + j), type)
         }
-        return com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.Pick(picked, type, mixes, changeScriptPubKey(changeIndex, tag))
+        val branch = if (perpetual) com.kilombino.pyblockwatch.crypto.Bip32Priv.derivePath(master, "m/${Scanner.purposeFor(type)}'/0'/0'/0") else null
+        // The branch must be the one the wallet shows: its first address is checked against the account's.
+        branch?.let { b ->
+            val pub = com.kilombino.pyblockwatch.crypto.Bip32Priv.deriveChild(b, mixIndex).publicKey()
+            check(pub.contentEquals(childPubkey(xpub, 0, mixIndex))) { "the wallet's keys do not match its addresses" }
+        }
+        return com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.Pick(picked, type, mixes, changeScriptPubKey(changeIndex, tag),
+            mixIndex = if (mixScripts == null && outputs == 1) mixIndex else -1, perpBranch = branch)
     }
 
     /**
@@ -2351,6 +2391,12 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun seatedInWaitingPools(): Set<String> =
         if (_state.value.selected != Chain.BLAKE2B) emptySet()
         else com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.waitingOutpoints(getApplication()).keys
+
+    /** Outpoints of perpetual coinjoin coins between rounds (spendable; sending one stops it). */
+    fun perpetualOutpoints(): Set<String> =
+        if (_state.value.selected != Chain.BLAKE2B) emptySet()
+        else com.kilombino.pyblockwatch.coinjoin.Perpetual.byOutpoint(getApplication()).filterValues {
+            it.state != com.kilombino.pyblockwatch.coinjoin.Remix.State.STOPPED }.keys
 
     /** The outpoints ("txid:vout") of [coins] that came out of a coinjoin ([isMixedCoin]), for a list on screen. */
     fun mixedOutpoints(coins: List<Scanner.SpendableUtxo>): Set<String> {
@@ -2536,6 +2582,19 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         val master = com.kilombino.pyblockwatch.crypto.Bip32Priv
             .fromSeed(com.kilombino.pyblockwatch.crypto.Bip39.toSeed(secret.words, secret.passphrase))
         return coinPaths.map { com.kilombino.pyblockwatch.crypto.Bip32Priv.derivePath(master, it).key }
+    }
+
+    /** The hot wallet's receive branch key of [type] (m/purpose'/0'/0'/0), for a perpetual coinjoin turned on again. */
+    fun perpetualBranch(decryptCipher: javax.crypto.Cipher, type: ScriptType): com.kilombino.pyblockwatch.crypto.Bip32Priv.ExtendedPrivKey {
+        val secret = seedVault.revealSecret(decryptCipher)
+        val master = com.kilombino.pyblockwatch.crypto.Bip32Priv
+            .fromSeed(com.kilombino.pyblockwatch.crypto.Bip39.toSeed(secret.words, secret.passphrase))
+        val b = com.kilombino.pyblockwatch.crypto.Bip32Priv.derivePath(master, "m/${Scanner.purposeFor(type)}'/0'/0'/0")
+        val xpub = (if (type == ScriptType.P2TR) _state.value.taprootXpub else _state.value.xpub) ?: error("no wallet")
+        check(com.kilombino.pyblockwatch.crypto.Bip32Priv.deriveChild(b, 0).publicKey().contentEquals(childPubkey(xpub, 0, 0))) {
+            "the wallet's keys do not match its addresses"
+        }
+        return b
     }
 
     /** The coin's private key again, for signing the round at the end. */

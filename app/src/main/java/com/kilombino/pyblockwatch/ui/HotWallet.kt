@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -534,6 +537,22 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
         )
     }
 
+    // On REVIEW and on the PSBT's export the screen goes back up to this sheet's top: what to check
+    // (or the QR to show) is there, and the screen stayed at the bottom where the button was.
+    val screen = LocalScreenScroll.current
+    var topY by remember { mutableStateOf(0f) }
+    val margin = with(androidx.compose.ui.platform.LocalDensity.current) { 48.dp.toPx() }
+    val step = state.sendPhase.let { it is SendPhase.Review || it is SendPhase.AwaitingSignature }
+    LaunchedEffect(state.sendPhase::class) {
+        // Once the new step is laid out: the sheet's top a little under the screen's top.
+        if (step && screen != null) { kotlinx.coroutines.delay(150); runCatching { screen.animateScrollBy(topY - margin) } }
+    }
+    // Back to edit from the review: coin control as it was, its coins read again (the ticked ones kept).
+    val editing = state.sendPhase is SendPhase.Editing || state.sendPhase is SendPhase.Failed
+    LaunchedEffect(editing, coinControl, state.utxos == null) {
+        if (editing && coinControl && state.utxos == null && !state.utxosLoading) vm.loadUtxos()
+    }
+    Spacer(Modifier.height(1.dp).onGloballyPositioned { topY = it.positionInRoot().y })
     Panel(accent = accent) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SectionLabel("send", accent)
@@ -749,6 +768,8 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                         amount = vm.maxSendable(feeRate.toDoubleOrNull() ?: 1.0, sel).toString()
                     }) { Text("MAX", color = accent, style = MaterialTheme.typography.bodyMedium) }
                 }
+                // Mined rewards still locked count in the balance but not in MAX.
+                ImmatureSendNote(vm, state.selected)
 
                 // More recipients, all paid by this one transaction.
                 if (multi) {
@@ -814,6 +835,7 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                                  style = MaterialTheme.typography.bodySmall)
                         }
                         val seatedOutpoints = remember(utxos) { vm.seatedInWaitingPools() }
+                        val perpetualCoins = remember(utxos) { vm.perpetualOutpoints() }
                         utxos.forEach { u ->
                             val key = "${u.txid}:${u.vout}"
                             val sel = key in selectedOutpoints
@@ -839,6 +861,8 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                                     if (mixed || inPool) Text(listOfNotNull(if (mixed) "🌀 mixed" else null,
                                             if (inPool) "in a pool waiting for people: sending it leaves that pool" else null).joinToString(" · "),
                                         color = if (inPool) Warn else Good, style = MaterialTheme.typography.bodySmall)
+                                    if (key in perpetualCoins) Text("♻ perpetual coinjoin: sending it stops it",
+                                        color = Warn, style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         }
@@ -846,6 +870,12 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                             val selSum = utxos.filter { "${it.txid}:${it.vout}" in selectedOutpoints }.sumOf { it.value }
                             Text("selected: ${groupSats(selSum)} sats", color = accent,
                                  style = MaterialTheme.typography.bodySmall)
+                            // Two outputs of one coinjoin round spent together: the spend shows they were one person's.
+                            val sameRound = state.selected == com.kilombino.pyblockwatch.chain.Chain.BLAKE2B &&
+                                utxos.filter { "${it.txid}:${it.vout}" in selectedOutpoints && vm.isMixedCoin(it) }
+                                    .groupBy { it.txid }.values.any { it.size > 1 }
+                            if (sameRound) Text("Two or more of these coins came out of the same coinjoin round: spending them together links them, " +
+                                "and shows they were one person's.", color = Warn, style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -961,15 +991,20 @@ private fun PsbtExchange(vm: WalletViewModel, phase: SendPhase.AwaitingSignature
             .onSuccess { vm.clearPsbtError(); vm.importSignedPsbtFile(it) }
     }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (ok) scanning = true }
-    if (scanning) QrScannerDialog(onResult = { scanning = false; vm.clearPsbtError(); vm.importSignedPsbt(it) }, onDismiss = { scanning = false })
+    // The signed PSBT back: SeedSigner's animated QR, or a single QR of base64 or hex.
+    if (scanning) SignedPsbtScanner(
+        onPsbt = { scanning = false; vm.clearPsbtError(); vm.importSignedPsbtFile(it) },
+        onText = { scanning = false; vm.clearPsbtError(); vm.importSignedPsbt(it) },
+        onError = { scanning = false; vm.clearPsbtError(); vm.toast(it) },
+        onDismiss = { scanning = false })
 
     Text("1. Sign it elsewhere", color = accent, style = MaterialTheme.typography.titleSmall)
-    Text("Take this PSBT to your signer, for example Bitcoin Knots (walletprocesspsbt). It must sign with the " +
+    Text("Take this PSBT to your signer: SeedSigner (BLAKE2b, scan the animated QR) or Bitcoin Knots (walletprocesspsbt). It must sign with the " +
         "BLAKE2b unified sighash (0x21): an old-style signature would also be valid on the spamchain, so it is refused.",
         color = TextSoft, style = MaterialTheme.typography.bodySmall)
     Spacer(Modifier.height(8.dp))
-    if (b64.length <= 2500) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { QrImage(b64, 260) }
-    else Text("Too big for one QR: copy it or save it as a file.", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+    // As SeedSigner reads it (ur:crypto-psbt, animated): one huge still QR was too dense for its camera.
+    AnimatedPsbtQr(phase.psbt, 300, paused = scanning)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         TextButton(onClick = { clipboard.setText(androidx.compose.ui.text.AnnotatedString(b64)) }) { Text("COPY", color = accent) }
         TextButton(onClick = { save.launch("kilowallet-${phase.draft.amount}.psbt") }) { Text("SAVE FILE", color = accent) }
@@ -1258,3 +1293,6 @@ fun SweepSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
         }
     }
 }
+
+/** The scroll of the screen a sheet is in (advanced and simple mode), to bring a sheet's top into view. */
+val LocalScreenScroll = androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.foundation.ScrollState?> { null }

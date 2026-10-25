@@ -17,7 +17,7 @@ object Contacts {
         val kind: Kind get() = kindOf(dest) ?: Kind.XBT
     }
 
-    enum class Kind(val label: String) { ARK("Ark"), XBT("XBT"), OFFER("Lightning offer"), HANDLE("user@domain") }
+    enum class Kind(val label: String) { ARK("Ark"), XBT("BTC"), OFFER("Lightning offer"), HANDLE("user@domain") }
 
     @Volatile private var app: Context? = null
 

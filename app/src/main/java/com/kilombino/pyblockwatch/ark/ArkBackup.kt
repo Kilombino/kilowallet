@@ -124,7 +124,7 @@ object ArkBackup {
         val j = JSONObject(String(gunzip(payload), Charsets.UTF_8))
         require(j.optString("format") == "kilombino-ark-backup") { "Not a Kilombino Ark backup." }
         require(j.optInt("version") in 1..4) { "This backup was made by a newer version of the app." }
-        require(j.optString("network") == "mainnet") { "This backup is not for XBT mainnet." }
+        require(j.optString("network") == "mainnet") { "This backup is not for BTC mainnet." }
         return Snapshot(
             words = j.getString("mnemonic").trim().split(Regex("\\s+")),
             passphrase = j.optString("passphrase", ""),

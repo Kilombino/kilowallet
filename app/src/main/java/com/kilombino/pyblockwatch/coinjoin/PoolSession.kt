@@ -111,8 +111,19 @@ class PoolSession(private val env: Env, private val s: State) {
         val regOutputs: MutableSet<String> = linkedSetOf(),
         // v5: the creator's payments as listed when the round closed, "script hex:sats".
         val payOutputs: MutableList<String> = mutableListOf(),
+        /**
+         * Another seat of this phone in the same pool: a short random id of its own ("" for the first
+         * seat, and for every round saved before seats could be more than one, so they keep their key).
+         */
+        val seatId: String = "",
+        /** Not before this time (epoch seconds) is the join sent, or the pool opened: a random wait. */
+        val joinAfter: Long = 0,
+        /** A perpetual coinjoin's round: the remix ([Perpetual]) this seat belongs to. */
+        val perpId: String? = null,
     ) {
         val poolId: String get() = terms.id
+        /** What this seat is kept under on the phone: the pool's id, or with [seatId] for another seat in it. */
+        val key: String get() = keyOf(poolId, seatId)
         val joinProof: String get() = joinProofs.first()
         val coinPath: String get() = coinPaths.first()
         /** Our first (before v4, only) mixed output. */
@@ -143,6 +154,7 @@ class PoolSession(private val env: Env, private val s: State) {
             .put("blind_sigs", JSONObject(blindSigs as Map<*, *>)).put("blinded_of", JSONObject(blindedOf as Map<*, *>))
             .put("reg_outputs", org.json.JSONArray(regOutputs.toList()))
             .put("pay_outputs", org.json.JSONArray(payOutputs))
+            .put("seat_id", seatId).put("join_after", joinAfter).put("perp_id", perpId ?: "")
 
         companion object {
             private fun JSONObject.str(k: String): String? = optString(k).ifEmpty { null }
@@ -150,6 +162,11 @@ class PoolSession(private val env: Env, private val s: State) {
                 val o = optJSONObject(k) ?: return mutableMapOf()
                 return o.keys().asSequence().associateWith { o.getString(it) }.toMutableMap()
             }
+            /** The key of seat [seatId] of pool [poolId]: the pool id alone for its first seat. */
+            fun keyOf(poolId: String, seatId: String): String = if (seatId.isEmpty()) poolId else "$poolId#$seatId"
+            /** The pool a seat [key] is in. */
+            fun poolOf(key: String): String = key.substringBefore('#')
+
             fun parse(o: JSONObject): State {
                 val t = o.getJSONObject("terms")
                 val v = t.optInt("v", Protocol.V1)
@@ -191,6 +208,7 @@ class PoolSession(private val env: Env, private val s: State) {
                     o.map("blind_sigs"), o.map("blinded_of"),
                     o.optJSONArray("reg_outputs")?.let { a -> (0 until a.length()).map { a.getString(it) } }?.toMutableSet() ?: linkedSetOf(),
                     o.optJSONArray("pay_outputs")?.let { a -> (0 until a.length()).map { a.getString(it) } }?.toMutableList() ?: mutableListOf(),
+                    o.optString("seat_id"), o.optLong("join_after"), o.str("perp_id"),
                 )
             }
         }
@@ -208,6 +226,10 @@ class PoolSession(private val env: Env, private val s: State) {
     private val joinKey = BigInteger(s.joinSecret, 16)
     private val joinPub = NostrEvent.pubOf(joinKey)
     private val myTokenHash: String? get() = s.token?.let { Protocol.tokenHash(it) }
+    /** This seat's own Tor circuit (see [RelayClient]): the same across restarts, another for every seat. */
+    private val isolation = "kj-" + Hashes.sha256(s.joinSecret.toByteArray()).toHex().take(16)
+    /** The join was sent on this run (it goes again on every reconnect while waiting, as before). */
+    @Volatile private var joinSent = false
     private val terms = s.terms
     private val creatorKey: BigInteger? get() = s.creatorSecret?.let { BigInteger(it, 16) }
     private val blindPk: BlindRsa.PublicKey? by lazy { terms.blindKey?.let { BlindRsa.PublicKey.decode(it) } }
@@ -265,7 +287,7 @@ class PoolSession(private val env: Env, private val s: State) {
     }
 
     private fun connect() {
-        val r = RelayClient(Protocol.RELAY, { _, ev -> runCatching { worker.execute { onEvent(ev) } } }, { relay = null })
+        val r = RelayClient(Protocol.RELAY, { _, ev -> runCatching { worker.execute { onEvent(ev) } } }, { relay = null }, isolation)
         r.connect()
         relay = r
         // Our own inbox (welcome/reject), and the pool channel once we hold its key.
@@ -280,8 +302,8 @@ class PoolSession(private val env: Env, private val s: State) {
         // v3: outputs come to the creator's own key, each from a fresh key.
         if (s.creator && terms.v3) r.subscribe("outs", listOf(JSONObject().put("kinds", org.json.JSONArray().put(Protocol.KIND_MSG))
             .put("#p", org.json.JSONArray().put(terms.creatorPub))))
-        if (s.phase == Phase.JOINING && !s.creator) sendJoin()
-        if (s.creator && s.phase == Phase.JOINING) creatorStart()
+        // Another seat of this phone waits its random moment first (see [State.joinAfter]).
+        if (s.phase == Phase.JOINING && env.now() >= s.joinAfter) { if (s.creator) creatorStart() else sendJoin() }
     }
 
     private fun ensureConnected() {
@@ -361,6 +383,7 @@ class PoolSession(private val env: Env, private val s: State) {
             .put("proof", s.joinProof).put("change_sig", s.changeSig)
         if (s.joinProofs.size > 1) o.put("proofs", org.json.JSONArray(s.joinProofs))
         s.pwProof?.let { o.put("pw", it) }
+        joinSent = true
         direct(terms.poolPub, o, joinKey)
     }
 
@@ -445,6 +468,7 @@ class PoolSession(private val env: Env, private val s: State) {
     // ------------------------------------------------------------------------------- creator
 
     private fun creatorStart() {
+        joinSent = true
         val token = randomHex(16)
         s.token = token
         s.tokens[Protocol.tokenHash(token)] = token
@@ -960,7 +984,8 @@ class PoolSession(private val env: Env, private val s: State) {
             .put("prefix", s.blindPrefixes[i]).put("sig", sig)
         val ev = NostrEvent.sign(fresh, Protocol.KIND_MSG, listOf(listOf("p", terms.creatorPub!!)),
             Nip44.encrypt(o.toString(), Nip44.conversationKey(fresh, Hashes.hexToBytes(terms.creatorPub))))
-        val r = RelayClient(Protocol.RELAY, { _, _ -> }, {})
+        // A circuit of its own too, never the seat's: the relay can't tie the output to the seat by it.
+        val r = RelayClient(Protocol.RELAY, { _, _ -> }, {}, "kj-out-" + randomHex(8))
         return try {
             r.connect()
             val res = r.publish(ev)
@@ -1126,6 +1151,11 @@ class PoolSession(private val env: Env, private val s: State) {
                 save(); env.event(Event.Aborted(s.poolId, s.reason))
                 return@runCatching
             }
+            // The random wait of another seat (or of a perpetual coin's pool) is over: join, or open the pool.
+            if (s.phase == Phase.JOINING && !joinSent && now >= s.joinAfter && now <= terms.expiresAt) {
+                if (s.creator) creatorStart() else sendJoin()
+                return@runCatching
+            }
             when (s.phase) {
                 Phase.OPEN, Phase.JOINING -> if (s.phase == Phase.OPEN && !s.warnedExpiry && now <= terms.expiresAt &&
                     terms.expiresAt - now <= EXPIRY_WARN_SECONDS && s.seats.size >= terms.minPeers && s.seats.size < terms.maxPeers) {
@@ -1135,7 +1165,7 @@ class PoolSession(private val env: Env, private val s: State) {
                     else env.event(Event.ExpiringSoon(s.poolId, s.seats.size, ((terms.expiresAt - now) / 60).toInt().coerceAtLeast(1)))
                 } else if (now > terms.expiresAt) {
                     if (s.creator) abort("the pool expired") else { s.phase = Phase.ABORTED; s.reason = "the pool expired"; save(); env.event(Event.Aborted(s.poolId, s.reason)) }
-                } else if (s.phase == Phase.JOINING && !s.creator && now - s.created > JOIN_TIMEOUT) {
+                } else if (s.phase == Phase.JOINING && !s.creator && now - maxOf(s.created, s.joinAfter) > JOIN_TIMEOUT) {
                     // Only the creator's wallet lets people in; if it is closed, or the pool ended
                     // meanwhile, nobody ever answers. Give up instead of waiting until it expires.
                     s.phase = Phase.ABORTED
@@ -1233,6 +1263,10 @@ class PoolSession(private val env: Env, private val s: State) {
             terms: Protocol.Terms, creator: Boolean, poolSecret: String?, coins: List<CoinjoinTx.Coin>, coinKeys: List<BigInteger>,
             coinPaths: List<String>, mixScripts: List<ByteArray>, changeScript: ByteArray?,
             password: String? = null, creatorSecret: String? = null, blindPriv: String? = null,
+            /** Another seat of this phone in the pool ([State.seatId]), waiting until [joinAfter] to join. */
+            seatId: String = "", joinAfter: Long = 0, perpId: String? = null,
+            /** A private pool's key from its password, in place of [password] (the creator taking another seat keeps only it). */
+            passwordKey: ByteArray? = null,
         ): State {
             if (creator && terms.v3) require(creatorSecret != null && blindPriv != null) { "a v3 pool's creator needs its keys" }
             require(coins.isNotEmpty() && coinKeys.size == coins.size && coinPaths.size == coins.size) { "one key and path per coin" }
@@ -1261,8 +1295,10 @@ class PoolSession(private val env: Env, private val s: State) {
                 mixScripts = mixScripts, coinPaths = coinPaths,
                 pwKey = if (creator && terms.private) Protocol.passwordKey(terms.id, password ?: error("a private pool needs a password")).toHex() else null,
                 pwProof = if (!creator && terms.private)
-                    Protocol.passwordProof(Protocol.passwordKey(terms.id, password ?: error("this pool needs its password")), joinPub) else null,
+                    Protocol.passwordProof(password?.let { Protocol.passwordKey(terms.id, it) } ?: passwordKey
+                        ?: error("this pool needs its password"), joinPub) else null,
                 creatorSecret = if (creator) creatorSecret else null, blindPriv = if (creator) blindPriv else null,
+                seatId = seatId, joinAfter = joinAfter, perpId = perpId,
             )
         }
 

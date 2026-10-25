@@ -28,6 +28,12 @@ class RelayClient(
     private val url: String,
     private val onEvent: (subId: String, event: NostrEvent) -> Unit,
     private val onClosed: (Throwable?) -> Unit = {},
+    /**
+     * A circuit of its own through Tor: Arti (like Tor's IsolateSOCKSAuth) never shares a circuit
+     * between streams that give different SOCKS usernames, so each seat of this phone in a pool,
+     * and each output handed in, leaves Tor from its own exit. Null: Tor's default.
+     */
+    private val isolation: String? = null,
 ) {
     private var socket: SSLSocket? = null
     private var out: OutputStream? = null
@@ -45,10 +51,11 @@ class RelayClient(
         val port = if (u.port > 0) u.port else 443
         // Through the app's Tor when it is already running (for a .onion node), so the relay sees
         // a Tor exit, not this phone's address. TLS goes end to end over it as usual.
-        val proxy = if (com.kilombino.pyblockwatch.chain.Tor.running) com.kilombino.pyblockwatch.chain.Tor.proxy(0) else null
+        val proxy = socksOverride?.let { java.net.Proxy(java.net.Proxy.Type.SOCKS, it) }
+            ?: if (com.kilombino.pyblockwatch.chain.Tor.running) com.kilombino.pyblockwatch.chain.Tor.proxy(0) else null
         val s = if (proxy != null) {
-            val raw = java.net.Socket(proxy)
-            raw.connect(InetSocketAddress.createUnresolved(host, port), 60_000)
+            val raw = if (isolation != null) socks5(proxy.address() as InetSocketAddress, host, port, isolation)
+                else java.net.Socket(proxy).also { it.connect(InetSocketAddress.createUnresolved(host, port), 60_000) }
             (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(raw, host, port, true) as SSLSocket
         } else (SSLSocketFactory.getDefault().createSocket() as SSLSocket).also { it.connect(InetSocketAddress(host, port), 15_000) }
         // The certificate must be for this host name: the TLS layer checks it (endpoint
@@ -73,6 +80,43 @@ class RelayClient(
         while (readLine(inp).isNotEmpty()) { /* skip headers */ }
         socket = s; out = o; connected = true; lastHeard = System.currentTimeMillis()
         Thread({ readLoop(inp) }, "relay-$host").apply { isDaemon = true }.start()
+    }
+
+    /**
+     * A SOCKS5 connection to [host]:[port] through [proxy], with username/password authentication
+     * (RFC 1929) carrying [isolation]: Java's own SOCKS client only sends a username/password from
+     * a process-wide Authenticator, so this one is written out (the host is resolved by Tor).
+     */
+    private fun socks5(proxy: InetSocketAddress, host: String, port: Int, isolation: String): java.net.Socket {
+        val raw = java.net.Socket()
+        try {
+            raw.connect(InetSocketAddress(proxy.hostString, proxy.port), 15_000)
+            raw.soTimeout = 60_000
+            val o = raw.getOutputStream(); val i = raw.getInputStream()
+            o.write(byteArrayOf(5, 1, 2)); o.flush()
+            val m = readFully(i, 2)
+            check(m[0].toInt() == 5 && m[1].toInt() == 2) { "the SOCKS proxy refused the isolation" }
+            val u = isolation.toByteArray().copyOf(minOf(isolation.length, 255)); val pw = "x".toByteArray()
+            o.write(byteArrayOf(1, u.size.toByte()) + u + byteArrayOf(pw.size.toByte()) + pw); o.flush()
+            check(readFully(i, 2)[1].toInt() == 0) { "the SOCKS proxy refused the isolation" }
+            val h = host.toByteArray()
+            o.write(byteArrayOf(5, 1, 0, 3, h.size.toByte()) + h + byteArrayOf((port shr 8).toByte(), port.toByte())); o.flush()
+            val r = readFully(i, 4)
+            check(r[1].toInt() == 0) { "the SOCKS proxy could not connect (${r[1].toInt() and 0xff})" }
+            when (r[3].toInt()) {
+                1 -> readFully(i, 4 + 2)
+                4 -> readFully(i, 16 + 2)
+                3 -> readFully(i, (readFully(i, 1)[0].toInt() and 0xff) + 2)
+                else -> error("the SOCKS proxy answered oddly")
+            }
+            raw.soTimeout = 0
+            return raw
+        } catch (e: Exception) { runCatching { raw.close() }; throw e }
+    }
+
+    companion object {
+        /** Tests: a SOCKS proxy to go through instead of the app's Tor. */
+        @JvmField @Volatile var socksOverride: InetSocketAddress? = null
     }
 
     private fun readLine(inp: InputStream): String {

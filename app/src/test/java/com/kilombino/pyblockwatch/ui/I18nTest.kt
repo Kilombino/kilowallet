@@ -165,4 +165,58 @@ class I18nTest {
             }
         }
     }
+
+    /**
+     * 1.3.3: another seat in a pool, the perpetual coinjoin and mined rewards still locked, as the code
+     * builds them (pieces joined with " · ", values inside, upper-case labels), in every language.
+     */
+    @Test fun seatsPerpetualAndMinedRewardTexts() {
+        val shown = listOf(
+            "Another seat of yours counts as one more member: the others get less privacy than they see, and spending both results together later links them.",
+            "ANOTHER SEAT · 100 000 SATS", "＋ JOIN WITH ANOTHER UTXO", "LEAVE THIS SEAT", "Leave with this seat?",
+            "Your seat 2 of 2", "100 000 sats each · seat 2 of 2 · ♻ perpetual",
+            "Joining in 42 s: a random wait, so your seats don't show up together.",
+            "Only this seat leaves (its coin of 150 000 sats is yours to spend again); your other seat stays in the pool.",
+            "♻ Perpetual coinjoin", "fee cap (sat/vB)", "Fee cap: 2 sat/vB", "Fee cap: 1 to 500 sat/vB.",
+            "♻ Perpetual: in a round now", "♻ Perpetual: looking for its next pool in 37 s",
+            "♻ Perpetual: stopped (the coin was spent or moved)", "♻ Perpetual: stopped (the fees rose above your cap (2 sat/vB))",
+            "♻ Perpetual: stopped (turned off)", "Rounds so far: 3 (150 000 → 99 373 sats)", "99 373 sats · perpetual coin",
+            "TURN ON AGAIN", "change the fee cap", "♻ perpetual coinjoin: sending it stops it",
+            "Two or more of these coins came out of the same coinjoin round: spending them together links them, and shows they were one person's.",
+            "⛏ mined reward · matures at block 979919 (~2026-11-02)",
+            "of which 1 234 sats are mined rewards still locked (until block 979919, ~2026-11-02)",
+            "of which 3 000 sats are mined rewards still locked: the next unlocks at block 979001 (~2026-10-28), the last at block 979919 (~2026-11-02)",
+            "3 000 sats not spendable yet (mined rewards maturing)")
+        val english = Regex("""\b(seats?|another|perpetual|stopped|mined|rewards?|locked|block|spendable|turned|fees?|coins?|links?)\b""")
+        for (l in I18n.LANGUAGES.map { it.first }.filter { it != I18n.EN }) {
+            I18n.lang.value = l
+            shown.forEach { s ->
+                val t = I18n.tr(s)
+                assertTrue("$l: \"$s\" -> \"$t\"", t != s && !english.containsMatchIn(t.replace("coinjoin", "").replace("UTXO", "")))
+            }
+        }
+        I18n.lang.value = I18n.ES
+        assertEquals("100 000 sats cada una · puesto 2 de 2 · ♻ perpetuo", I18n.tr("100 000 sats each · seat 2 of 2 · ♻ perpetual"))
+        assertEquals("♻ Perpetuo: detenido (la moneda se gastó o se movió)", I18n.tr("♻ Perpetual: stopped (the coin was spent or moved)"))
+        assertEquals("de los cuales 1 234 sats son recompensas de minería aún bloqueadas (hasta el bloque 979919, ~2026-11-02)",
+            I18n.tr("of which 1 234 sats are mined rewards still locked (until block 979919, ~2026-11-02)"))
+        assertEquals("⛏ recompensa de minería · madura en el bloque 979919 (~2026-11-02)", I18n.tr("⛏ mined reward · matures at block 979919 (~2026-11-02)"))
+        // The watch-only PSBT's instructions, in its two pieces as the code joins them.
+        assertEquals("Lleva este PSBT a tu firmante: SeedSigner (BLAKE2b, escanea el QR animado) o Bitcoin Knots (walletprocesspsbt). " +
+            "Tiene que firmar con el sighash unificado de BLAKE2b (0x21): una firma a la antigua también valdría en la spamchain, así que se rechaza.",
+            I18n.tr("Take this PSBT to your signer: SeedSigner (BLAKE2b, scan the animated QR) or Bitcoin Knots (walletprocesspsbt). It must sign with the " +
+                "BLAKE2b unified sighash (0x21): an old-style signature would also be valid on the spamchain, so it is refused."))
+        assertEquals("Apunta la cámara al QR del PSBT firmado", I18n.tr("Point the camera at the signed PSBT's QR"))
+        assertEquals("Una persona, un nodo: pon aquí el tuyo (también vale una dirección .onion, a través del Tor de la app). " +
+            "Déjalo vacío para usar fulcrum.kilombino.com:17717, pensado para emergencias.",
+            I18n.tr("One person, one node: put your own here (a .onion address works too, through the app's Tor). Leave empty to use " +
+                "fulcrum.kilombino.com:17717, meant for emergencies."))
+        assertEquals("Conectar al servidor a través de Tor", I18n.tr("Connect to the server through Tor"))
+        // BTC, never XBT, on screen.
+        for (l in I18n.LANGUAGES.map { it.first }.filter { it != I18n.EN }) {
+            val o = JSONObject(File(dir, "$l.json").readText())
+            o.keys().forEach { k -> assertTrue("$l: XBT in \"$k\"", !k.contains("XBT") && !o.getString(k).contains("XBT")) }
+        }
+        I18n.lang.value = I18n.ES
+    }
 }

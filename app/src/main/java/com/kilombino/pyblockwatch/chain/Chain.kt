@@ -30,7 +30,7 @@ enum class Chain(
         defaultHost = "fulcrum.kilombino.com",
         defaultPort = 17717,
         accent = 0xFFF7931A,
-        blurb = "XBT: Bitcoin with BLAKE2b proof of work. 164-byte headers.",
+        blurb = "BTC: Bitcoin with BLAKE2b proof of work. 164-byte headers.",
     ),
     SHA256(
         id = "sha256",

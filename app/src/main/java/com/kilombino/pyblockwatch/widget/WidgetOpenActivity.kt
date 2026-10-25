@@ -29,7 +29,7 @@ class WidgetOpenActivity : ComponentActivity() {
         val url = intent.getStringExtra(EXTRA_URL)
         val what = intent.getStringExtra(EXTRA_WHAT) ?: ""
         val (title, body) = when (target) {
-            TARGET_CONVERTER -> "Open the converter?" to "The XBT, sats, Poolcoins, EUR and USD converter, over the home screen."
+            TARGET_CONVERTER -> "Open the converter?" to "The BTC, sats, Poolcoins, EUR and USD converter, over the home screen."
             TARGET_URL -> "Open this page?" to "$what\n\n$url"
             else -> "Open Kilowallet?" to "The wallet app."
         }

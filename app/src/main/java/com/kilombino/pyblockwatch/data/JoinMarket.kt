@@ -92,7 +92,7 @@ object JoinMarket {
         val o = runCatching { JSONObject(t.substring(PREFIX.length)) }
             .getOrElse { throw IllegalArgumentException("The JoinMarket export is damaged: copy it again.") }
         val network = o.optString("n", "")
-        require(network == MAINNET || allowTestNetworks) { "This export is for $network, not XBT mainnet." }
+        require(network == MAINNET || allowTestNetworks) { "This export is for $network, not BTC mainnet." }
         val xa = o.optJSONArray("x") ?: throw IllegalArgumentException("The JoinMarket export is damaged: copy it again.")
         val xpubs = (0 until xa.length()).map { xa.getString(it).trim() }
         require(xpubs.size == JARS.size) { "A JoinMarket export has 5 jar keys, this one has ${xpubs.size}." }

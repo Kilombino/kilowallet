@@ -185,6 +185,7 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel, onToggleNotifications: (Bo
         onRefresh = doRefresh,
         modifier = Modifier.fillMaxSize(),
     ) {
+    androidx.compose.runtime.CompositionLocalProvider(LocalScreenScroll provides scroll) {
     Column(
         Modifier.fillMaxSize().imePadding().verticalScroll(scroll).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -223,7 +224,7 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel, onToggleNotifications: (Bo
             if (state.chains[chain]?.refreshing != null) "Last known balance, checking it now…" else "Last known balance, not checked yet: pull down to try again.",
             style = MaterialTheme.typography.bodySmall, color = Warn)
 
-        SimpleBalance(chain, cs, state.market, state.fiat, accent, state.nextRefreshAt, onFiat = vm::setFiat)
+        SimpleBalance(vm, chain, cs, state.market, state.fiat, accent, state.nextRefreshAt, onFiat = vm::setFiat)
 
         when {
             showSend -> SendSheet(vm, accent) { showSend = false }
@@ -258,6 +259,7 @@ fun SimpleScreen(state: UiState, vm: WalletViewModel, onToggleNotifications: (Bo
 
         AddWidgetButton(accent)
         Spacer(Modifier.height(30.dp))
+    }
     }
     }
 }
@@ -307,7 +309,7 @@ private fun TabChip(label: String, selected: Boolean, accent: Color, modifier: M
 
 @Composable
 private fun SimpleBalance(
-    chain: Chain, cs: ChainState, market: MarketData?, fiat: String, accent: Color, nextRefreshAt: Long,
+    vm: WalletViewModel, chain: Chain, cs: ChainState, market: MarketData?, fiat: String, accent: Color, nextRefreshAt: Long,
     onFiat: (String) -> Unit,
 ) {
     val btc = chain == Chain.BLAKE2B
@@ -345,6 +347,7 @@ private fun SimpleBalance(
         }
         Text(street("%.8f $unit".format(Locale.US, cs.total / 100_000_000.0)),
              style = MaterialTheme.typography.bodySmall, color = TextFaint)
+        ImmatureBalanceNote(vm, chain, cs)
         if (checking) {
             Spacer(Modifier.height(8.dp))
             SimpleScanStatus(cs.phase, accent)
@@ -468,7 +471,7 @@ internal fun ArkComingSoon(accent: Color) {
         SectionLabel("Ark — not on this phone", accent)
         Spacer(Modifier.height(8.dp))
         Explain(
-            "Ark will let you send XBT instantly between wallets and pay Lightning invoices " +
+            "Ark will let you send BTC instantly between wallets and pay Lightning invoices " +
                 "without opening channels, through the Paperclip Ark server " +
                 "(ark.paperclippool.xyz). Its engine is built for ARM phones (arm64), the ones almost every Android " +
                 "phone uses; this device has another processor (x86, like most emulators), so Ark can't run here."

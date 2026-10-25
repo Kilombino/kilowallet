@@ -407,7 +407,7 @@ private fun OnboardingScreen(state: UiState, vm: WalletViewModel) {
         // The wallet's coin, big, above its name.
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { AppLogo(160) }
         Text("Kilowallet", style = MaterialTheme.typography.displayLarge, color = Purple)
-        Text("BITCOIN BLAKE2b (XBT) WALLET", style = MaterialTheme.typography.titleLarge, color = TextSoft)
+        Text("BITCOIN BLAKE2b (BTC) WALLET", style = MaterialTheme.typography.titleLarge, color = TextSoft)
         if (state.hasWallet) {
             Explain("Creating or importing a wallet here REPLACES the current one. Your coins are " +
                 "safe on-chain; make sure you still have this wallet's backup before switching.")
@@ -636,6 +636,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
         onRefresh = doRefresh,
         modifier = Modifier.fillMaxSize(),
     ) {
+    androidx.compose.runtime.CompositionLocalProvider(LocalScreenScroll provides scroll) {
     Column(
         Modifier.fillMaxSize().imePadding().verticalScroll(scroll).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -697,7 +698,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
         // How the look is going, right under the tabs and above the balance it explains.
         ScanStatus(cs, accent, onRetry = { vm.scan(chain) })
 
-        BalanceCard(chain, cs, accent, if (state.isHot && state.receiveTaproot && state.taprootXpub != null) ScriptType.P2TR else state.scriptType, state.nextRefreshAt, state.market, state.fiat, vm::setFiat)
+        BalanceCard(vm, chain, cs, accent, if (state.isHot && state.receiveTaproot && state.taprootXpub != null) ScriptType.P2TR else state.scriptType, state.nextRefreshAt, state.market, state.fiat, vm::setFiat)
 
         when {
             showSend -> SendSheet(vm, accent) { showSend = false }
@@ -762,6 +763,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
         Spacer(Modifier.height(30.dp))
     }
     }
+    }
 }
 
 /** BTC | LIGHTNING | COINJOIN | ARK, plus SPAMCOIN while the spamchain (opened from settings) is shown. */
@@ -800,7 +802,7 @@ private fun AdvancedTabs(chain: Chain, arkTab: Boolean, cjTab: Boolean, lnTab: B
 
 @Composable
 private fun BalanceCard(
-    chain: Chain, cs: ChainState, accent: Color, scriptType: ScriptType?, nextRefreshAt: Long,
+    vm: WalletViewModel, chain: Chain, cs: ChainState, accent: Color, scriptType: ScriptType?, nextRefreshAt: Long,
     market: com.kilombino.pyblockwatch.data.MarketData?, fiat: String, onFiat: (String) -> Unit,
 ) {
     // The countdown ticks here, only while this card is shown, instead of the whole screen
@@ -851,6 +853,7 @@ private fun BalanceCard(
             Text(street("unconfirmed: ${groupSats(cs.unconfirmed)} sats"),
                  style = MaterialTheme.typography.bodySmall, color = Warn)
         }
+        ImmatureBalanceNote(vm, chain, cs)
         Spacer(Modifier.height(10.dp))
         Text(
             "${cs.usedAddresses} used addresses · height ${cs.height}",
@@ -949,6 +952,9 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
         coins = runCatching { vm.addressCoins(chain, held) }.getOrNull()
     }
     var open by remember { mutableStateOf<AddressRow?>(null) }
+    // Mined rewards still locked, marked on their coins (the balance card looks them up).
+    val allImmature by vm.immature.collectAsState()
+    val im = vm.immatureFor(chain, allImmature)
     fun conf(u: Scanner.SpendableUtxo) = if (u.height <= 0 || tip <= 0) 0 else tip - u.height + 1
     fun confText(u: Scanner.SpendableUtxo) = conf(u).let { c -> if (c == 0) "in mempool · 0 conf" else "$c conf" + if (c >= 6) "  ✓" else "" }
     open?.let { row ->
@@ -965,6 +971,7 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
                         Text("🌀 mixed", style = MaterialTheme.typography.bodySmall, color = Good)
                     if ("${u.txid}:${u.vout}" in seatedHere)
                         Text("in a pool waiting for people: sending it leaves that pool", style = MaterialTheme.typography.bodySmall, color = Warn)
+                    im?.of(u)?.let { Text(immatureLine(im, it), style = MaterialTheme.typography.bodySmall, color = Warn) }
                 }
             })
     }
@@ -992,6 +999,9 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
                     if (mixed) Text("🌀 mixed", style = MaterialTheme.typography.bodySmall, color = Good)
                     if (inPool) Text("in a pool waiting for people: sending it leaves that pool",
                         style = MaterialTheme.typography.bodySmall, color = Warn)
+                    cs.orEmpty().mapNotNull { im?.of(it) }.forEach { c ->
+                        Text(immatureLine(im!!, c), style = MaterialTheme.typography.bodySmall, color = Warn)
+                    }
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(street("${groupSats(row.total)} sats"),
@@ -1205,7 +1215,7 @@ internal fun SettingsPanel(
             if (chain.allowsCustomNode) {
                 Text("Your own ${if (chain == Chain.BLAKE2B) "BTC" else "Spamcoin"} node",
                      style = MaterialTheme.typography.bodyMedium, color = TextMain)
-                Explain(if (chain == Chain.BLAKE2B) "One person, one node: put your own here. Leave empty to use " +
+                Explain(if (chain == Chain.BLAKE2B) "One person, one node: put your own here (a .onion address works too, through the app's Tor). Leave empty to use " +
                         "${chain.defaultHost}:${chain.defaultPort}, meant for emergencies."
                     else "Leave empty to use the public servers (companies and institutions, they see your addresses).")
                 Spacer(Modifier.height(6.dp))
@@ -1226,6 +1236,21 @@ internal fun SettingsPanel(
                 TextButton(onClick = {
                     vm.setCustomNode(chain, host.ifBlank { null }, port.toIntOrNull() ?: chain.defaultPort)
                 }) { Text("apply and rescan", color = accent, style = MaterialTheme.typography.bodySmall) }
+                // Every Electrum server through Tor (a .onion always goes through it).
+                val ctxTor = LocalContext.current
+                var viaTor by remember { mutableStateOf(com.kilombino.pyblockwatch.chain.ElectrumClient.throughTor) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Connect to the server through Tor", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                        Explain(if (!com.kilombino.pyblockwatch.chain.Tor.available)
+                            "Tor runs on ARM phones (arm64) only: on this one a .onion server can't be reached, and this stays off."
+                            else "The server (yours, the default one, and the spamchain's public ones) never sees this phone's address. " +
+                                "TLS and the pinned certificate stay as they are. Slower; if Tor doesn't start, nothing is sent without it.")
+                    }
+                    androidx.compose.material3.Switch(checked = viaTor, enabled = com.kilombino.pyblockwatch.chain.Tor.available, onCheckedChange = {
+                        viaTor = it; com.kilombino.pyblockwatch.chain.Tor.setElectrumThroughTor(ctxTor, it); vm.scan(chain)
+                    }, colors = switchColors(accent))
+                }
                 if (chain == Chain.BLAKE2B) { Spacer(Modifier.height(10.dp)); RpcNodePanel(vm, accent) }
             } else {
                 Explain(
@@ -1267,7 +1292,7 @@ internal fun SettingsPanel(
         Spacer(Modifier.height(10.dp))
         var rescueOpen by remember { mutableStateOf(false) }
         TextButton(onClick = { rescueOpen = !rescueOpen }) {
-            Text((if (rescueOpen) "▾" else "▸") + " Rescue XBT from a pre-fork Lightning (LND) seed",
+            Text((if (rescueOpen) "▾" else "▸") + " Rescue BTC from a pre-fork Lightning (LND) seed",
                  color = TextSoft, style = MaterialTheme.typography.bodySmall)
         }
         if (rescueOpen) LndRescuePanel(vm, accent)

@@ -50,7 +50,7 @@ object CoinjoinHub {
         val a = JSONArray(); sessions.values.forEach { a.put(it.state.toJson()) }
         prefs(ctx).edit().putString(KEY_SESSIONS, a.toString()).apply()
         // Keys kept for rounds on their own: only while the round is live and still on its own.
-        AutoKeyVault.keepOnly(ctx, sessions.values.filter { !it.done && it.autoKeys != null }.map { it.state.poolId }.toSet())
+        AutoKeyVault.keepOnly(ctx, sessions.values.filter { !it.done && it.autoKeys != null }.map { it.state.key }.toSet())
         _states.value = sessions.values.map { it.state }.sortedByDescending { it.created }
         _version.value++
     }
@@ -68,8 +68,10 @@ object CoinjoinHub {
             if (finished && st.created < weekAgo) continue
             val s = PoolSession(env(ctx, st), st)
             // A round on its own carries on after the app was closed: its keys come back from the vault.
-            if (!finished) AutoKeyVault.load(ctx, st.poolId)?.let { s.autoKeys = it }
-            sessions[st.poolId] = s
+            if (!finished) AutoKeyVault.load(ctx, st.key)?.let { s.autoKeys = it }
+            // Each seat under its own key: a pool's first seat (and every round saved before
+            // 1.3.3) under the pool's id, as before; another seat in the same pool next to it.
+            sessions[st.key] = s
         }
         appCtx = ctx.applicationContext
         _states.value = sessions.values.map { it.state }.sortedByDescending { it.created }
@@ -95,7 +97,29 @@ object CoinjoinHub {
         if (hasActive(ctx)) CoinjoinService.start(ctx)
     }
 
-    fun session(poolId: String): PoolSession? = synchronized(this) { sessions[poolId] }
+    /** The seat kept under [key] ([PoolSession.State.key]: the pool's id for its first seat). */
+    fun session(key: String): PoolSession? = synchronized(this) { sessions[key] }
+
+    /** This phone's seats in pool [poolId] that are not over, the first one taken first. */
+    fun seatsIn(poolId: String): List<PoolSession.State> = synchronized(this) {
+        sessions.values.filter { it.state.poolId == poolId && !it.done }.map { it.state }.sortedBy { it.created }
+    }
+
+    /**
+     * "seat 2 of 2" when this phone has more than one seat in [st]'s pool (going or over, as the list
+     * shows them), null for the usual one seat.
+     */
+    fun seatLabel(st: PoolSession.State): String? {
+        val all = synchronized(this) { sessions.values.map { it.state }.filter { it.poolId == st.poolId }.sortedBy { it.created } }
+        if (all.size < 2) return null
+        return "seat ${all.indexOfFirst { it.key == st.key } + 1} of ${all.size}"
+    }
+
+    /** Pools a live seat of this phone is in. */
+    fun busyPools(ctx: Context): Set<String> {
+        load(ctx)
+        return synchronized(this) { sessions.values.filter { !it.done }.map { it.state.poolId }.toSet() }
+    }
 
     /** A round past the open stage (voting, closing, signing): not the moment for interruptions. */
     fun inRound(): Boolean = synchronized(this) {
@@ -107,7 +131,7 @@ object CoinjoinHub {
         load(ctx)
         // A perfect coin waiting for its confirmation keeps the service up too: it joins on its own.
         return synchronized(this) { sessions.values.any { !it.done || it.state.phase == PoolSession.Phase.BROADCAST } } ||
-            PerfectCoin.hasWaiting(ctx)
+            PerfectCoin.hasWaiting(ctx) || Perpetual.hasLive(ctx)
     }
 
     /** Coins already promised to a pool that is not over: a normal send must leave them alone. */
@@ -122,20 +146,20 @@ object CoinjoinHub {
         }
     }
 
-    /** Coins seated in a pool that has not started its round, outpoint → pool id: spendable, at the cost of the seat. */
+    /** Coins seated in a pool that has not started its round, outpoint → seat key: spendable, at the cost of the seat. */
     fun waitingOutpoints(ctx: Context): Map<String, String> {
         load(ctx)
         return synchronized(this) {
             sessions.values.filter { !it.done && it.state.phase in setOf(PoolSession.Phase.JOINING, PoolSession.Phase.OPEN, PoolSession.Phase.VOTING) }
-                .flatMap { st -> st.state.seat.coins.map { it.outpoint to st.state.poolId } }.toMap()
+                .flatMap { st -> st.state.seat.coins.map { it.outpoint to st.state.key } }.toMap()
         }
     }
 
-    /** Give up the seats of [poolIds] (their coin was just spent): the others are told, off the main thread. */
-    fun leavePools(ctx: Context, poolIds: Collection<String>) {
-        if (poolIds.isEmpty()) return
+    /** Give up the seats [keys] (their coin was just spent): the others are told, off the main thread. */
+    fun leavePools(ctx: Context, keys: Collection<String>) {
+        if (keys.isEmpty()) return
         load(ctx)
-        val ss = synchronized(this) { poolIds.mapNotNull { sessions[it] } }
+        val ss = synchronized(this) { keys.mapNotNull { sessions[it] } }
         Thread { ss.forEach { runCatching { it.leave() } } }.start()
     }
 
@@ -157,6 +181,10 @@ object CoinjoinHub {
     class Pick(
         val coins: List<PickCoin>, val type: ScriptType,
         val mixScripts: List<ByteArray>, val changeScript: ByteArray,
+        /** The hot wallet's receive index of the (single) mixed output, when it is one of its own; -1 otherwise. */
+        val mixIndex: Int = -1,
+        /** A perpetual coinjoin's start: the hot wallet's receive branch key of [type], for the rounds after this one. */
+        val perpBranch: Bip32Priv.ExtendedPrivKey? = null,
     ) {
         fun txCoins(): List<CoinjoinTx.Coin> = coins.map { CoinjoinTx.Coin(it.txid, it.vout, it.value, it.coinKey.publicKey(), type) }
     }
@@ -171,7 +199,7 @@ object CoinjoinHub {
      * exact output and our change at our fee share (it refuses to sign otherwise). If the app is
      * killed the keys are gone and the round asks for the fingerprint as before.
      */
-    fun isAuto(poolId: String): Boolean = session(poolId)?.autoKeys != null
+    fun isAuto(key: String): Boolean = session(key)?.autoKeys != null
 
     /** Whether new pools run on their own; on unless the user turned it off. */
     fun autoDefault(ctx: Context): Boolean =
@@ -183,10 +211,10 @@ object CoinjoinHub {
     @Volatile private var appCtx: Context? = null
 
     /** Run a round already joined on its own from now: [keys] of its coins, one unlock. */
-    fun startAuto(poolId: String, keys: List<java.math.BigInteger>) {
-        val s = session(poolId) ?: return
+    fun startAuto(key: String, keys: List<java.math.BigInteger>) {
+        val s = session(key) ?: return
         s.autoKeys = keys
-        appCtx?.let { AutoKeyVault.save(it, poolId, keys) }
+        appCtx?.let { AutoKeyVault.save(it, key, keys) }
         // Already asked to close, or waiting for a signature: answer now, through the same checks.
         if (s.state.phase == PoolSession.Phase.VOTING && s.state.votedOn != s.state.voteId) runCatching { s.vote(true) }
         if (s.state.phase == PoolSession.Phase.SIGNING && !s.state.postedSig) runCatching { s.sign(keys) }
@@ -194,9 +222,9 @@ object CoinjoinHub {
     }
 
     /** Stop running [poolId] on its own: its keys are dropped, and the next steps ask again. */
-    fun stopAuto(poolId: String) {
-        session(poolId)?.autoKeys = null
-        appCtx?.let { AutoKeyVault.remove(it, poolId) }
+    fun stopAuto(key: String) {
+        session(key)?.autoKeys = null
+        appCtx?.let { AutoKeyVault.remove(it, key) }
         _version.value++
     }
 
@@ -204,8 +232,8 @@ object CoinjoinHub {
         val s = PoolSession(env(ctx, st), st)
         s.autoKeys = keys
         appCtx = ctx.applicationContext
-        if (keys != null) AutoKeyVault.save(ctx, st.poolId, keys)
-        synchronized(this) { sessions[st.poolId] = s }
+        if (keys != null) AutoKeyVault.save(ctx, st.key, keys)
+        synchronized(this) { sessions[st.key] = s }
         persist(ctx)
         CoinjoinService.start(ctx)
         return s
@@ -218,31 +246,63 @@ object CoinjoinHub {
         outputs: Int = 1,
         /** v5: the payments [pick]'s outputs pay, one per script, summing to [outputs] × [amount]. */
         payments: List<Long> = emptyList(),
+        /** A perpetual coin's round ([Perpetual]): its id; the pool opens after a random wait. */
+        perpId: String? = null,
     ): PoolSession.State {
         // New pools are v3 (outputs registered blindly), v4 with several outputs each; older
         // wallets keep joining v1 and v2 ones.
         val np = PoolSession.newPool(amount, feeRate, maxPeers, hours, minPeers, !password.isNullOrEmpty(),
             pick.type, maxInputs, v3 = true, outputs = outputs, payments = payments)
         val st = PoolSession.newState(np.terms, true, np.secret, pick.txCoins(), pick.coins.map { it.coinKey.key }, pick.coins.map { it.coinPath },
-            pick.mixScripts, pick.changeScript, password?.ifEmpty { null }, np.creatorSecret, np.blindPriv)
-        add(ctx, st, if (auto) pick.coins.map { it.coinKey.key } else null)
+            pick.mixScripts, pick.changeScript, password?.ifEmpty { null }, np.creatorSecret, np.blindPriv, perpId = perpId)
+        add(ctx, st, if (auto || perpId != null) pick.coins.map { it.coinKey.key } else null)
         CoinjoinAlerts.follow(ctx, st)
         return st
     }
 
-    fun join(ctx: Context, terms: Protocol.Terms, pick: Pick, password: String? = null, auto: Boolean = false): PoolSession.State {
+    /**
+     * Joins [terms] with [pick]. A pool this phone already has a seat in (not over) gets another seat:
+     * one more member, with its own join key, its own connection (and Tor circuit), joining after a
+     * random wait of [EXTRA_SEAT_DELAY] so the two don't show up together. The protocol is the same:
+     * to the creator it is one more person.
+     */
+    fun join(ctx: Context, terms: Protocol.Terms, pick: Pick, password: String? = null, auto: Boolean = false,
+             perpId: String? = null, passwordKey: ByteArray? = null): PoolSession.State {
         require(pick.type == terms.script) { "these coins are not of the pool's address type" }
         require(pick.mixScripts.size == terms.outputs) { "this pool gives ${terms.outputs} mixed outputs each" }
+        load(ctx)
+        val taken = synchronized(this) { sessions.filter { !it.value.done }.keys.toSet() }
+        val seated = synchronized(this) { sessions.values.filter { !it.done }.flatMap { s -> s.state.seat.coins.map { it.outpoint } }.toSet() }
+        require(pick.coins.none { it.let { c -> "${c.txid}:${c.vout}" } in seated }) { "that coin already has a seat" }
+        val seatId = newSeatId(terms.id, taken)
+        val wait = if (seatId.isEmpty()) 0L else System.currentTimeMillis() / 1000 + extraSeatDelay()
         val st = PoolSession.newState(terms, false, null, pick.txCoins(), pick.coins.map { it.coinKey.key }, pick.coins.map { it.coinPath },
-            pick.mixScripts, pick.changeScript, password?.ifEmpty { null })
-        add(ctx, st, if (auto) pick.coins.map { it.coinKey.key } else null)
+            pick.mixScripts, pick.changeScript, password?.ifEmpty { null }, seatId = seatId, joinAfter = wait, perpId = perpId,
+            passwordKey = passwordKey)
+        add(ctx, st, if (auto || perpId != null) pick.coins.map { it.coinKey.key } else null)
         return st
     }
 
-    /** Forget a finished pool from the list. */
-    fun remove(ctx: Context, poolId: String) {
-        synchronized(this) { sessions.remove(poolId)?.stop() }
+    /** Forget a finished seat from the list. */
+    fun remove(ctx: Context, key: String) {
+        synchronized(this) { sessions.remove(key)?.stop() }
         persist(ctx)
+    }
+
+    /** The random wait before another seat joins a pool this phone is already in: 20 to 90 seconds. */
+    fun extraSeatDelay(): Long = EXTRA_SEAT_DELAY.first + java.security.SecureRandom().nextInt((EXTRA_SEAT_DELAY.last - EXTRA_SEAT_DELAY.first + 1).toInt())
+    val EXTRA_SEAT_DELAY = 20L..90L
+
+    /**
+     * The [PoolSession.State.seatId] of a new seat in [poolId]: "" while no live seat of this phone is
+     * in it (the pool's id is then its key, as it always was), a fresh random one otherwise.
+     */
+    internal fun newSeatId(poolId: String, taken: Set<String>): String {
+        if (poolId !in taken) return ""
+        while (true) {
+            val id = ByteArray(4).also { java.security.SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
+            if (PoolSession.State.keyOf(poolId, id) !in taken) return id
+        }
     }
 
     // ------------------------------------------------------------------------------- the open pools
@@ -275,7 +335,7 @@ object CoinjoinHub {
      */
     fun notifyOpenNow(ctx: Context) {
         load(ctx)
-        val ours = synchronized(this) { sessions.keys.toSet() }
+        val ours = synchronized(this) { sessions.values.map { it.state.poolId }.toSet() }
         val open = fetchPools().filter { !Protocol.isTest(it) && !it.private && it.id !in ours }
         open.maxOfOrNull { it.createdAt }?.let { prefs(ctx).edit().putLong(KEY_LAST_POOL_SEEN, it).apply() }
         open.firstOrNull { firstNotice(ctx, it.id) }?.let { t -> notify(ctx, t.id.hashCode(), "Coinjoin pool open now",
@@ -303,7 +363,7 @@ object CoinjoinHub {
         if (!Store(ctx).coinjoinNotify) return
         val p = prefs(ctx)
         val last = p.getLong(KEY_LAST_POOL_SEEN, System.currentTimeMillis() / 1000 - 3600)
-        val ours = synchronized(this) { sessions.keys.toSet() }
+        val ours = synchronized(this) { sessions.values.map { it.state.poolId }.toSet() }
         val test = testPools(ctx)
         // Test pools only for whoever switched them on; private pools are announced by their creator.
         val pools = fetchPools(sinceSeconds = 86400).filter {
@@ -342,8 +402,10 @@ object CoinjoinHub {
                 // Left on purpose ("not yet", LEAVE): nothing to keep, and the pool goes back
                 // to the open list so the user can join again straight away.
                 if (state.phase == PoolSession.Phase.ABORTED && state.reason == PoolSession.LEFT_BY_CHOICE) {
-                    if (sessions.containsKey(state.poolId)) CoinjoinAlerts.event(app, state.poolId, "left")
-                    val gone = synchronized(this@CoinjoinHub) { sessions.remove(state.poolId) }
+                    // The bot follows the pool, not each seat: "left" only once no other seat of ours is in it.
+                    if (sessions.containsKey(state.key) && othersLive(state).isEmpty() && CoinjoinAlerts.enabled(app))
+                        CoinjoinAlerts.event(app, state.poolId, "left")
+                    val gone = synchronized(this@CoinjoinHub) { sessions.remove(state.key) }
                     Thread { runCatching { gone?.stop() } }.start()
                 }
                 persist(app)
@@ -358,21 +420,41 @@ object CoinjoinHub {
     /** "4 × 1 000 000" for a v4 pool, the plain amount otherwise. */
     private fun amountOf(t: Protocol.Terms): String = if (t.outputs > 1) "${t.outputs} × ${sats(t.amount)}" else sats(t.amount)
 
+    /** This phone's other seats in [st]'s pool that are not over. */
+    private fun othersLive(st: PoolSession.State): List<PoolSession.State> =
+        seatsIn(st.poolId).filter { it.key != st.key }
+
+    /**
+     * Whether [st] speaks for the pool in what is the same for all of this phone's seats in it (someone
+     * joined, a vote, closing, sent, confirmed): the first seat still going, so it is said once.
+     */
+    private fun leads(st: PoolSession.State): Boolean {
+        val live = seatsIn(st.poolId)
+        return live.isEmpty() || live.first().key == st.key || live.none { it.key == st.key }
+    }
+
     private fun onEvent(ctx: Context, st: PoolSession.State, e: PoolSession.Event) {
         alert(ctx, st, e)
         if (e is PoolSession.Event.Broadcast || e is PoolSession.Event.Confirmed) runCatching { MixedCoins.keep(ctx) }
+        // A perpetual coin goes on as soon as its round ends, not at the next minute.
+        if (st.perpId != null && (e is PoolSession.Event.Confirmed || e is PoolSession.Event.Aborted || e is PoolSession.Event.Rejected))
+            Thread { runCatching { Perpetual.check(ctx) } }.apply { isDaemon = true }.start()
+        // What happens to the pool shares one notification, whichever seat of ours saw it: two seats
+        // in a pool don't say each thing twice. What happens to a seat alone has the seat's own.
         val id = ("cj" + st.poolId).hashCode()
+        val seatNote = ("cj" + st.key).hashCode()
         val pool = "${amountOf(st.terms)} sats pool"
         when (e) {
             is PoolSession.Event.Changed -> return
-            is PoolSession.Event.Welcomed -> notify(ctx, id, "Coinjoin: you are in", "$pool · waiting for more people")
-            is PoolSession.Event.Rejected -> notify(ctx, id, "Coinjoin: join refused", e.reason)
-            is PoolSession.Event.Joined -> notify(ctx, id, "Coinjoin: someone joined", "$pool · ${e.peers}/${st.terms.maxPeers} people")
-            is PoolSession.Event.CloseRequested -> if (!e.byMe && !isAuto(st.poolId))
-                notify(ctx, id, "Coinjoin: close now?", "$pool · ${e.peers} people. Open the app to accept or refuse.")
-            is PoolSession.Event.CloseRefused -> notify(ctx, id, "Coinjoin: stays open", "$pool · someone said no")
-            is PoolSession.Event.Closing -> notify(ctx, id, "Coinjoin: closing", "$pool · ${e.peers} people, collecting outputs")
-            is PoolSession.Event.DidAlone -> notify(ctx, id, when (e.what) {
+            is PoolSession.Event.Welcomed -> notify(ctx, seatNote, "Coinjoin: you are in", "$pool · waiting for more people")
+            is PoolSession.Event.Rejected -> notify(ctx, seatNote, "Coinjoin: join refused", e.reason)
+            is PoolSession.Event.Joined -> if (leads(st)) notify(ctx, id, "Coinjoin: someone joined", "$pool · ${e.peers}/${st.terms.maxPeers} people")
+            // Each seat answers for itself: one waiting on the user is told so, under its own notification.
+            is PoolSession.Event.CloseRequested -> if (!e.byMe && !isAuto(st.key))
+                notify(ctx, seatNote, "Coinjoin: close now?", "$pool · ${e.peers} people. Open the app to accept or refuse.")
+            is PoolSession.Event.CloseRefused -> if (leads(st)) notify(ctx, id, "Coinjoin: stays open", "$pool · someone said no")
+            is PoolSession.Event.Closing -> if (leads(st)) notify(ctx, id, "Coinjoin: closing", "$pool · ${e.peers} people, collecting outputs")
+            is PoolSession.Event.DidAlone -> notify(ctx, seatNote, when (e.what) {
                 PoolSession.Alone.ACCEPTED -> "Coinjoin: closing"
                 PoolSession.Alone.ASKED_TO_CLOSE -> "Coinjoin: asking to close"
                 PoolSession.Alone.SIGNED -> "Coinjoin: signed on its own"
@@ -381,12 +463,12 @@ object CoinjoinHub {
                 PoolSession.Alone.ASKED_TO_CLOSE -> "$pool · enough people and under an hour left: asked on its own"
                 PoolSession.Alone.SIGNED -> "$pool · your output and change checked out"
             })
-            is PoolSession.Event.SignNeeded -> notify(ctx, id, "Coinjoin: sign now",
+            is PoolSession.Event.SignNeeded -> notify(ctx, seatNote, "Coinjoin: sign now",
                 "$pool · the transaction is ready. Open the app and sign within ${Protocol.SIGN_SECONDS / 60} min.")
-            is PoolSession.Event.Broadcast -> notify(ctx, id, "Coinjoin sent", "$pool · ${e.txid.take(16)}…")
-            is PoolSession.Event.Confirmed -> notify(ctx, id, "Coinjoin confirmed ✅", "$pool · ${e.txid.take(16)}…")
-            is PoolSession.Event.Aborted -> notify(ctx, id, "Coinjoin cancelled", "$pool · ${e.reason}. Your coin did not move.")
-            is PoolSession.Event.ExpiringSoon -> notify(ctx, id, "Coinjoin: under an hour left",
+            is PoolSession.Event.Broadcast -> if (leads(st)) notify(ctx, id, "Coinjoin sent", "$pool · ${e.txid.take(16)}…")
+            is PoolSession.Event.Confirmed -> if (leads(st)) notify(ctx, id, "Coinjoin confirmed ✅", "$pool · ${e.txid.take(16)}…")
+            is PoolSession.Event.Aborted -> notify(ctx, seatNote, "Coinjoin cancelled", "$pool · ${e.reason}. Your coin did not move.")
+            is PoolSession.Event.ExpiringSoon -> if (leads(st)) notify(ctx, id, "Coinjoin: under an hour left",
                 "$pool · ${e.peers}/${st.terms.maxPeers} people, enough to mix. It expires in ${e.minutes} min: open the app and tap ASK TO CLOSE NOW.")
         }
         CoinjoinService.refresh(ctx)
@@ -396,8 +478,17 @@ object CoinjoinHub {
     private fun alert(ctx: Context, st: PoolSession.State, e: PoolSession.Event) {
         if (!CoinjoinAlerts.enabled(ctx)) return
         val vote = st.voteId ?: ""
+        // The bot follows pools, not seats: with two seats of ours in one, each step goes once (from the
+        // first seat still going), and the pool's end only once the last of them is over.
+        val lead = leads(st)
+        val last = othersLive(st).isEmpty()
         when (e) {
-            is PoolSession.Event.Welcomed -> CoinjoinAlerts.follow(ctx, st)
+            is PoolSession.Event.Welcomed -> if (last) CoinjoinAlerts.follow(ctx, st)
+            is PoolSession.Event.CloseRequested, is PoolSession.Event.CloseRefused, is PoolSession.Event.SignNeeded -> if (!lead) return
+            is PoolSession.Event.Confirmed, is PoolSession.Event.Aborted -> if (!last) return
+            else -> {}
+        }
+        when (e) {
             is PoolSession.Event.CloseRequested -> CoinjoinAlerts.event(ctx, st.poolId, if (e.byMe) "close_asked" else "close_requested", vote)
             is PoolSession.Event.CloseRefused -> CoinjoinAlerts.event(ctx, st.poolId, "close_refused", vote)
             is PoolSession.Event.SignNeeded -> CoinjoinAlerts.event(ctx, st.poolId, "sign_needed")

@@ -377,11 +377,49 @@ class Scanner(
             // only fail at broadcast. Leave out the immature ones.
             val tip = runCatching { client.blockHeight() }.getOrNull() ?: return all
             all.filter { u ->
-                if (u.height <= 0 || tip - u.height + 1 >= LONG_MATURITY) return@filter true
+                if (!mayBeImmature(u.height, tip)) return@filter true
                 val tx = tx(client, u.txid) ?: return@filter true
-                val coinbase = tx.inputs.size == 1 && tx.inputs[0].txid.all { it == '0' } && tx.inputs[0].vout == -1
-                !coinbase || tip - u.height + 1 >= maturityFor(u.height)
+                !immature(isCoinbase(tx), u.height, tip)
             }
+        } finally {
+            client.close()
+        }
+    }
+
+    /** A mined reward of this wallet not spendable yet: the coin, and the block from which it is. */
+    data class ImmatureCoin(val coin: SpendableUtxo, val maturesAt: Int)
+
+    /** The wallet's immature mined rewards at [tip], and how long blocks have been taking lately (seconds). */
+    data class Immature(val tip: Int, val coins: List<ImmatureCoin>, val secondsPerBlock: Double) {
+        val total: Long get() = coins.sumOf { it.coin.value }
+        /** Roughly when block [height] comes (epoch seconds), from the recent pace. */
+        fun eta(height: Int, now: Long = System.currentTimeMillis() / 1000): Long = now + ((height - tip).coerceAtLeast(0) * secondsPerBlock).toLong()
+        fun of(u: SpendableUtxo): ImmatureCoin? = coins.firstOrNull { it.coin.txid == u.txid && it.coin.vout == u.vout }
+    }
+
+    /**
+     * Every immature mined reward in [rows] (what [gatherUtxos] leaves out of spending), for showing:
+     * the coins of the addresses, the transactions only of those young enough to be one (cached, as a
+     * look caches them), and the pace of the last day's blocks for the dates.
+     */
+    suspend fun immature(rows: List<AddressRow>, endpoint: NodeEndpoint, pinnedFingerprint: String?): Immature {
+        val client = ElectrumClient(endpoint, pinnedFingerprint)
+        return try {
+            client.connect()
+            val all = client.listUnspentMany(rows.map { it.scriptHash }).zip(rows).flatMap { (us, r) ->
+                us.map { SpendableUtxo(it.txid, it.vout, it.value, r.chainIndex, r.index, it.height, r.type) }
+            }
+            val tip = client.blockHeight()
+            val coins = all.filter { mayBeImmature(it.height, tip) }.mapNotNull { u ->
+                val tx = tx(client, u.txid) ?: return@mapNotNull null
+                if (immature(isCoinbase(tx), u.height, tip)) ImmatureCoin(u, maturesAt(u.height)) else null
+            }
+            val pace = if (coins.isEmpty()) DEFAULT_BLOCK_SECONDS else runCatching {
+                val span = minOf(144, tip - 1)
+                val t1 = JamWatch.blockTime(client.blockHeader(tip)); val t0 = JamWatch.blockTime(client.blockHeader(tip - span))
+                ((t1 - t0).toDouble() / span).takeIf { it in 30.0..86_400.0 }
+            }.getOrNull() ?: DEFAULT_BLOCK_SECONDS
+            Immature(tip, coins.sortedBy { it.maturesAt }, pace)
         } finally {
             client.close()
         }
@@ -495,6 +533,21 @@ class Scanner(
         /** Depth after which a spent address is left out of quick looks. */
         const val SETTLED = 6
         fun maturityFor(height: Int): Int = if (height in 973_440..979_919) LONG_MATURITY else 100
+
+        /** A mined reward: one input, spending nothing (all-zero txid, index 0xffffffff). */
+        fun isCoinbase(tx: TxParse.Tx): Boolean = tx.inputs.size == 1 && tx.inputs[0].txid.all { it == '0' } && tx.inputs[0].vout == -1
+
+        /** The first tip at which a reward mined at [height] can be spent (as [gatherUtxos] counts it). */
+        fun maturesAt(height: Int): Int = height + maturityFor(height) - 1
+
+        /** A coin at [height] is young enough at [tip] that, if it is a mined reward, it can't be spent yet. */
+        fun mayBeImmature(height: Int, tip: Int): Boolean = height > 0 && tip - height + 1 < LONG_MATURITY
+
+        /** Whether a coin at [height] (a mined reward when [coinbase]) is still locked at [tip]. */
+        fun immature(coinbase: Boolean, height: Int, tip: Int): Boolean = coinbase && height > 0 && tip - height + 1 < maturityFor(height)
+
+        /** Ten minutes a block, when the chain's own pace can't be read. */
+        const val DEFAULT_BLOCK_SECONDS = 600.0
 
         /** What an address looked like at its last status, so an unchanged one needs no more calls. */
         private class CachedAddress(val status: String?, val history: List<ElectrumClient.HistoryItem>, val balance: ScriptHashBalance)

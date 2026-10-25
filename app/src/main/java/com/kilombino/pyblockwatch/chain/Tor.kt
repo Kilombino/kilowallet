@@ -141,11 +141,21 @@ object Tor {
         }
     }
 
+    /** Setting: every Electrum server through Tor ([ElectrumClient.throughTor]). */
+    const val ELECTRUM_TOR = "electrum_through_tor"
+
+    fun setElectrumThroughTor(ctx: Context, on: Boolean) {
+        ctx.applicationContext.getSharedPreferences("pyblockwatch", Context.MODE_PRIVATE).edit().putBoolean(ELECTRUM_TOR, on).apply()
+        ElectrumClient.throughTor = on
+    }
+
     /** Hook Tor into the node connections: started the first time a .onion is used. */
     fun install(ctx: Context) {
         val app = ctx.applicationContext
         exe = java.io.File(app.applicationInfo.nativeLibraryDir, "libarti.so").takeIf { it.exists() }
         available = exe != null
         NodeRpcBackend.torProxy = { if (available) { start(app); proxy() } else null }
+        ElectrumClient.torProxy = { if (available) { start(app); proxy() } else null }
+        ElectrumClient.throughTor = app.getSharedPreferences("pyblockwatch", Context.MODE_PRIVATE).getBoolean(ELECTRUM_TOR, false)
     }
 }
