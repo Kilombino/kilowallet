@@ -2373,5 +2373,9 @@
 "One person, one node: put your own here (a .onion address works too, through the app's Tor). Leave empty to use {0}:{1}, meant for emergencies.": "Uma pessoa, um nó: coloque o seu aqui (um endereço .onion também serve, através do Tor da app). Deixe vazio para usar {0}:{1}, pensado para emergências.",
 "♻ Perpetual coinjoin: only with one mixed output per person (several remixing at once would be linked by their timing).": "♻ Coinjoin perpétuo: só com uma saída misturada por pessoa (várias a remisturar ao mesmo tempo ficariam ligadas pelo momento).",
 "Then it joins the pool by itself as another seat of yours, after a random wait, and the round runs on its own.": "Depois entra sozinha no pool como outro lugar seu, após uma espera aleatória, e a rodada segue sozinha.",
-"♻ Perpetual coinjoin: after that round it keeps remixing (fee cap {0} sat/vB).": "♻ Coinjoin perpétuo: depois dessa rodada continua a voltar a misturar (teto de taxa {0} sat/vB)."
+"♻ Perpetual coinjoin: after that round it keeps remixing (fee cap {0} sat/vB).": "♻ Coinjoin perpétuo: depois dessa rodada continua a voltar a misturar (teto de taxa {0} sat/vB).",
+"⛏ {0} mined rewards locked: the first unlocks at block {1} (~{2}), the last at block {3} (~{4})": "⛏ {0} recompensas de mineração bloqueadas: a primeira desbloqueia no bloco {1} (~{2}), a última no bloco {3} (~{4})",
+"▾ hide the coins": "▾ ocultar as moedas",
+"▸ show the {0} coins": "▸ ver as {0} moedas",
+"⛏ block {0} (~{1})": "⛏ bloco {0} (~{1})"
 }
