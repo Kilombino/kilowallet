@@ -2361,9 +2361,5 @@
 "One person, one node: put your own here (a .onion address works too, through the app's Tor). Leave empty to use {0}:{1}, meant for emergencies.": "一人一节点：在这里填你自己的（.onion 地址也可以，通过应用内的 Tor）。留空则使用 {0}:{1}，仅供应急。",
 "♻ Perpetual coinjoin: only with one mixed output per person (several remixing at once would be linked by their timing).": "♻ 永续混币：仅限每人一个混合输出（多个输出同时重新混合会因时间而被关联）。",
 "Then it joins the pool by itself as another seat of yours, after a random wait, and the round runs on its own.": "之后它会在随机等待后，作为你的另一个席位自动加入该池，这一轮自动运行。",
-"♻ Perpetual coinjoin: after that round it keeps remixing (fee cap {0} sat/vB).": "♻ 永续混币：那一轮之后会继续再次混合（手续费上限 {0} sat/vB）。",
-"⛏ {0} mined rewards locked: the first unlocks at block {1} (~{2}), the last at block {3} (~{4})": "⛏ {0} 笔挖矿奖励已锁定：第一笔在区块 {1}（~{2}）解锁，最后一笔在区块 {3}（~{4}）",
-"▾ hide the coins": "▾ 隐藏币",
-"▸ show the {0} coins": "▸ 显示 {0} 枚币",
-"⛏ block {0} (~{1})": "⛏ 区块 {0}（~{1}）"
+"♻ Perpetual coinjoin: after that round it keeps remixing (fee cap {0} sat/vB).": "♻ 永续混币：那一轮之后会继续再次混合（手续费上限 {0} sat/vB）。"
 }

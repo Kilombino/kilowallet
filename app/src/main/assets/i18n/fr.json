@@ -2373,9 +2373,5 @@
 "One person, one node: put your own here (a .onion address works too, through the app's Tor). Leave empty to use {0}:{1}, meant for emergencies.": "Une personne, un nœud : mets le tien ici (une adresse .onion marche aussi, par le Tor de l'app). Laisse vide pour utiliser {0}:{1}, prévu pour les urgences.",
 "♻ Perpetual coinjoin: only with one mixed output per person (several remixing at once would be linked by their timing).": "♻ Coinjoin perpétuel : seulement avec une sortie mélangée par personne (plusieurs remélangées en même temps seraient liées par le moment).",
 "Then it joins the pool by itself as another seat of yours, after a random wait, and the round runs on its own.": "Ensuite elle rejoint d'elle-même le pool comme une autre place à toi, après une attente aléatoire, et le tour tourne tout seul.",
-"♻ Perpetual coinjoin: after that round it keeps remixing (fee cap {0} sat/vB).": "♻ Coinjoin perpétuel : après ce tour, elle continue de se remélanger (plafond de frais {0} sat/vB).",
-"⛏ {0} mined rewards locked: the first unlocks at block {1} (~{2}), the last at block {3} (~{4})": "⛏ {0} récompenses de minage bloquées : la première se débloque au bloc {1} (~{2}), la dernière au bloc {3} (~{4})",
-"▾ hide the coins": "▾ masquer les pièces",
-"▸ show the {0} coins": "▸ voir les {0} pièces",
-"⛏ block {0} (~{1})": "⛏ bloc {0} (~{1})"
+"♻ Perpetual coinjoin: after that round it keeps remixing (fee cap {0} sat/vB).": "♻ Coinjoin perpétuel : après ce tour, elle continue de se remélanger (plafond de frais {0} sat/vB)."
 }

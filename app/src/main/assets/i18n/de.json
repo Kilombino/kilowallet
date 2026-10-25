@@ -2373,9 +2373,5 @@
 "One person, one node: put your own here (a .onion address works too, through the app's Tor). Leave empty to use {0}:{1}, meant for emergencies.": "Ein Mensch, ein Knoten: Trag hier deinen eigenen ein (auch eine .onion-Adresse geht, über das Tor der App). Leer lassen, um {0}:{1} zu nutzen, gedacht für Notfälle.",
 "♻ Perpetual coinjoin: only with one mixed output per person (several remixing at once would be linked by their timing).": "♻ Dauer-Coinjoin: nur mit einem gemischten Output pro Person (mehrere, die gleichzeitig neu gemischt werden, wären durch den Zeitpunkt verknüpft).",
 "Then it joins the pool by itself as another seat of yours, after a random wait, and the round runs on its own.": "Dann tritt sie dem Pool von selbst als weiterer Platz von dir bei, nach einer zufälligen Wartezeit, und die Runde läuft von selbst.",
-"♻ Perpetual coinjoin: after that round it keeps remixing (fee cap {0} sat/vB).": "♻ Ewiger Coinjoin: nach dieser Runde mischt sie sich immer wieder neu (Gebührenobergrenze {0} sat/vB).",
-"⛏ {0} mined rewards locked: the first unlocks at block {1} (~{2}), the last at block {3} (~{4})": "⛏ {0} gesperrte Mining-Belohnungen: die erste wird bei Block {1} frei (~{2}), die letzte bei Block {3} (~{4})",
-"▾ hide the coins": "▾ Münzen ausblenden",
-"▸ show the {0} coins": "▸ die {0} Münzen zeigen",
-"⛏ block {0} (~{1})": "⛏ Block {0} (~{1})"
+"♻ Perpetual coinjoin: after that round it keeps remixing (fee cap {0} sat/vB).": "♻ Ewiger Coinjoin: nach dieser Runde mischt sie sich immer wieder neu (Gebührenobergrenze {0} sat/vB)."
 }

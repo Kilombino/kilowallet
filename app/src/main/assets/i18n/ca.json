@@ -2373,9 +2373,5 @@
 "One person, one node: put your own here (a .onion address works too, through the app's Tor). Leave empty to use {0}:{1}, meant for emergencies.": "Una persona, un node: posa-hi el teu (també serveix una adreça .onion, a través del Tor de l'app). Deixa-ho buit per fer servir {0}:{1}, pensat per a emergències.",
 "♻ Perpetual coinjoin: only with one mixed output per person (several remixing at once would be linked by their timing).": "♻ Coinjoin perpetu: només amb una sortida barrejada per persona (diverses tornant-se a barrejar alhora quedarien enllaçades pel moment).",
 "Then it joins the pool by itself as another seat of yours, after a random wait, and the round runs on its own.": "Després s'uneix sola al pool com un altre lloc teu, després d'una espera aleatòria, i la ronda va sola.",
-"♻ Perpetual coinjoin: after that round it keeps remixing (fee cap {0} sat/vB).": "♻ Coinjoin perpetu: després d'aquesta ronda continua tornant-se a barrejar (límit de comissió {0} sat/vB).",
-"⛏ {0} mined rewards locked: the first unlocks at block {1} (~{2}), the last at block {3} (~{4})": "⛏ {0} recompenses de mineria bloquejades: la primera es desbloqueja al bloc {1} (~{2}), l'última al bloc {3} (~{4})",
-"▾ hide the coins": "▾ amaga les monedes",
-"▸ show the {0} coins": "▸ mostra les {0} monedes",
-"⛏ block {0} (~{1})": "⛏ bloc {0} (~{1})"
+"♻ Perpetual coinjoin: after that round it keeps remixing (fee cap {0} sat/vB).": "♻ Coinjoin perpetu: després d'aquesta ronda continua tornant-se a barrejar (límit de comissió {0} sat/vB)."
 }
