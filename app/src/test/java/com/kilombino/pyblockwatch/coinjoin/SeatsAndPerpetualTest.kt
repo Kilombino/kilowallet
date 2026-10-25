@@ -186,17 +186,16 @@ class SeatsAndPerpetualTest {
         Fake().let { f -> val r = fresh(f); f.outputValue = 100_000; Remixer(f).step(r); f.now = r.nextAt
             f.unspent = null; Remixer(f).step(r)
             assertEquals(Remix.State.WAITING, r.state); assertEquals(f.now + 60, r.nextAt) }
-        // Fees above the cap.
+        // Fees up on the chain: it goes on at the fee chosen, it doesn't stop.
         Fake().let { f -> val r = fresh(f, cap = 2.0); f.outputValue = 100_000; Remixer(f).step(r); f.now = r.nextAt
             f.estimate = 3.5; Remixer(f).step(r)
-            assertEquals(Remix.State.STOPPED, r.state); assertEquals(Remix.overCap(2.0), r.reason) }
-        // Fees up but within a raised cap: the pool asks what the chain needs now.
-        Fake().let { f -> val r = fresh(f, cap = 4.0); f.outputValue = 100_000; Remixer(f).step(r); f.now = r.nextAt
-            f.estimate = 3.5; Remixer(f).step(r)
-            assertEquals(3.5, f.created.single().second, 0.0) }
-        // A pool above the cap is not joined.
+            assertEquals(Remix.State.SEATED, r.state); assertEquals(2.0, f.created.single().second, 0.0) }
+        // Only a pool at exactly the fee chosen is joined: neither above nor below it.
         Fake().let { f -> val r = fresh(f, cap = 2.0); f.outputValue = 100_000; Remixer(f).step(r); f.now = r.nextAt
             f.pools = mutableListOf(pool(50_000, rate = 2.5)); Remixer(f).step(r)
+            assertTrue(f.joined.isEmpty()); assertEquals(1, f.created.size) }
+        Fake().let { f -> val r = fresh(f, cap = 2.0); f.outputValue = 100_000; Remixer(f).step(r); f.now = r.nextAt
+            f.pools = mutableListOf(pool(50_000, rate = 1.5)); Remixer(f).step(r)
             assertTrue(f.joined.isEmpty()); assertEquals(1, f.created.size) }
         // Below a pool's minimum.
         Fake().let { f -> val r = fresh(f); f.outputValue = 10_100; Remixer(f).step(r); f.now = r.nextAt
@@ -228,11 +227,11 @@ class SeatsAndPerpetualTest {
 
     @Test fun createRateAndAmount() {
         val r = Remix("r", ScriptType.P2WPKH, cap = 3.0, rate = 2.0, minPeers = 2, maxPeers = 5, hours = 6)
-        assertEquals(2.0, Remixer.createRate(r, null)!!, 0.0)
-        assertEquals(2.0, Remixer.createRate(r, 1.0)!!, 0.0)
-        assertEquals(3.0, Remixer.createRate(r, 3.0)!!, 0.0)
-        assertNull(Remixer.createRate(r, 3.01))
-        r.cap = 1.5 // lowered below the first rate: pools open at the cap
+        // Always the fee chosen, whatever the chain asks.
+        assertEquals(3.0, Remixer.createRate(r, null)!!, 0.0)
+        assertEquals(3.0, Remixer.createRate(r, 1.0)!!, 0.0)
+        assertEquals(3.0, Remixer.createRate(r, 9.0)!!, 0.0)
+        r.cap = 1.5 // changed on its card
         assertEquals(1.5, Remixer.createRate(r, 1.0)!!, 0.0)
         assertNull(Remixer.createAmount(10_050, 2.0, ScriptType.P2WPKH))
         assertNotNull(Remixer.createAmount(10_300, 2.0, ScriptType.P2WPKH))

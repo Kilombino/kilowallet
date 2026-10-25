@@ -569,7 +569,7 @@ private fun CoinPicker(
                 Text("A perpetual coinjoin only remixes outputs of this wallet: with another destination it is off.",
                     color = Warn, style = MaterialTheme.typography.bodySmall)
             // Before signing, what this coin's pool will do after: remix on its own, or not.
-            if (cap != null) Text("♻ Perpetual coinjoin: on · fee cap ${fmtRate(cap)} sat/vB. After this pool, the mixed coin remixes on its own.",
+            if (cap != null) Text("♻ Perpetual coinjoin: on · its pools at ${fmtRate(cap)} sat/vB. After this pool, the mixed coin remixes on its own.",
                 color = Good, style = MaterialTheme.typography.bodySmall)
             // The perpetual choice goes with the perfect coin: its pool, once joined, remixes as chosen here.
             ExactCoinPanel(vm, accent, exact, tag, exactFor.withPerpetual(cap), dest, outputs) { sent -> making = false; reload++; if (sent) onCancel() }
@@ -668,7 +668,7 @@ private fun CoinPicker(
         // Ticked before (on the pool's form), then another destination picked here: say it is off.
         else if (perpetualOk && perpetual) Text("A perpetual coinjoin only remixes outputs of this wallet: with another destination it is off.",
             color = Warn, style = MaterialTheme.typography.bodySmall)
-        if (capBad) Text("Fee cap: 1 to 500 sat/vB.", color = Warn, style = MaterialTheme.typography.bodySmall)
+        if (capBad) Text("Fee: 1 to 500 sat/vB.", color = Warn, style = MaterialTheme.typography.bodySmall)
         if (!payment && !noExactCoin && list != null && list.none { it.value == exact }) TextButton(onClick = { vm.resetSend(); making = true }) {
             Text("＋ PREPARE AN EXACT COIN OF ${groupSats(exact)} SATS", color = accent, style = MaterialTheme.typography.bodySmall)
         }
@@ -968,7 +968,7 @@ private fun CreatePool(
         else if (pay == null && outputs != null && outputs > 1)
             Text("♻ Perpetual coinjoin: only with one mixed output per person (several remixing at once would be linked by their timing).",
                 color = TextFaint, style = MaterialTheme.typography.bodySmall)
-        if (capBad) Text("Fee cap: 1 to 500 sat/vB.", color = Warn, style = MaterialTheme.typography.bodySmall)
+        if (capBad) Text("Fee: 1 to 500 sat/vB.", color = Warn, style = MaterialTheme.typography.bodySmall)
         error?.let { Text(it, color = Warn, style = MaterialTheme.typography.bodySmall) }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1765,7 +1765,7 @@ private fun PerfectCoinCard(w: com.kilombino.pyblockwatch.coinjoin.PerfectCoin.W
             else if (w.extraSeat) "Then it joins the pool by itself as another seat of yours, after a random wait, and the round runs on its own."
             else "Then it joins the pool by itself and the round runs on its own.",
             style = MaterialTheme.typography.bodySmall, color = TextSoft)
-        w.perpCap?.let { cap -> Text("♻ Perpetual coinjoin: after that round it keeps remixing (fee cap ${fmtRate(cap)} sat/vB).",
+        w.perpCap?.let { cap -> Text("♻ Perpetual coinjoin: after that round it keeps remixing (its pools at ${fmtRate(cap)} sat/vB).",
             style = MaterialTheme.typography.bodySmall, color = Good) }
         Row {
             TextButton(onClick = { runCatching { uri.openUri("${vm.explorerFor(com.kilombino.pyblockwatch.chain.Chain.BLAKE2B)}/tx/${w.txid}") } }) {
@@ -1853,16 +1853,14 @@ private fun PerpetualChoice(on: Boolean, capText: String, accent: Color, onOn: (
         Text("♻ Perpetual coinjoin", color = if (on) accent else TextMain, style = MaterialTheme.typography.bodyMedium)
     }
     Text(PERPETUAL_EXPLAIN, color = TextFaint, style = MaterialTheme.typography.bodySmall)
-    if (on) OutlinedTextField(value = capText, onValueChange = { onCap(it.replace(',', '.').filter { c -> c.isDigit() || c == '.' }) },
-        label = { Text("fee cap (sat/vB)", style = MaterialTheme.typography.bodySmall) }, singleLine = true,
-        textStyle = MaterialTheme.typography.bodyMedium,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+    if (on) Text("Every pool it opens uses this pool's fee, ${capText} sat/vB, and it only joins pools at that same fee.",
+        color = accent, style = MaterialTheme.typography.bodySmall)
     Spacer(Modifier.height(6.dp))
 }
 
 private const val PERPETUAL_EXPLAIN = "When the round confirms, your mixed coin joins another pool by itself (or opens one with the " +
     "whole coin, no change), again and again; each round costs it its fee share. It stops when you turn it off or spend the coin, " +
-    "when it falls below a pool's minimum, or when fees rise above your cap. Only the hot wallet's output remixes, never a change. " +
+    "or when it falls below a pool's minimum. Its pools use the fee you chose for this one. Only the hot wallet's output remixes, never a change. " +
     "While it is on, the key of this wallet's receive addresses of this type stays on the phone, encrypted, so it can sign without you."
 
 /** What a perpetual coin is doing, as one line. */
@@ -1901,10 +1899,10 @@ private fun PerpetualCard(vm: WalletViewModel, r: com.kilombino.pyblockwatch.coi
         Text(perpetualLine(r), style = MaterialTheme.typography.bodySmall, color = if (on) Good else TextFaint)
         if (r.rounds > 0) Text("Rounds so far: ${r.rounds} (${groupSats(r.startValue)} → ${groupSats(r.value)} sats)",
             style = MaterialTheme.typography.bodySmall, color = TextFaint)
-        Text("Fee cap: ${fmtRate(r.cap)} sat/vB", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+        Text("Its pools' fee: ${fmtRate(r.cap)} sat/vB", style = MaterialTheme.typography.bodySmall, color = TextFaint)
         if (editing) {
             OutlinedTextField(value = capText, onValueChange = { capText = it.replace(',', '.').filter { c -> c.isDigit() || c == '.' } },
-                label = { Text("fee cap (sat/vB)", style = MaterialTheme.typography.bodySmall) }, singleLine = true,
+                label = { Text("its pools' fee (sat/vB)", style = MaterialTheme.typography.bodySmall) }, singleLine = true,
                 textStyle = MaterialTheme.typography.bodyMedium,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
             val c = capText.toDoubleOrNull()?.takeIf { it in 1.0..500.0 }
@@ -1926,7 +1924,7 @@ private fun PerpetualCard(vm: WalletViewModel, r: com.kilombino.pyblockwatch.coi
                 }.onFailure { onMessage(it.message ?: "could not unlock") }
             }) { Text("TURN ON AGAIN", color = accent, style = MaterialTheme.typography.bodySmall) }
             if (!editing && (on || canTurnOn)) TextButton(onClick = { editing = true }) {
-                Text("change the fee cap", color = accent, style = MaterialTheme.typography.bodySmall)
+                Text("change its pools' fee", color = accent, style = MaterialTheme.typography.bodySmall)
             }
             if (!on && !embedded && r.seat == null) TextButton(onClick = { com.kilombino.pyblockwatch.coinjoin.Perpetual.forget(ctx, r.id) }) {
                 Text("remove", color = TextFaint, style = MaterialTheme.typography.bodySmall)

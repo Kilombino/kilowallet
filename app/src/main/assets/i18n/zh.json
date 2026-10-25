@@ -2362,5 +2362,12 @@
 "♻ Perpetual coinjoin: only with one mixed output per person (several remixing at once would be linked by their timing).": "♻ 永续混币：仅限每人一个混合输出（多个输出同时重新混合会因时间而被关联）。",
 "Then it joins the pool by itself as another seat of yours, after a random wait, and the round runs on its own.": "之后它会在随机等待后，作为你的另一个席位自动加入该池，这一轮自动运行。",
 "♻ Perpetual coinjoin: after that round it keeps remixing (fee cap {0} sat/vB).": "♻ 永续混币：那一轮之后会继续再次混合（手续费上限 {0} sat/vB）。",
-"♻ Perpetual coinjoin: on · fee cap {0} sat/vB. After this pool, the mixed coin remixes on its own.": "♻ 永续混币：已开启 · 手续费上限 {0} sat/vB。此池之后，混合后的币会自动再次混合。"
+"♻ Perpetual coinjoin: on · fee cap {0} sat/vB. After this pool, the mixed coin remixes on its own.": "♻ 永续混币：已开启 · 手续费上限 {0} sat/vB。此池之后，混合后的币会自动再次混合。",
+"When the round confirms, your mixed coin joins another pool by itself (or opens one with the whole coin, no change), again and again; each round costs it its fee share. It stops when you turn it off or spend the coin, or when it falls below a pool's minimum. Its pools use the fee you chose for this one. Only the hot wallet's output remixes, never a change. While it is on, the key of this wallet's receive addresses of this type stays on the phone, encrypted, so it can sign without you.": "本轮确认后，你混合后的币会自动加入另一个池（或用整枚币开一个池，没有找零），一次又一次；每轮花费它的手续费份额。当你关闭它或花掉这枚币，或者它低于池的最低额时停止。它的池使用你为这个池选择的手续费。只有热钱包的输出会再次混合，找零不会。开启期间，此钱包此类型接收地址的密钥会加密保存在手机上，以便无需你也能签名。",
+"♻ Perpetual coinjoin: on · its pools at {0} sat/vB. After this pool, the mixed coin remixes on its own.": "♻ 永续混币：已开启 · 其池为 {0} sat/vB。此池之后，混合后的币会自动再次混合。",
+"♻ Perpetual coinjoin: after that round it keeps remixing (its pools at {0} sat/vB).": "♻ 永续混币：该轮之后会继续再次混合（其池为 {0} sat/vB）。",
+"Its pools' fee: {0} sat/vB": "其池的手续费：{0} sat/vB",
+"its pools' fee (sat/vB)": "其池的手续费（sat/vB）",
+"change its pools' fee": "更改其池的手续费",
+"Every pool it opens uses this pool's fee, {0} sat/vB, and it only joins pools at that same fee.": "它开启的每个池都使用本池的手续费 {0} sat/vB，并且只加入手续费完全相同的池。"
 }

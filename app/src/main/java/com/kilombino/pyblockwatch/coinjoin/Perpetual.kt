@@ -210,14 +210,12 @@ class Remixer(private val env: Env) {
         const val MIN_LEFT = 20 * 60L
 
         /**
-         * The rate of a pool opened for [r]: its first pool's (or the cap, if lower), more when the chain asks
-         * more now; null when that would be over the cap.
+         * The rate of a pool opened for [r]: always the fee the user chose ([Remix.cap], set from the
+         * first pool and changeable on its card), whatever the chain asks now. Pools of others are
+         * joined only at exactly that fee, so it always pays what was chosen and never stops for it.
          */
-        fun createRate(r: Remix, estimate: Double?): Double? {
-            val base = minOf(r.rate, r.cap)
-            val rate = maxOf(base, estimate ?: base)
-            return if (rate > r.cap + 1e-9) null else rate
-        }
+        @Suppress("UNUSED_PARAMETER")
+        fun createRate(r: Remix, estimate: Double?): Double? = r.cap
 
         /** The pool amount the whole coin makes with no change, or null below the minimum. */
         fun createAmount(value: Long, rate: Double, type: ScriptType): Long? =
@@ -226,7 +224,7 @@ class Remixer(private val env: Env) {
         /** Whether [t] can take [r]'s coin: one output each, its type, open, not ours, at most the cap, and the coin covers it. */
         fun fits(r: Remix, t: Protocol.Terms, now: Long, busy: Set<String>): Boolean =
             t.state == "open" && t.script == r.type && t.outputs == 1 && t.v3 && !t.private && t.peers < t.maxPeers &&
-                t.expiresAt - now >= MIN_LEFT && t.feeRate <= r.cap + 1e-9 && !Protocol.isTest(t) && t.id !in busy &&
+                t.expiresAt - now >= MIN_LEFT && kotlin.math.abs(t.feeRate - r.cap) < 1e-9 && !Protocol.isTest(t) && t.id !in busy &&
                 t.id !in r.tried && CoinjoinTx.changeOf(r.value, t.mixTotal, t.feeRate, 1, r.type, 1) != null
 
         /** The pool to join: one with no change first, then the one leaving the least change; null for none. */
