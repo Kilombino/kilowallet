@@ -2310,5 +2310,10 @@
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, {4} of them yours; your change is right; total fee {5} sats.": "Comprovat: {0} persones ({1} monedes), {2} sortides idèntiques de {3} sats, {4} d'elles teves; el teu canvi és correcte; comissió total {5} sats.",
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, {4} of them yours; no change (an exact coin); total fee {5} sats.": "Comprovat: {0} persones ({1} monedes), {2} sortides idèntiques de {3} sats, {4} d'elles teves; sense canvi (una moneda exacta); comissió total {5} sats.",
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; your change is right; total fee {4} sats.": "Comprovat: {0} persones ({1} monedes), {2} sortides idèntiques de {3} sats, una d'elles teva; el teu canvi és correcte; comissió total {4} sats.",
-"Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; no change (an exact coin); total fee {4} sats.": "Comprovat: {0} persones ({1} monedes), {2} sortides idèntiques de {3} sats, una d'elles teva; sense canvi (una moneda exacta); comissió total {4} sats."
+"Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; no change (an exact coin); total fee {4} sats.": "Comprovat: {0} persones ({1} monedes), {2} sortides idèntiques de {3} sats, una d'elles teva; sense canvi (una moneda exacta); comissió total {4} sats.",
+"📋 COPY RAW TX": "📋 COPIA LA TX CRUA",
+"COPYING…": "COPIANT…",
+"RAW TX COPIED ✓": "TX CRUA COPIADA ✓",
+"Couldn't get it: {0}": "No s'ha pogut obtenir: {0}",
+"Paste it into your node (sendrawtransaction) or any broadcast page to send it again.": "Enganxa-la al teu node (sendrawtransaction) o a qualsevol pàgina de difusió per tornar-la a enviar."
 }

@@ -1492,7 +1492,7 @@ internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, v
             speedUpLabel = if ((t.amount ?: 0) > 0) "⚡ SPEED UP (CPFP)" else "⚡ SPEED UP (RBF)",
             // Only a send of ours can be cancelled: a payment to us isn't ours to take back.
             onCancel = if (t.pending && isHot && (t.amount ?: 0) <= 0) ({ asking = null; bumping = t.txid to BumpMode.CANCEL }) else null,
-            onClose = { asking = null }, vm = vm, chain = chain)
+            onClose = { asking = null }, vm = vm, chain = chain, pending = t.pending)
     }
     Panel(accent = accent) {
         SectionLabel("movements · confirmations", accent)
@@ -1575,7 +1575,7 @@ private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, explore
     if (sent != null) {
         // With the wallet and its chain, so an explorer already chosen opens straight away.
         TxDetailDialog(sent, accent, explorer, status = (if (cpfp) "speed-up sent ✓" else if (cancel) "cancellation sent ✓" else "replacement sent ✓") + " · in mempool",
-            onSpeedUp = null, onClose = onClose, vm = vm, chain = vm.state.collectAsState().value.selected)
+            onSpeedUp = null, onClose = onClose, vm = vm, chain = vm.state.collectAsState().value.selected, pending = true)
         return
     }
     val state by vm.state.collectAsState()
@@ -1676,6 +1676,8 @@ internal fun TxDetailDialog(
     /** "tx" for a transaction, "address" for one of the wallet's addresses (the explorer path). */
     kind: String = "tx",
     extra: (@Composable () -> Unit)? = null,
+    /** An unconfirmed transaction: offers copying it raw, to broadcast it again elsewhere. */
+    pending: Boolean = false,
 ) {
     // The first time, ask which explorer to use (and warn it is an outside site); once the user
     // keeps one, it opens straight away.
@@ -1704,6 +1706,29 @@ internal fun TxDetailDialog(
                         if (vm != null && vm.explorerChosen(chain)) runCatching { uri.openUri("$explorer/$kind/$txid") }
                         else confirmOpen = true
                     }) { Text("🔎 EXPLORER", color = accent) }
+                }
+                if (pending && kind == "tx" && vm != null) {
+                    val scope = rememberCoroutineScope()
+                    var raw by remember(txid) { mutableStateOf<String?>(null) }   // null idle, "" fetching, "!…" failed
+                    TextButton(enabled = raw != "", onClick = {
+                        raw = ""
+                        scope.launch {
+                            raw = runCatching { vm.rawTransaction(chain, txid) }
+                                .onSuccess { clipboard.setText(androidx.compose.ui.text.AnnotatedString(it)) }
+                                .fold({ it }, { e -> "!" + (e.message ?: e.javaClass.simpleName) })
+                        }
+                    }) {
+                        Text(when {
+                            raw == "" -> "COPYING…"
+                            raw?.startsWith("!") == false -> "RAW TX COPIED ✓"
+                            else -> "📋 COPY RAW TX"
+                        }, color = accent)
+                    }
+                    raw?.let { r ->
+                        if (r.startsWith("!")) Text("Couldn't get it: ${r.drop(1)}", style = MaterialTheme.typography.bodySmall, color = Warn)
+                        else if (r.isNotEmpty()) Text("Paste it into your node (sendrawtransaction) or any broadcast page to send it again.",
+                            style = MaterialTheme.typography.bodySmall, color = TextSoft)
+                    }
                 }
                 if (confirmOpen) {
                     Text("This opens an EXTERNAL block explorer: the site sees which ${if (kind == "address") "address" else "transaction"} you look up " +

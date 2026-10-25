@@ -2310,5 +2310,10 @@
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, {4} of them yours; your change is right; total fee {5} sats.": "Verificato: {0} persone ({1} monete), {2} output identici da {3} sats, {4} dei quali tuoi; il tuo resto è corretto; commissione totale {5} sats.",
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, {4} of them yours; no change (an exact coin); total fee {5} sats.": "Verificato: {0} persone ({1} monete), {2} output identici da {3} sats, {4} dei quali tuoi; nessun resto (una moneta esatta); commissione totale {5} sats.",
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; your change is right; total fee {4} sats.": "Verificato: {0} persone ({1} monete), {2} output identici da {3} sats, uno dei quali tuo; il tuo resto è corretto; commissione totale {4} sats.",
-"Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; no change (an exact coin); total fee {4} sats.": "Verificato: {0} persone ({1} monete), {2} output identici da {3} sats, uno dei quali tuo; nessun resto (una moneta esatta); commissione totale {4} sats."
+"Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; no change (an exact coin); total fee {4} sats.": "Verificato: {0} persone ({1} monete), {2} output identici da {3} sats, uno dei quali tuo; nessun resto (una moneta esatta); commissione totale {4} sats.",
+"📋 COPY RAW TX": "📋 COPIA TX GREZZA",
+"COPYING…": "COPIA IN CORSO…",
+"RAW TX COPIED ✓": "TX GREZZA COPIATA ✓",
+"Couldn't get it: {0}": "Impossibile ottenerla: {0}",
+"Paste it into your node (sendrawtransaction) or any broadcast page to send it again.": "Incollala nel tuo nodo (sendrawtransaction) o in qualsiasi pagina di trasmissione per inviarla di nuovo."
 }

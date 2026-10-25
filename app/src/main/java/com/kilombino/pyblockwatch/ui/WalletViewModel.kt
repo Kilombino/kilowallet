@@ -638,6 +638,16 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun setExplorer(chain: Chain, url: String?) = store.setExplorer(chain, url)
     fun explorerChosen(chain: Chain): Boolean = store.explorerChosen(chain)
 
+    /**
+     * The raw (hex) transaction [txid], to send again from elsewhere when it is stuck (a node
+     * with few peers). Asked of the wallet's own server or node, which checks it hashes to [txid].
+     */
+    suspend fun rawTransaction(chain: Chain, txid: String): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val endpoint = store.endpoint(chain)
+        val client = com.kilombino.pyblockwatch.chain.ElectrumClient(endpoint, store.pinnedFingerprint(endpoint))
+        try { client.connect(); client.transaction(txid) } finally { runCatching { client.close() } }
+    }
+
     // ------------------------------------------------------------------ your own node by RPC
 
     fun rpcConns(): List<com.kilombino.pyblockwatch.chain.RpcConn> = store.rpcConns

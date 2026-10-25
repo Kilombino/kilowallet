@@ -2310,5 +2310,10 @@
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, {4} of them yours; your change is right; total fee {5} sats.": "Geprüft: {0} Personen ({1} Münzen), {2} identische Ausgaben zu je {3} sats, {4} davon deine; dein Wechselgeld stimmt; Gesamtgebühr {5} sats.",
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, {4} of them yours; no change (an exact coin); total fee {5} sats.": "Geprüft: {0} Personen ({1} Münzen), {2} identische Ausgaben zu je {3} sats, {4} davon deine; kein Wechselgeld (eine exakte Münze); Gesamtgebühr {5} sats.",
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; your change is right; total fee {4} sats.": "Geprüft: {0} Personen ({1} Münzen), {2} identische Ausgaben zu je {3} sats, eine davon deine; dein Wechselgeld stimmt; Gesamtgebühr {4} sats.",
-"Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; no change (an exact coin); total fee {4} sats.": "Geprüft: {0} Personen ({1} Münzen), {2} identische Ausgaben zu je {3} sats, eine davon deine; kein Wechselgeld (eine exakte Münze); Gesamtgebühr {4} sats."
+"Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; no change (an exact coin); total fee {4} sats.": "Geprüft: {0} Personen ({1} Münzen), {2} identische Ausgaben zu je {3} sats, eine davon deine; kein Wechselgeld (eine exakte Münze); Gesamtgebühr {4} sats.",
+"📋 COPY RAW TX": "📋 ROHE TX KOPIEREN",
+"COPYING…": "KOPIERE…",
+"RAW TX COPIED ✓": "ROHE TX KOPIERT ✓",
+"Couldn't get it: {0}": "Konnte nicht abgerufen werden: {0}",
+"Paste it into your node (sendrawtransaction) or any broadcast page to send it again.": "Füge sie in deinen Knoten (sendrawtransaction) oder eine beliebige Broadcast-Seite ein, um sie erneut zu senden."
 }

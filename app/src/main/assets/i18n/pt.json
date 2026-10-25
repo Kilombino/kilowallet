@@ -2310,5 +2310,10 @@
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, {4} of them yours; your change is right; total fee {5} sats.": "Verificado: {0} pessoas ({1} moedas), {2} saídas idênticas de {3} sats, {4} delas suas; seu troco está certo; taxa total {5} sats.",
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, {4} of them yours; no change (an exact coin); total fee {5} sats.": "Verificado: {0} pessoas ({1} moedas), {2} saídas idênticas de {3} sats, {4} delas suas; sem troco (uma moeda exata); taxa total {5} sats.",
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; your change is right; total fee {4} sats.": "Verificado: {0} pessoas ({1} moedas), {2} saídas idênticas de {3} sats, uma delas sua; seu troco está certo; taxa total {4} sats.",
-"Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; no change (an exact coin); total fee {4} sats.": "Verificado: {0} pessoas ({1} moedas), {2} saídas idênticas de {3} sats, uma delas sua; sem troco (uma moeda exata); taxa total {4} sats."
+"Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; no change (an exact coin); total fee {4} sats.": "Verificado: {0} pessoas ({1} moedas), {2} saídas idênticas de {3} sats, uma delas sua; sem troco (uma moeda exata); taxa total {4} sats.",
+"📋 COPY RAW TX": "📋 COPIAR TX BRUTA",
+"COPYING…": "COPIANDO…",
+"RAW TX COPIED ✓": "TX BRUTA COPIADA ✓",
+"Couldn't get it: {0}": "Não foi possível obtê-la: {0}",
+"Paste it into your node (sendrawtransaction) or any broadcast page to send it again.": "Cole-a no seu nó (sendrawtransaction) ou em qualquer página de difusão para enviá-la de novo."
 }

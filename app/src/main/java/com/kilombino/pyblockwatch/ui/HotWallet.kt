@@ -558,7 +558,7 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                 var details by remember(phase.txid) { mutableStateOf(false) }
                 val sentChain = vm.state.collectAsState().value.selected
                 if (details) TxDetailDialog(phase.txid, accent, vm.explorerFor(sentChain),
-                    status = "just sent · in the mempool", onSpeedUp = null, onClose = { details = false }, vm = vm, chain = sentChain)
+                    status = "just sent · in the mempool", onSpeedUp = null, onClose = { details = false }, vm = vm, chain = sentChain, pending = true)
                 Text(phase.txid, color = TextSoft, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
                     modifier = Modifier.clickable { details = true })
                 val clip = androidx.compose.ui.platform.LocalClipboardManager.current

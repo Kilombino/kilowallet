@@ -2298,5 +2298,10 @@
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, {4} of them yours; your change is right; total fee {5} sats.": "已检查：{0} 人（{1} 枚币），{2} 个相同的输出，每个 {3} sats，其中 {4} 个是你的；你的找零正确；总手续费 {5} sats。",
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, {4} of them yours; no change (an exact coin); total fee {5} sats.": "已检查：{0} 人（{1} 枚币），{2} 个相同的输出，每个 {3} sats，其中 {4} 个是你的；无找零（精确币）；总手续费 {5} sats。",
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; your change is right; total fee {4} sats.": "已检查：{0} 人（{1} 枚币），{2} 个相同的输出，每个 {3} sats，其中一个是你的；你的找零正确；总手续费 {4} sats。",
-"Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; no change (an exact coin); total fee {4} sats.": "已检查：{0} 人（{1} 枚币），{2} 个相同的输出，每个 {3} sats，其中一个是你的；无找零（精确币）；总手续费 {4} sats。"
+"Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; no change (an exact coin); total fee {4} sats.": "已检查：{0} 人（{1} 枚币），{2} 个相同的输出，每个 {3} sats，其中一个是你的；无找零（精确币）；总手续费 {4} sats。",
+"📋 COPY RAW TX": "📋 复制原始交易",
+"COPYING…": "正在复制…",
+"RAW TX COPIED ✓": "原始交易已复制 ✓",
+"Couldn't get it: {0}": "无法获取：{0}",
+"Paste it into your node (sendrawtransaction) or any broadcast page to send it again.": "将其粘贴到你的节点（sendrawtransaction）或任何广播页面以重新发送。"
 }

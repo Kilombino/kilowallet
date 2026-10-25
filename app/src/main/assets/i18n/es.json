@@ -2310,5 +2310,10 @@
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, {4} of them yours; your change is right; total fee {5} sats.": "Comprobado: {0} personas ({1} monedas), {2} salidas idénticas de {3} sats, {4} de ellas tuyas; tu cambio está bien; comisión total {5} sats.",
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, {4} of them yours; no change (an exact coin); total fee {5} sats.": "Comprobado: {0} personas ({1} monedas), {2} salidas idénticas de {3} sats, {4} de ellas tuyas; sin cambio (una moneda exacta); comisión total {5} sats.",
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; your change is right; total fee {4} sats.": "Comprobado: {0} personas ({1} monedas), {2} salidas idénticas de {3} sats, una de ellas tuya; tu cambio está bien; comisión total {4} sats.",
-"Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; no change (an exact coin); total fee {4} sats.": "Comprobado: {0} personas ({1} monedas), {2} salidas idénticas de {3} sats, una de ellas tuya; sin cambio (una moneda exacta); comisión total {4} sats."
+"Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; no change (an exact coin); total fee {4} sats.": "Comprobado: {0} personas ({1} monedas), {2} salidas idénticas de {3} sats, una de ellas tuya; sin cambio (una moneda exacta); comisión total {4} sats.",
+"📋 COPY RAW TX": "📋 COPIAR TX CRUDA",
+"COPYING…": "COPIANDO…",
+"RAW TX COPIED ✓": "TX CRUDA COPIADA ✓",
+"Couldn't get it: {0}": "No se pudo obtener: {0}",
+"Paste it into your node (sendrawtransaction) or any broadcast page to send it again.": "Pégala en tu nodo (sendrawtransaction) o en cualquier página de difusión para volver a enviarla."
 }

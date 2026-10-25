@@ -2310,5 +2310,10 @@
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, {4} of them yours; your change is right; total fee {5} sats.": "Vérifié : {0} personnes ({1} pièces), {2} sorties identiques de {3} sats, dont {4} à toi ; ta monnaie est correcte ; frais totaux {5} sats.",
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, {4} of them yours; no change (an exact coin); total fee {5} sats.": "Vérifié : {0} personnes ({1} pièces), {2} sorties identiques de {3} sats, dont {4} à toi ; pas de monnaie (une pièce exacte) ; frais totaux {5} sats.",
 "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; your change is right; total fee {4} sats.": "Vérifié : {0} personnes ({1} pièces), {2} sorties identiques de {3} sats, dont une à toi ; ta monnaie est correcte ; frais totaux {4} sats.",
-"Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; no change (an exact coin); total fee {4} sats.": "Vérifié : {0} personnes ({1} pièces), {2} sorties identiques de {3} sats, dont une à toi ; pas de monnaie (une pièce exacte) ; frais totaux {4} sats."
+"Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; no change (an exact coin); total fee {4} sats.": "Vérifié : {0} personnes ({1} pièces), {2} sorties identiques de {3} sats, dont une à toi ; pas de monnaie (une pièce exacte) ; frais totaux {4} sats.",
+"📋 COPY RAW TX": "📋 COPIER LA TX BRUTE",
+"COPYING…": "COPIE…",
+"RAW TX COPIED ✓": "TX BRUTE COPIÉE ✓",
+"Couldn't get it: {0}": "Impossible de la récupérer : {0}",
+"Paste it into your node (sendrawtransaction) or any broadcast page to send it again.": "Colle-la dans ton nœud (sendrawtransaction) ou sur n'importe quelle page de diffusion pour la renvoyer."
 }

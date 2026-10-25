@@ -239,7 +239,7 @@ fun CoinsCard(state: UiState, vm: WalletViewModel, chain: Chain, accent: Color) 
             })
         else TxDetailDialog(u.txid, accent, vm.explorerFor(chain),
             status = "output ${u.vout} · $confText",
-            onSpeedUp = null, onClose = { open = null }, vm = vm, chain = chain)
+            onSpeedUp = null, onClose = { open = null }, vm = vm, chain = chain, pending = conf == 0)
     }
     Panel(accent = accent) {
         SectionLabel("Coins · confirmations", accent)
