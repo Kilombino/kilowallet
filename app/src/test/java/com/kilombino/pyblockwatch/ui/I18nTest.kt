@@ -73,6 +73,73 @@ class I18nTest {
         I18n.lang.value = I18n.ES
     }
 
+    /**
+     * The exact coin's panel and the coinjoin pools, as the code builds them: section labels upper-case
+     * a template ("EXACT COIN · 12 345 SATS"), pieces joined with " · ", and whole sentences per case.
+     */
+    @Test fun exactCoinAndPoolTexts() {
+        val keys = listOf(
+            "A payment to yourself of exactly {0} sats, to a fresh {1} address of this wallet. It needs one confirmation before it can join; then it goes in with no change.",
+            "native SegWit", "mixed", "ticked: {0} coin(s), {1} sats", "ticked: {0} coin(s), {1} sats — not enough for {2} plus the fee",
+            "to {0} · from {1} coin(s) · fee {2} sats", "CONFIRM & SIGN", "Sent ✓", "one coin each", "up to {0} coins each", "closes in now",
+            "this coin", "these {0} coins", "change address.", "{0} coin(s), {1} sats: {2} sats short",
+            "{0} coin(s) · {1} sats → {2} mixed + {3} change · fee {4}", "Fee: 1 to 500 sat/vB.", "{0} sats  ★ EXACT", "TEST POOL",
+            "Confirmed ✅", "Refused: {0}",
+            "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, {4} of them yours; your change is right; total fee {5} sats.",
+            "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, {4} of them yours; no change (an exact coin); total fee {5} sats.",
+            "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; your change is right; total fee {4} sats.",
+            "Checked: {0} people ({1} coins), {2} identical outputs of {3} sats, one of which is yours; no change (an exact coin); total fee {4} sats.")
+        val shown = listOf("EXACT COIN · 12 345 SATS", "JOIN · 3 × 12 345 SATS · TAPROOT",
+            "A payment to yourself of exactly 12 345 sats, to a fresh native SegWit (bc1q) address of this wallet. It needs one confirmation before it can join; then it goes in with no change.",
+            "Tick one or more coins, native SegWit and Taproot alike; with none ticked the biggest never-mixed ones go first. The exact coin itself is always native SegWit, the pool's type.",
+            " · mixed", "ticked: 2 coin(s), 30 000 sats — not enough for 40 000 plus the fee",
+            "to bc1q…abcd · from 2 coin(s) · fee 300 sats", "CONFIRM & SIGN",
+            "Native SegWit (bc1q) coins only · up to 3 coins each", "Taproot (bc1p) coins only · one coin each",
+            "Native SegWit (bc1q) coins only · up to 3 coins each · 3 outputs each (v4)",
+            "3/5 people (min 2) · 2 sat/vB · closes in now",
+            "With these 3 coins you get 1 234 sats of change back, and that change shows on the chain next to your coins. A single coin of exactly " +
+                "12 345 sats goes in with no change at all, so nothing ties your mixed output to anything. You can make it now: a payment to " +
+                "yourself (from any of your coins, bc1q and bc1p together), which needs one confirmation before it can join.",
+            "Pick ONE confirmed native SegWit (bc1q) coin of at least 12 345 sats. Its leftover comes back to a fresh change address.\n\n" +
+                "The mixed output goes to an unused address of the wallet chosen above.",
+            "12 345 sats  ★ EXACT", "2 coin(s), 3 000 sats: 9 345 sats short", "2 coin(s) · 30 000 sats → 3 × 9 000 mixed + 2 700 change · fee 300",
+            "Fee: 1 to 500 sat/vB.", "12 345 sats  · TEST POOL", "🔒 joined", "Confirmed ✅",
+            "Checked: 3 people (4 coins), 3 identical outputs of 12 345 sats, one of which is yours; no change (an exact coin); total fee 900 sats.",
+            "Checked: 3 people (4 coins), 6 identical outputs of 12 345 sats, 2 of them yours; your change is right; total fee 900 sats.",
+            "POOLS",
+            // The coinjoin intro, one line at a time as the screen translates it.
+            "• Someone opens a pool (from 10 000 sats each to 1 BTC per output) and others join with one coin.\n",
+            "• With enough people in, anyone asks to close and the rest accept.\n",
+            "• Your wallet checks the transaction and you sign with your fingerprint. Nobody holds your ",
+            "coins: the relay only passes encrypted messages.\n")
+        val english = Regex("""\b(coins?|change address|fresh|ticked|mixed|each|yours|EXACT|of them|not enough|people)\b""")
+        for (l in I18n.LANGUAGES.map { it.first }.filter { it != I18n.EN }) {
+            val o = JSONObject(File(dir, "$l.json").readText())
+            keys.forEach { k -> assertTrue("$l lacks \"$k\"", o.has(k) && o.getString(k) != k) }
+            I18n.lang.value = l
+            // Nothing left in English: "POOLS" is a word of its own in every language but Chinese.
+            shown.filter { it != "POOLS" || l == I18n.ZH }.forEach { s ->
+                val t = I18n.tr(s)
+                assertTrue("$l: \"$s\" -> \"$t\"", t != s && !english.containsMatchIn(t))
+            }
+        }
+        I18n.lang.value = I18n.ES
+        assertEquals("MONEDA EXACTA · 12 345 SATS", I18n.tr("EXACT COIN · 12 345 SATS"))
+        assertEquals("Solo monedas SegWit nativo (bc1q) · hasta 3 monedas cada uno", I18n.tr("Native SegWit (bc1q) coins only · up to 3 coins each"))
+        assertEquals("Solo monedas Taproot (bc1p) · una moneda cada uno", I18n.tr("Taproot (bc1p) coins only · one coin each"))
+        assertEquals("Un pago a ti mismo de exactamente 12 345 sats, a una dirección SegWit nativo (bc1q) nueva de este monedero. " +
+            "Necesita una confirmación antes de poder unirse; después entra sin cambio.",
+            I18n.tr("A payment to yourself of exactly 12 345 sats, to a fresh native SegWit (bc1q) address of this wallet. " +
+                "It needs one confirmation before it can join; then it goes in with no change."))
+        assertEquals("12 345 sats  ★ EXACTA", I18n.tr("12 345 sats  ★ EXACT"))
+        assertEquals(" · mezclada", I18n.tr(" · mixed"))
+        I18n.lang.value = I18n.ZH
+        // A template that starts with its value keeps to its own piece of a " · " line.
+        assertEquals("仅限原生 SegWit（bc1q）币 · 每人最多 3 枚币 · 每人 3 个输出（v4）",
+            I18n.tr("Native SegWit (bc1q) coins only · up to 3 coins each · 3 outputs each (v4)"))
+        I18n.lang.value = I18n.ES
+    }
+
     @Test fun templatesUpperCaseAndListItems() {
         I18n.lang.value = I18n.ES
         assertEquals("\"pato\" no es una palabra de recuperación.", I18n.tr("\"pato\" is not a seed word."))

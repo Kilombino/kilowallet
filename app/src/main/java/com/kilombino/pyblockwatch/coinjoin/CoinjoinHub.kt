@@ -328,6 +328,10 @@ object CoinjoinHub {
             override fun coinUnspent(coin: CoinjoinTx.Coin): Boolean = electrum { c ->
                 c.isUnspent(Address.electrumScriptHash(coin.script), coin.txid, coin.vout, coin.value, coin.script)
             }
+            override fun coinsUnspent(coins: List<CoinjoinTx.Coin>): List<Boolean?> = runCatching {
+                electrum { c -> coins.map { coin -> runCatching {
+                    c.isUnspent(Address.electrumScriptHash(coin.script), coin.txid, coin.vout, coin.value, coin.script) }.getOrNull() } }
+            }.getOrElse { coins.map { null } }
             override fun broadcast(rawHex: String): String = electrum { it.broadcast(rawHex) }
             override fun confirmations(txid: String): Int? = electrum { c ->
                 // Our mixed output's address sees the transaction, confirmed or not.

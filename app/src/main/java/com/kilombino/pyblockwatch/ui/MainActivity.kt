@@ -806,7 +806,9 @@ private fun BalanceCard(
     // The countdown ticks here, only while this card is shown, instead of the whole screen
     // being redrawn every second.
     var secondsUntilRefresh by remember { mutableStateOf(0) }
-    LaunchedEffect(nextRefreshAt) {
+    // Not in the background either: nobody sees it there.
+    LaunchedEffect(nextRefreshAt, AppVisible.value) {
+        if (!AppVisible.value) return@LaunchedEffect
         while (true) {
             secondsUntilRefresh = ((nextRefreshAt - System.currentTimeMillis()) / 1000).toInt().coerceAtLeast(0)
             delay(1_000)
@@ -822,7 +824,7 @@ private fun BalanceCard(
                 Text(refreshCountdown(nextRefreshAt, secondsUntilRefresh), style = MaterialTheme.typography.bodySmall,
                      color = TextFaint)
                 Spacer(Modifier.width(8.dp))
-                PulseDot(Good, 7)
+                StillDot(Good, 7)
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -899,7 +901,7 @@ internal fun ScanStatus(cs: ChainState, accent: Color, onRetry: () -> Unit) {
 
                 is ScanPhase.Complete -> Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        PulseDot(if (cs.stale) Warn else Good); Spacer(Modifier.width(10.dp))
+                        StillDot(if (cs.stale) Warn else Good); Spacer(Modifier.width(10.dp))
                         Text(if (cs.stale) (if (cs.refreshing != null) "last known · checking every address again" else "last known · not checked yet")
                              else "scan complete", style = MaterialTheme.typography.bodyMedium, color = if (cs.stale) Warn else Good)
                     }

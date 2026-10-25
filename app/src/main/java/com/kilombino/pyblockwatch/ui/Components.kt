@@ -80,6 +80,16 @@ fun PulseDot(color: Color, size: Int = 8) {
 }
 
 /**
+ * The same dot, still: "all is well" with nothing going on (a finished scan, a coin waiting for
+ * its block). An idle screen must not animate: a dot breathing forever keeps the GPU drawing a
+ * frame every 16 ms for as long as the wallet is open.
+ */
+@Composable
+fun StillDot(color: Color, size: Int = 8) {
+    Box(Modifier.size(size.dp).drawBehind { drawCircle(color) })
+}
+
+/**
  * Something being prepared: the breathing dot, what is being done and, under it, what it waits
  * for now ([step], when known). Shown the moment a button is pressed, so the wait happens here
  * and not on the button.

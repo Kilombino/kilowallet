@@ -314,7 +314,9 @@ private fun SimpleBalance(
     val unit = if (btc) "BTC" else "Spamcoin"
     // The countdown to the next auto-refresh, as in advanced mode, so the wallet reads as live.
     var secondsUntilRefresh by remember { mutableStateOf(0) }
-    androidx.compose.runtime.LaunchedEffect(nextRefreshAt) {
+    // Not in the background either: nobody sees it there.
+    androidx.compose.runtime.LaunchedEffect(nextRefreshAt, AppVisible.value) {
+        if (!AppVisible.value) return@LaunchedEffect
         while (true) {
             secondsUntilRefresh = ((nextRefreshAt - System.currentTimeMillis()) / 1000).toInt().coerceAtLeast(0)
             kotlinx.coroutines.delay(1_000)
@@ -328,7 +330,7 @@ private fun SimpleBalance(
             if (cs.phase is ScanPhase.Complete) {
                 Text(refreshCountdown(nextRefreshAt, secondsUntilRefresh), style = MaterialTheme.typography.bodySmall, color = TextFaint)
                 Spacer(Modifier.width(8.dp))
-                PulseDot(Good, 7)
+                StillDot(Good, 7)
             }
         }
         // Until the first check of this launch finishes, a 0 would look like an empty wallet:

@@ -40,8 +40,11 @@ class CoinjoinE2ETest {
         val events = java.util.concurrent.CopyOnWriteArrayList<String>()
         /** The chain server out of reach, as when a phone can't get to its Electrum server. */
         @Volatile var down = false
+        /** Coins this wallet still takes for unspent, as a creator from before 1.3.1 would. */
+        val stale: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
         override fun coinUnspent(coin: CoinjoinTx.Coin): Boolean {
             if (down) throw java.io.IOException("server out of reach")
+            if (coin.outpoint in stale) return true
             val o = rpc("gettxout", coin.txid, coin.vout, true) as? JSONObject ?: return false
             // The coin's own script, as the wallet's RPC path checks it: a coin claimed under the
             // wrong address type does not match.
@@ -515,5 +518,71 @@ class CoinjoinE2ETest {
         waitFor("still three seats") { a.state.seats.size == 3 && b.state.seats.size == 3 && c2.state.seats.size == 3 }
         assertEquals(PoolSession.Phase.OPEN, b.state.phase)
         a.stop(); b.stop(); c2.stop()
+    }
+
+    /** Spends a test coin elsewhere (as a perfect coin made from it would), to a throwaway script. */
+    private fun spendElsewhere(c: CoinjoinTx.Coin, k: BigInteger, salt: Long) {
+        val input = com.kilombino.pyblockwatch.crypto.TxBuilder.Input(c.txid, c.vout, c.value, k, pub(k), 0xfffffffdL, ScriptType.P2WPKH)
+        val out = com.kilombino.pyblockwatch.crypto.TxBuilder.Output(script(60_000 + salt), c.value - 500)
+        rpc("sendrawtransaction", com.kilombino.pyblockwatch.crypto.TxBuilder.build(listOf(input), listOf(out), unified = true, grindLowR = true).rawHex)
+    }
+
+    /**
+     * A seated coin spent while its pool is open: the creator takes the seat out (before letting
+     * the next one in, and on its own every few minutes), so newcomers are not driven away by it;
+     * a member shown such a seat waits for the creator instead of leaving at once.
+     * KILOJOIN_E2E_SPENT=1 with the regtest node's wallet `w` funded.
+     */
+    @Test fun spentSeatIsTakenOut() {
+        System.getenv("KILOJOIN_E2E_SPENT") ?: return
+        Protocol.NETWORK = "blake2b-regtest"
+        val check = PoolSession.SEAT_CHECK_SECONDS; val grace = PoolSession.FAKE_GRACE
+        try {
+            PoolSession.SEAT_CHECK_SECONDS = 3600; PoolSession.FAKE_GRACE = 90
+            val salt = System.nanoTime() % 1_000_000
+            val seed = (salt % 50_000).toInt() * 10 + 3
+            val ca = fund(seed + 1, 150_000); val cb = fund(seed + 2, 150_000); val cc = fund(seed + 3, 150_000)
+            val cd = fund(seed + 4, 150_000); val ce = fund(seed + 5, 150_000)
+            rpc("generatetoaddress", 1, rpc("getnewaddress") as String)
+            val np = PoolSession.newPool(100_000, 2.0, 5, 1, minPeers = 5, maxInputs = 1, v3 = true, outputs = 1)
+            val envA = Env("A")
+            val a = PoolSession(envA, PoolSession.newState(np.terms, true, np.secret, listOf(ca), listOf(key(seed + 1)), listOf("a"),
+                listOf(script(50_000 + salt)), script(51_000 + salt), creatorSecret = np.creatorSecret, blindPriv = np.blindPriv))
+            a.start(); waitFor("A open") { a.state.phase == PoolSession.Phase.OPEN }
+            val found = java.util.concurrent.CompletableFuture<Protocol.Terms>()
+            val r = RelayClient(Protocol.RELAY, { _, ev -> Protocol.Terms.parse(ev)?.let { if (it.id == np.terms.id) found.complete(it) } })
+            r.connect(); r.subscribe("p", listOf(JSONObject().put("kinds", JSONArray().put(Protocol.KIND_POOL)).put("#d", JSONArray().put(np.terms.id))))
+            val seen = found.get(30, java.util.concurrent.TimeUnit.SECONDS); r.close()
+            fun member(name: String, coin: CoinjoinTx.Coin, k: Int, env: Env = Env(name)) = PoolSession(env, PoolSession.newState(seen, false, null,
+                listOf(coin), listOf(key(k)), listOf(name.lowercase()), listOf(script(52_000L + k + salt)), script(53_000L + k + salt)))
+            val b = member("B", cb, seed + 2); b.start(); waitFor("B in") { b.state.phase == PoolSession.Phase.OPEN && a.state.seats.size == 2 }
+            val c = member("C", cc, seed + 3); c.start(); waitFor("C in") { c.state.phase == PoolSession.Phase.OPEN && a.state.seats.size == 3 }
+
+            // 1. C's coin is spent while seated; D asks to join: the creator takes C out first.
+            spendElsewhere(cc, key(seed + 3), salt)
+            val d = member("D", cd, seed + 4); d.start()
+            waitFor("D in, C out") { d.state.phase == PoolSession.Phase.OPEN && a.state.seats.size == 3 &&
+                a.state.seats.none { s -> s.coins.any { it.outpoint == cc.outpoint } } }
+            waitFor("C told") { c.state.phase == PoolSession.Phase.ABORTED }
+            waitFor("B and D see three seats") { b.state.seats.size == 3 && d.state.seats.size == 3 }
+            assertEquals(PoolSession.Phase.OPEN, b.state.phase)
+
+            // 2. B's coin is spent, and the creator (as one from before 1.3.1) still takes it for
+            // unspent: E joins, finds B's seat fake and waits instead of leaving.
+            envA.stale.add(cb.outpoint)
+            spendElsewhere(cb, key(seed + 2), salt + 1)
+            val e = member("E", ce, seed + 5); e.start()
+            waitFor("E in") { e.state.phase == PoolSession.Phase.OPEN && e.state.seats.size == 4 }
+            Thread.sleep(5_000)
+            assertEquals(PoolSession.Phase.OPEN, e.state.phase)
+            // The creator looks at the seats on its own and takes B out; E stays.
+            envA.stale.clear(); PoolSession.SEAT_CHECK_SECONDS = 10
+            waitFor("B out", 90) { a.state.seats.size == 3 && e.state.seats.size == 3 && d.state.seats.size == 3 }
+            Thread.sleep(PoolSession.FAKE_GRACE * 1000 + 20_000 - 30_000)
+            assertEquals(PoolSession.Phase.OPEN, e.state.phase)
+            assertEquals(PoolSession.Phase.OPEN, d.state.phase)
+            waitFor("B told") { b.state.phase == PoolSession.Phase.ABORTED }
+            a.stop(); b.stop(); c.stop(); d.stop(); e.stop()
+        } finally { PoolSession.SEAT_CHECK_SECONDS = check; PoolSession.FAKE_GRACE = grace }
     }
 }

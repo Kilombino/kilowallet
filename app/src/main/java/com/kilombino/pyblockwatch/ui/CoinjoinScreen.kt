@@ -300,7 +300,7 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
         Panel(accent = accent) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text((if (t.private) "🔒 " else "") + "${poolAmount(t)} sats" + if (Protocol.isTest(t)) "  · TEST" else "",
+                    Text((if (t.private) "🔒 " else "") + "${poolAmount(t)} sats" + if (Protocol.isTest(t)) "  · TEST POOL" else "",
                         style = MaterialTheme.typography.titleMedium, color = TextMain)
                     Text(poolTypeLine(t), style = MaterialTheme.typography.bodySmall, color = accent)
                     Text("${t.peers}/${t.maxPeers} people (min ${t.minPeers}) · ${t.feeRate} sat/vB · closes in ${remaining(t.expiresAt)}",
@@ -758,9 +758,12 @@ private fun CreatePool(
                 val sel = taproot == t
                 val can = !t || vm.taprootPools()
                 TextButton(onClick = { if (can) taproot = t }, enabled = can, modifier = Modifier.fillMaxWidth()) {
-                    Text((if (sel) "● " else "○ ") + label + if (!can) " — turn on Taproot in settings" else "",
-                        color = if (sel) accent else if (can) TextMain else TextFaint,
-                        style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth())
+                    // The mark apart from the words, so the words are found in the translations.
+                    val c = if (sel) accent else if (can) TextMain else TextFaint
+                    Text(if (sel) "●" else "○", color = c, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.width(6.dp))
+                    Text(label + if (!can) " — turn on Taproot in settings" else "",
+                        color = c, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
                 }
             }
             Text(if (taproot) "Only Taproot coins can join, and everyone gets Taproot outputs back."
@@ -1025,10 +1028,15 @@ private fun MyPoolCard(
                     color = TextSoft, style = MaterialTheme.typography.bodySmall)
                 else {
                     plan?.let {
-                        Explain("Checked: ${st.round.size} people (${it.coins.size} coins), ${it.outputs.count { o -> o.value == st.terms.amount }} identical outputs of " +
-                            "${groupSats(st.terms.amount)} sats, " + (if (st.terms.outputs > 1) "${st.terms.outputs} of them yours; " else "one of them yours; ") +
-                            (if (st.seat.changeValue > 0) "your change is right" else "no change (an exact coin)") +
-                            "; total fee ${groupSats(it.fee)} sats.")
+                        // Whole sentences (one per case), so each is found in the translations as it is.
+                        val ppl = st.round.size; val n = it.coins.size; val same = it.outputs.count { o -> o.value == st.terms.amount }
+                        val each = groupSats(st.terms.amount); val total = groupSats(it.fee); val mine = st.terms.outputs
+                        Explain(when {
+                            mine > 1 && st.seat.changeValue > 0 -> "Checked: $ppl people ($n coins), $same identical outputs of $each sats, $mine of them yours; your change is right; total fee $total sats."
+                            mine > 1 -> "Checked: $ppl people ($n coins), $same identical outputs of $each sats, $mine of them yours; no change (an exact coin); total fee $total sats."
+                            st.seat.changeValue > 0 -> "Checked: $ppl people ($n coins), $same identical outputs of $each sats, one of which is yours; your change is right; total fee $total sats."
+                            else -> "Checked: $ppl people ($n coins), $same identical outputs of $each sats, one of which is yours; no change (an exact coin); total fee $total sats."
+                        })
                         Spacer(Modifier.height(6.dp))
                     }
                     btn("SIGN", true, Modifier.fillMaxWidth()) {
@@ -1562,7 +1570,9 @@ private fun RoundCard(
                     else -> 0L
                 }
                 var now by remember { mutableStateOf(System.currentTimeMillis() / 1000) }
-                if (deadline > 0) LaunchedEffect(deadline) {
+                // Ticks only while this card is on screen and the app is in front.
+                if (deadline > 0) LaunchedEffect(deadline, AppVisible.value) {
+                    if (!AppVisible.value) return@LaunchedEffect
                     while (true) { now = System.currentTimeMillis() / 1000; kotlinx.coroutines.delay(1_000) }
                 }
                 val left = deadline - now
@@ -1612,7 +1622,7 @@ private fun PerfectCoinCard(w: com.kilombino.pyblockwatch.coinjoin.PerfectCoin.W
     Panel(accent = accent) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("${groupSats(w.value)} sats · perfect coin", style = MaterialTheme.typography.titleMedium, color = TextMain, modifier = Modifier.weight(1f))
-            PulseDot(accent)
+            StillDot(accent)
         }
         RoundSteps(0, accent)
         Text("Waiting for its first confirmation", style = MaterialTheme.typography.bodyMedium, color = accent)
