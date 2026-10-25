@@ -38,7 +38,10 @@ class CoinjoinE2ETest {
 
     private inner class Env(val name: String) : PoolSession.Env {
         val events = java.util.concurrent.CopyOnWriteArrayList<String>()
+        /** The chain server out of reach, as when a phone can't get to its Electrum server. */
+        @Volatile var down = false
         override fun coinUnspent(coin: CoinjoinTx.Coin): Boolean {
+            if (down) throw java.io.IOException("server out of reach")
             val o = rpc("gettxout", coin.txid, coin.vout, true) as? JSONObject ?: return false
             // The coin's own script, as the wallet's RPC path checks it: a coin claimed under the
             // wrong address type does not match.
@@ -468,5 +471,49 @@ class CoinjoinE2ETest {
         assertEquals(2 * k + pays.size + 2, got.size)
         println("v5 k=$k txid ${a.state.txid} vsize ${tx.getInt("vsize")} fee ${a.plan()!!.fee}")
         a.stop(); b.stop(); c.stop()
+    }
+
+    /**
+     * A member that can't reach its chain server keeps its seat instead of calling the pool fake,
+     * and a coin whose seat was lost (its app stopped without a word) can join again: the creator
+     * gives it the new seat. KILOJOIN_E2E_REJOIN=1 with the regtest node's wallet `w` funded.
+     */
+    @Test fun seatSurvivesAndComesBack() {
+        System.getenv("KILOJOIN_E2E_REJOIN") ?: return
+        Protocol.NETWORK = "blake2b-regtest"
+        val salt = System.nanoTime() % 1_000_000
+        val seed = (salt % 50_000).toInt() * 10 + 7
+        val ca = fund(seed + 1, 150_000); val cb = fund(seed + 2, 150_000); val cc = fund(seed + 3, 150_000)
+        rpc("generatetoaddress", 1, rpc("getnewaddress") as String)
+        val np = PoolSession.newPool(100_000, 2.0, 5, 1, minPeers = 4, maxInputs = 1, v3 = true, outputs = 1)
+        val a = PoolSession(Env("A"), PoolSession.newState(np.terms, true, np.secret, listOf(ca), listOf(key(seed + 1)), listOf("a"),
+            listOf(script(50_000 + salt)), script(51_000 + salt), creatorSecret = np.creatorSecret, blindPriv = np.blindPriv))
+        a.start(); waitFor("A open") { a.state.phase == PoolSession.Phase.OPEN }
+        val found = java.util.concurrent.CompletableFuture<Protocol.Terms>()
+        val r = RelayClient(Protocol.RELAY, { _, ev -> Protocol.Terms.parse(ev)?.let { if (it.id == np.terms.id) found.complete(it) } })
+        r.connect(); r.subscribe("p", listOf(JSONObject().put("kinds", JSONArray().put(Protocol.KIND_POOL)).put("#d", JSONArray().put(np.terms.id))))
+        val seen = found.get(30, java.util.concurrent.TimeUnit.SECONDS); r.close()
+
+        // B can't reach the chain when the roster with C arrives: it stays in the pool.
+        val envB = Env("B")
+        val b = PoolSession(envB, PoolSession.newState(seen, false, null, listOf(cb), listOf(key(seed + 2)), listOf("b"),
+            listOf(script(52_000 + salt)), script(53_000 + salt)))
+        b.start(); waitFor("B welcomed") { b.state.phase == PoolSession.Phase.OPEN && b.state.seats.size == 2 }
+        envB.down = true
+        val c = PoolSession(Env("C"), PoolSession.newState(seen, false, null, listOf(cc), listOf(key(seed + 3)), listOf("c"),
+            listOf(script(54_000 + salt)), script(55_000 + salt)))
+        c.start(); waitFor("B sees C") { b.state.seats.size == 3 }
+        Thread.sleep(3_000)
+        assertEquals(PoolSession.Phase.OPEN, b.state.phase)
+        envB.down = false
+
+        // C's app stops without leaving; C's coin joins again from a fresh session and gets a seat.
+        c.stop()
+        val c2 = PoolSession(Env("C2"), PoolSession.newState(seen, false, null, listOf(cc), listOf(key(seed + 3)), listOf("c"),
+            listOf(script(56_000 + salt)), script(57_000 + salt)))
+        c2.start(); waitFor("C welcomed again") { c2.state.phase == PoolSession.Phase.OPEN }
+        waitFor("still three seats") { a.state.seats.size == 3 && b.state.seats.size == 3 && c2.state.seats.size == 3 }
+        assertEquals(PoolSession.Phase.OPEN, b.state.phase)
+        a.stop(); b.stop(); c2.stop()
     }
 }

@@ -473,7 +473,8 @@ class PoolSession(private val env: Env, private val s: State) {
         if (coins.size > terms.maxInputs) return reject(from, "this pool takes at most ${terms.maxInputs} coin(s) per person")
         val outpoints = coins.map { it.outpoint }
         if (outpoints.toSet().size != outpoints.size) return reject(from, "the same coin twice")
-        if (s.seats.any { st -> st.coins.any { it.outpoint in outpoints } }) return reject(from, "that coin already has a seat")
+        val held = s.seats.filter { st -> st.coins.any { it.outpoint in outpoints } }
+        if (held.any { it.tokenHash == myTokenHash }) return reject(from, "that coin already has a seat")
         val proofs = o.optJSONArray("proofs")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: listOf(o.getString("proof"))
         if (proofs.size != coins.size) return reject(from, "one proof per coin is needed")
         if (coins.indices.any { !CoinjoinTx.checkOwnership(terms.id, from, coins[it], Hashes.hexToBytes(proofs[it])) })
@@ -489,6 +490,15 @@ class PoolSession(private val env: Env, private val s: State) {
         }.getOrDefault(false)
         if (!changeOk) return reject(from, "the change's signature is wrong")
         if (coins.any { !runCatching { env.coinUnspent(it) }.getOrDefault(false) }) return reject(from, "that coin is not unspent on the chain")
+        // The same coin joining again, proven by its own key: the wallet lost its earlier seat
+        // (it left without being heard, or its app was reinstalled), so that seat gives way.
+        // Before, the coin was refused for as long as the pool lived.
+        if (held.isNotEmpty()) {
+            val gone = held.map { it.tokenHash }.toSet()
+            s.seats.removeAll { it.tokenHash in gone }
+            gone.forEach { th -> s.tokens.remove(th); s.accepts.remove(th) }
+            s.joinPubs.entries.removeAll { it.value in gone }
+        }
         val token = randomHex(16)
         val th = Protocol.tokenHash(token)
         // v3: the seat carries its join key and proofs, so every member can check the coin too.
@@ -558,7 +568,10 @@ class PoolSession(private val env: Env, private val s: State) {
                 }
                 save()
                 // v3: every seat's coins are checked here too, not only by the creator.
-                if (v3 && s.phase != Phase.ABORTED) seats.firstOrNull { !seatIsReal(it) }?.let {
+                // A seat that can't be checked now (the server is out of reach) is checked again with
+                // the next roster: it used to count as fake and end the round for us.
+                if (v3 && s.phase != Phase.ABORTED) seats.firstOrNull { seatIsReal(it) == false }?.let {
+                    sendLeave()
                     s.phase = Phase.ABORTED; s.reason = "the pool listed a seat whose coin is not real"; save()
                     env.event(Event.Aborted(s.poolId, s.reason)); return
                 }
@@ -744,15 +757,21 @@ class PoolSession(private val env: Env, private val s: State) {
     private fun scriptOk(script: String) =
         script.matches(Regex(if (terms.script == com.kilombino.pyblockwatch.crypto.ScriptType.P2TR) "5120[0-9a-f]{64}" else "0014[0-9a-f]{40}"))
 
-    /** v3: a listed seat's coins are signed for its join key and unspent on the chain. */
-    private fun seatIsReal(seat: Protocol.Seat): Boolean {
+    /**
+     * v3: a listed seat's coins are signed for its join key and unspent on the chain; null when
+     * the chain can't be asked right now.
+     */
+    private fun seatIsReal(seat: Protocol.Seat): Boolean? {
         if (seat.tokenHash in verifiedSeats || seat.tokenHash == myTokenHash) return true
         val jp = seat.joinPub ?: return false
         if (seat.proofs.size != seat.coins.size) return false
-        val ok = seat.coins.indices.all { CoinjoinTx.checkOwnership(terms.id, jp, seat.coins[it], Hashes.hexToBytes(seat.proofs[it])) } &&
-            seat.coins.all { runCatching { env.coinUnspent(it) }.getOrDefault(false) }
-        if (ok) verifiedSeats.add(seat.tokenHash)
-        return ok
+        if (!seat.coins.indices.all { CoinjoinTx.checkOwnership(terms.id, jp, seat.coins[it], Hashes.hexToBytes(seat.proofs[it])) }) return false
+        for (c in seat.coins) {
+            val unspent = runCatching { env.coinUnspent(c) }.getOrElse { return null }
+            if (!unspent) return false
+        }
+        verifiedSeats.add(seat.tokenHash)
+        return true
     }
 
     /**
@@ -990,10 +1009,15 @@ class PoolSession(private val env: Env, private val s: State) {
         if (s.phase !in setOf(Phase.JOINING, Phase.OPEN, Phase.VOTING)) return
         if (s.creator) { abort("the creator closed the pool"); return }
         if (s.phase == Phase.JOINING) { s.phase = Phase.ABORTED; s.reason = LEFT_BY_CHOICE; save(); return }
+        sendLeave()
+        s.phase = Phase.ABORTED; s.reason = LEFT_BY_CHOICE; save()
+    }
+
+    /** Tells the creator we give up our seat, so the coin is free to join again. */
+    private fun sendLeave() {
         if (terms.v3) channel(JSONObject().put("type", "leave").put("token_hash", myTokenHash ?: "")
             .put("mac", s.token?.let { Protocol.mac(it, "leave") } ?: ""))
         else channel(JSONObject().put("type", "leave").put("token", s.token ?: ""))
-        s.phase = Phase.ABORTED; s.reason = LEFT_BY_CHOICE; save()
     }
 
     // ------------------------------------------------------------------------------- timers
