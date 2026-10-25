@@ -321,6 +321,14 @@ internal fun approxDay(im: com.kilombino.pyblockwatch.data.Scanner.Immature, hei
 internal fun immatureLine(im: com.kilombino.pyblockwatch.data.Scanner.Immature, c: com.kilombino.pyblockwatch.data.Scanner.ImmatureCoin): String =
     "⛏ mined reward · matures at block ${c.maturesAt} (~${approxDay(im, c.maturesAt)})"
 
+/** Several locked rewards on one address, as one line: how many, and when the first and the last unlock. */
+internal fun immatureSummary(im: com.kilombino.pyblockwatch.data.Scanner.Immature, sorted: List<com.kilombino.pyblockwatch.data.Scanner.ImmatureCoin>): String {
+    if (sorted.size == 1) return immatureLine(im, sorted[0])
+    val first = sorted.first().maturesAt; val last = sorted.last().maturesAt
+    return "⛏ ${sorted.size} mined rewards locked · the first matures at block $first (~${approxDay(im, first)}), " +
+        "the last at block $last (~${approxDay(im, last)})"
+}
+
 /**
  * Under the balance: how much of it is mined rewards still locked (the balance counts them, SEND
  * can't spend them yet), and until when. Nothing when there are none. Looked up again when the
