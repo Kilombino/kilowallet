@@ -659,6 +659,9 @@ private fun CoinPicker(
         else "Only native SegWit (bc1q) coins can join this pool. Your Taproot coins can still pay for a native SegWit exact coin below.",
             color = TextFaint, style = MaterialTheme.typography.bodySmall)
         if (perpetualOk && dest == Destination.Kind.HOT) PerpetualChoice(perpetual, capText, accent, { perpetual = it }, { capText = it })
+        // Ticked before (on the pool's form), then another destination picked here: say it is off.
+        else if (perpetualOk && perpetual) Text("A perpetual coinjoin only remixes outputs of this wallet: with another destination it is off.",
+            color = Warn, style = MaterialTheme.typography.bodySmall)
         if (capBad) Text("Fee cap: 1 to 500 sat/vB.", color = Warn, style = MaterialTheme.typography.bodySmall)
         if (!payment && !noExactCoin && list != null && list.none { it.value == exact }) TextButton(onClick = { vm.resetSend(); making = true }) {
             Text("＋ PREPARE AN EXACT COIN OF ${groupSats(exact)} SATS", color = accent, style = MaterialTheme.typography.bodySmall)
