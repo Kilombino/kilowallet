@@ -48,4 +48,34 @@ class DesktopShimsTest {
         val c = Class.forName("lndmobile.Lndmobile")
         assertTrue(c.methods.any { it.name == "estimateSplice" })
     }
+
+    /** What the Telegram alerts say when Tor is not up (its last line, its log to copy), from the desktop's tor. */
+    @Test fun torsOutputIsKeptForTheAlerts() {
+        if (Platform.os == Platform.Os.WINDOWS) return
+        val dir = kotlin.io.path.createTempDirectory("kw-fake-tor").toFile()
+        val old = System.getProperty("kilowallet.natives")
+        java.io.File(dir, "tor").apply {
+            writeText("#!/bin/sh\necho 'Oct 25 10:00:00.000 [notice] Bootstrapped 45% (requesting_descriptors): Asking for relay descriptors'\nsleep 30\n")
+            setExecutable(true, true)
+        }
+        val log = java.io.File(dir, "tor.log")
+        System.setProperty("kilowallet.natives", dir.path)
+        org.torproject.jni.TorService.logTo = log
+        val svc = org.torproject.jni.TorService()
+        try {
+            svc.onBind(null)
+            val end = System.currentTimeMillis() + 10_000
+            while (!log.exists() || log.length() == 0L) { require(System.currentTimeMillis() < end) { "no tor output" }; Thread.sleep(100) }
+            Thread.sleep(200)
+            assertTrue(svc.alive)
+            assertEquals("Bootstrapped 45% (requesting_descriptors): Asking for relay descriptors", org.torproject.jni.TorService.lastLine)
+            assertTrue(log.readText().contains("Bootstrapped 45%"))
+        } finally {
+            svc.onDestroy()
+            if (old == null) System.clearProperty("kilowallet.natives") else System.setProperty("kilowallet.natives", old)
+            org.torproject.jni.TorService.logTo = null
+            dir.deleteRecursively()
+        }
+        assertFalse(svc.alive)
+    }
 }

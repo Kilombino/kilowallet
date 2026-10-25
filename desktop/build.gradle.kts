@@ -28,8 +28,8 @@ val engineFiles = when (hostOs) {
 }
 
 /** The desktop app's own version (its betas are numbered apart from Android's). */
-val desktopVersion = "0.1.0-beta14"
-val desktopCode = 14
+val desktopVersion = "0.1.0-beta15"
+val desktopCode = 15
 
 val writeBuildInfo by tasks.registering {
     val out = layout.buildDirectory.dir("generated/buildinfo")
@@ -70,8 +70,8 @@ sourceSets {
     }
     // The Android app's own unit tests, run on the desktop JVM too (with the native engines loaded).
     test {
-        // Less the widget's, which the desktop does not have.
-        kotlin { srcDir("../app/src/test/java"); exclude("com/kilombino/pyblockwatch/widget/**") }
+        // Less the widget's, which the desktop does not have, and Arti's (the desktop runs tor, its own Tor.kt).
+        kotlin { srcDir("../app/src/test/java"); exclude("com/kilombino/pyblockwatch/widget/**", "com/kilombino/pyblockwatch/chain/TorStateTest.kt") }
         resources { srcDir("../app/src/test/resources") }
     }
 }

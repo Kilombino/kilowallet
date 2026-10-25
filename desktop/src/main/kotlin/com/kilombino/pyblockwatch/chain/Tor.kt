@@ -48,9 +48,20 @@ object Tor {
     /** Tor's own log, kept for crash reports: Tor stops with abort() and says why only here. */
     fun logFile(ctx: Context) = java.io.File(ctx.applicationContext.noBackupFilesDir, "tor.log")
 
+    /** The end of [logFile], to show and copy: tor logs no addresses or keys at notice level. */
+    fun logTail(ctx: Context, lines: Int = 40): String =
+        runCatching { logFile(ctx).readLines().takeLast(lines).joinToString("\n") }.getOrDefault("")
+
+    /** Tor's last line worth showing ("Bootstrapped 45%…", a warning): why it is not up yet, or why it stopped. */
+    val lastLine: String get() = TorService.lastLine
+
+    /** Tor's process is alive (up, or still connecting). */
+    val alive: Boolean get() = bound && runCatching { service?.alive == true }.getOrDefault(false)
+
     /** Tor reads this torrc on start: its log goes to [logFile], cut back when it grows. */
     private fun writeTorrc(app: Context) = runCatching {
         val log = logFile(app)
+        TorService.logTo = log
         if (log.length() > 256_000) log.writeText(log.readText().takeLast(32_000))
         TorService.getTorrc(app).writeText("Log notice file ${log.path}\n")
     }

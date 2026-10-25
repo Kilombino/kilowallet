@@ -19,7 +19,7 @@ object R {
         const val cj_title = 115; const val cj_where = 116; const val convert = 117; const val countdown = 118; const val earns = 119
         const val hashrate = 120; const val kwh = 121; const val poolsats = 122; const val poolsats_change = 123; const val price = 124
         const val range = 125; const val refresh = 126; const val refresh_icon = 127; const val refresh_spin = 128; const val rent = 129
-        const val root = 130; const val updated = 131; const val ysh = 132
+        const val root = 130; const val updated = 131; const val ysh = 132; const val cj_timer_label = 133
     }
 
     /** Where each drawable is in the jar. */

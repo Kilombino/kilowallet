@@ -38,21 +38,35 @@ class TorService : Service() {
         val p = proc!!
         Thread {
             // tor prints "Socks listener listening on port N."; the port is read from there.
+            val out = runCatching { java.io.FileWriter(logTo ?: File(dir, "tor.log"), true) }.getOrNull()
             p.inputStream.bufferedReader().forEachLine { line ->
+                runCatching { out?.apply { write(line); write("\n"); flush() } }
+                if (line.isNotBlank()) lastLine = line.substringAfter(" [notice] ").substringAfter(" [warn] ").substringAfter(" [err] ").trim().take(160)
                 Regex("""Socks listener listening on port (\d+)""").find(line)?.let { socksPort = it.groupValues[1].toInt() }
                 if ("Bootstrapped 100%" in line && socksPort < 0) socksPort = -1
             }
+            runCatching { out?.close() }
             socksPort = -1
         }.apply { isDaemon = true; name = "tor" }.start()
         Runtime.getRuntime().addShutdownHook(Thread { p.destroy() })
     }
 
+    /** tor's process is alive (up, or still connecting). */
+    val alive: Boolean get() = proc?.isAlive == true
+
     override fun onDestroy() { proc?.destroy(); proc = null; socksPort = -1 }
 
     companion object {
+        /** Where tor's output is copied, for the app to show and copy (the app's tor.log). */
+        @Volatile var logTo: File? = null
+
+        /** tor's last line worth showing ("Bootstrapped 45%…", a warning): why it is not up yet, or why it stopped. */
+        @Volatile var lastLine: String = ""
+            internal set
+
         /**
-         * Where tor-android reads its torrc. The app writes its log line there; here tor's log is
-         * read from its output instead (for the SOCKS port), so the file is only kept, not used.
+         * Where tor-android reads its torrc. The app writes its log line there; here tor's output is
+         * read instead (for the SOCKS port) and copied to [logTo], so the file is only kept, not used.
          */
         @JvmStatic fun getTorrc(@Suppress("UNUSED_PARAMETER") ctx: android.content.Context): File = File(DesktopContext.root("tor"), "torrc")
 
