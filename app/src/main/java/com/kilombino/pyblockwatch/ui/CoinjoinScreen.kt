@@ -433,6 +433,8 @@ private fun CoinPicker(
     var dest by remember(type, payment) { mutableStateOf(if (payment) Destination.Kind.PAY else Destination.Kind.HOT) }
     val kind = if (type == ScriptType.P2TR) "Taproot (bc1p)" else "native SegWit (bc1q)"
     var coins by remember { mutableStateOf<List<Scanner.SpendableUtxo>?>(null) }
+    // The mixed ones, worked out once per list: not again for every coin on every redraw of the tab.
+    val mixedCoins = remember(coins) { vm.mixedOutpoints(coins.orEmpty()) }
     val chosen = remember { mutableStateListOf<Scanner.SpendableUtxo>() }
     var reload by remember { mutableStateOf(0) }
     var leftOut by remember { mutableStateOf(0) }
@@ -530,7 +532,7 @@ private fun CoinPicker(
                         Row {
                             Text("${groupSats(u.value)} sats" + if (u.value == exact) "  ★ EXACT" else "",
                                 color = if (u.value == exact) Good else TextMain, style = MaterialTheme.typography.bodyMedium)
-                            if (vm.isMixedCoin(u)) Text(" · mixed", color = Warn, style = MaterialTheme.typography.bodyMedium)
+                            if ("${u.txid}:${u.vout}" in mixedCoins) Text(" · mixed", color = Warn, style = MaterialTheme.typography.bodyMedium)
                         }
                         Text(vm.coinAddress(u)?.let { shortAddress(it) } ?: "${u.txid.take(10)}…:${u.vout}",
                             color = TextFaint, style = MaterialTheme.typography.bodySmall)
@@ -548,7 +550,7 @@ private fun CoinPicker(
             }
         }
         // A seat's coins are tied together by the round itself: a mixed one with others undoes its mix.
-        val mixedChosen = chosen.count { vm.isMixedCoin(it) }
+        val mixedChosen = chosen.count { "${it.txid}:${it.vout}" in mixedCoins }
         if (mixedChosen > 0 && chosen.size > 1) Text(
             "A mixed coin in one seat with other coins ties them together: the round shows they are one person's. Remix mixed coins one at a time.",
             color = Warn, style = MaterialTheme.typography.bodySmall)
@@ -626,6 +628,8 @@ private fun CreatePool(
     // The coins of the pool's type, for opening it from them.
     val tag = if (taproot) ScriptType.P2TR else null
     var coins by remember(taproot) { mutableStateOf<List<Scanner.SpendableUtxo>?>(null) }
+    // The mixed ones, worked out once per list: not again for every coin on every redraw of the tab.
+    val mixedCoins = remember(coins) { vm.mixedOutpoints(coins.orEmpty()) }
     val picked = remember(taproot) { mutableStateListOf<Scanner.SpendableUtxo>() }
     LaunchedEffect(taproot, fromCoins) { if (fromCoins) coins = runCatching { vm.coinjoinCoins(tag) }.getOrDefault(emptyList()) }
     val coinsTotal = picked.sumOf { it.value }
@@ -800,7 +804,7 @@ private fun CreatePool(
                         Column(Modifier.weight(1f)) {
                             Row {
                                 Text("${groupSats(u.value)} sats", color = TextMain, style = MaterialTheme.typography.bodyMedium)
-                                if (vm.isMixedCoin(u)) Text(" · mixed", color = Warn, style = MaterialTheme.typography.bodyMedium)
+                                if ("${u.txid}:${u.vout}" in mixedCoins) Text(" · mixed", color = Warn, style = MaterialTheme.typography.bodyMedium)
                             }
                             Text(vm.coinAddress(u)?.let { shortAddress(it) } ?: "${u.txid.take(10)}…:${u.vout}",
                                 color = TextFaint, style = MaterialTheme.typography.bodySmall)
@@ -810,7 +814,7 @@ private fun CreatePool(
                 }
             }
             // A seat's coins are tied together by the round itself: a mixed one with others undoes its mix.
-            if (picked.count { vm.isMixedCoin(it) } > 0 && picked.size > 1) Text(
+            if (picked.count { "${it.txid}:${it.vout}" in mixedCoins } > 0 && picked.size > 1) Text(
                 "A mixed coin in one seat with other coins ties them together: the round shows they are one person's. Remix mixed coins one at a time.",
                 color = Warn, style = MaterialTheme.typography.bodySmall)
             if (picked.isNotEmpty() && amount != null && amount > 0 && rateOk && outputsOk) {
@@ -1144,6 +1148,11 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, tag:
     var asked by remember { mutableStateOf(false) }
     var rateText by remember { mutableStateOf("") }
     var started by remember { mutableStateOf(false) }
+    // The other wallet's unused addresses being looked up (before the payment is prepared).
+    var findingDest by remember { mutableStateOf(false) }
+    val step by vm.sendStep.collectAsState()
+    // The mixed ones, worked out once per list: not again for every coin on every redraw.
+    val mixedSources = remember(sources) { vm.mixedOutpoints(sources.orEmpty()) }
     LaunchedEffect(Unit) {
         val r = runCatching { vm.suggestedBtcFeeRate() }.getOrNull()
         suggested = r; asked = true
@@ -1177,14 +1186,14 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, tag:
                             Row {
                                 Text("${groupSats(u.value)} sats · ${vm.coinKind(u)}", color = if (sel) accent else TextMain,
                                     style = MaterialTheme.typography.bodySmall)
-                                if (vm.isMixedCoin(u)) Text(" · mixed", color = Warn, style = MaterialTheme.typography.bodySmall)
+                                if ("${u.txid}:${u.vout}" in mixedSources) Text(" · mixed", color = Warn, style = MaterialTheme.typography.bodySmall)
                             }
                             Text(vm.coinAddress(u)?.let { shortAddress(it) } ?: "", color = TextFaint, style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
                 // A mixed coin may pay for it, but not without saying what that costs.
-                val mixedPicked = picked.count { vm.isMixedCoin(it) }
+                val mixedPicked = picked.count { "${it.txid}:${it.vout}" in mixedSources }
                 if (mixedPicked > 0) Text(
                     if (picked.size > mixedPicked) "A mixed coin spent together with other coins ties them back together: the mix is undone for both."
                     else "The change of this payment comes back linked to the mixed coin. Better to use coins that were never mixed.",
@@ -1211,14 +1220,17 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, tag:
                 Button(onClick = { onDone(false) }, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = TextSoft),
                     shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text("CANCEL") }
                 Button(onClick = { rate?.let { r ->
+                    // The progress shows at once; everything that waits on the server happens behind it.
+                    destError = null; started = true
                     destScope.launch {
-                        destError = null
                         // The mixed outputs' addresses in another wallet are found now, before paying: the
                         // coin joins on its own later, when there may be no connection to ask.
+                        findingDest = dest != Destination.Kind.HOT
                         val scripts = runCatching { destinationScripts(activity.applicationContext, dest,
                             if (tag == ScriptType.P2TR) ScriptType.P2TR else ScriptType.P2WPKH, outputs) }
-                            .getOrElse { destError = it.message ?: "could not find unused addresses"; return@launch }
-                        vm.exactFor = exactFor.withDest(scripts); vm.prepareExactCoin(exact, r, tag, picked.toList()); started = true
+                            .getOrElse { destError = it.message ?: "could not find unused addresses"; findingDest = false; started = false; return@launch }
+                        findingDest = false
+                        vm.exactFor = exactFor.withDest(scripts); vm.prepareExactCoin(exact, r, tag, picked.toList())
                     }
                 } },
                     enabled = rate != null && sources != null && (picked.isEmpty() || picked.sumOf { it.value } >= exact),
@@ -1294,7 +1306,10 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, tag:
                 Text(p.message, color = Bad, style = MaterialTheme.typography.bodySmall)
                 TextButton(onClick = { vm.resetSend(); onDone(false) }) { Text("close", color = TextSoft) }
             }
-            else -> Text("preparing…", color = TextSoft, style = MaterialTheme.typography.bodySmall)
+            // Editing (the other wallet's addresses being found) or Preparing: the wait, said as it goes.
+            else -> WorkingLine(accent, "Preparing the payment to yourself…",
+                step = if (findingDest) "Finding unused addresses in the other wallet…" else step,
+                detail = "${groupSats(exact)} sats to a fresh address of yours.")
         }
     }
 }

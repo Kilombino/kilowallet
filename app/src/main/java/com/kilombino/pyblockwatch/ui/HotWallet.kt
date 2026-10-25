@@ -678,11 +678,9 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
             is SendPhase.AwaitingSignature -> PsbtExchange(vm, phase, accent)
 
             SendPhase.Preparing, SendPhase.Broadcasting -> {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    PulseDot(accent); Spacer(Modifier.width(10.dp))
-                    Text(if (phase is SendPhase.Broadcasting) "signing & broadcasting…" else "choosing coins…",
-                         color = accent, style = MaterialTheme.typography.bodyMedium)
-                }
+                val step by vm.sendStep.collectAsState()
+                WorkingLine(accent, if (phase is SendPhase.Broadcasting) "signing & broadcasting…" else "choosing coins…",
+                    step = if (phase is SendPhase.Preparing) step else null)
             }
 
             else -> { // Editing or Failed
@@ -1003,11 +1001,14 @@ fun QrImage(text: String, sizeDp: Int) {
         val size = 512
         val matrix = com.google.zxing.qrcode.QRCodeWriter()
             .encode(text, com.google.zxing.BarcodeFormat.QR_CODE, size, size)
-        val b = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
-        for (x in 0 until size) for (y in 0 until size) {
-            b.setPixel(x, y, if (matrix.get(x, y)) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+        // All the pixels in one call: one setPixel each (262 144 calls into the bitmap) took the
+        // main thread tens of milliseconds per QR, every frame of an animated one.
+        val px = IntArray(size * size)
+        for (y in 0 until size) for (x in 0 until size) {
+            px[y * size + x] = if (matrix.get(x, y)) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
         }
-        b
+        android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+            .apply { setPixels(px, 0, size, 0, 0, size, size) }
     }
     androidx.compose.foundation.Image(
         bitmap = bmp.asImageBitmap(),

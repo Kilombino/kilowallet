@@ -2267,5 +2267,10 @@
 "• Someone opens a pool (from {0} sats each to 1 BTC per output) and ": "• 有人开一个池（每人至少 {0} sats，每个输出最多 1 BTC），并且 ",
 "These coins make {0} sats in all: a pool takes at least {1} each, and {2} per output.": "这些币总共 {0} sats：一个池要求每人至少 {1}，每个输出至少 {2}。",
 "Amount per output: {0} to {1} sats (1 BTC).": "每个输出金额：{0} 到 {1} sats（1 BTC）。",
-"{0} × {1} = {2} sats each: a pool takes at least {3} each in all.": "{0} × {1} = 每人 {2} sats：一个池要求每人总共至少 {3}。"
+"{0} × {1} = {2} sats each: a pool takes at least {3} each in all.": "{0} × {1} = 每人 {2} sats：一个池要求每人总共至少 {3}。",
+"Reading your coins from the server…": "正在从服务器读取你的币…",
+"Proving your coins in their blocks…": "正在区块中证明你的币…",
+"Checking your coins with the server…": "正在向服务器核对你的币…",
+"Preparing the payment to yourself…": "正在准备转给自己的付款…",
+"Finding unused addresses in the other wallet…": "正在另一个钱包中查找未使用的地址…"
 }

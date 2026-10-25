@@ -58,6 +58,21 @@ class I18nTest {
         I18n.lang.value = I18n.ES
     }
 
+    /** What a send or a perfect coin being prepared says while it waits: every text in every language. */
+    @Test fun preparingTexts() {
+        val keys = listOf("Reading your coins from the server…", "Proving your coins in their blocks…",
+            "Checking your coins with the server…", "Preparing the payment to yourself…",
+            "Finding unused addresses in the other wallet…", "{0} sats to a fresh address of yours.", "choosing coins…")
+        for (l in I18n.LANGUAGES.map { it.first }.filter { it != I18n.EN }) {
+            val o = JSONObject(File(dir, "$l.json").readText())
+            keys.forEach { k -> assertTrue("$l lacks \"$k\"", o.has(k) && o.getString(k) != k) }
+        }
+        I18n.lang.value = I18n.ES
+        assertEquals("Preparando el pago a ti mismo…", I18n.tr("Preparing the payment to yourself…"))
+        assertEquals("12 345 sats a una dirección nueva tuya.", I18n.tr("12 345 sats to a fresh address of yours."))
+        I18n.lang.value = I18n.ES
+    }
+
     @Test fun templatesUpperCaseAndListItems() {
         I18n.lang.value = I18n.ES
         assertEquals("\"pato\" no es una palabra de recuperación.", I18n.tr("\"pato\" is not a seed word."))

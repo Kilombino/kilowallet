@@ -2279,5 +2279,10 @@
 "• Someone opens a pool (from {0} sats each to 1 BTC per output) and ": "• Quelqu'un ouvre un pool (de {0} sats par personne à 1 BTC par sortie) et ",
 "These coins make {0} sats in all: a pool takes at least {1} each, and {2} per output.": "Ces pièces font {0} sats au total : un pool demande au moins {1} par personne et {2} par sortie.",
 "Amount per output: {0} to {1} sats (1 BTC).": "Montant par sortie : de {0} à {1} sats (1 BTC).",
-"{0} × {1} = {2} sats each: a pool takes at least {3} each in all.": "{0} × {1} = {2} sats par personne : un pool demande au moins {3} par personne au total."
+"{0} × {1} = {2} sats each: a pool takes at least {3} each in all.": "{0} × {1} = {2} sats par personne : un pool demande au moins {3} par personne au total.",
+"Reading your coins from the server…": "Lecture de tes pièces sur le serveur…",
+"Proving your coins in their blocks…": "Preuve de tes pièces dans leurs blocs…",
+"Checking your coins with the server…": "Vérification de tes pièces auprès du serveur…",
+"Preparing the payment to yourself…": "Préparation du paiement à toi-même…",
+"Finding unused addresses in the other wallet…": "Recherche d'adresses non utilisées dans l'autre portefeuille…"
 }
