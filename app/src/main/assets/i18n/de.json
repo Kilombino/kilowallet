@@ -2370,5 +2370,6 @@
 "{0} is a .onion: it needs Tor, and Tor is not running on this phone (or did not start).": "{0} ist eine .onion: dafür braucht es Tor, und Tor läuft auf diesem Telefon nicht (oder ist nicht gestartet).",
 "Connecting through Tor is on, but Tor is not running on this phone (or did not start): nothing was sent without it.": "Verbindung über Tor ist an, aber Tor läuft auf diesem Telefon nicht (oder ist nicht gestartet): ohne Tor wurde nichts gesendet.",
 "Could not reach {0} through Tor: {1}": "{0} war über Tor nicht erreichbar: {1}",
-"One person, one node: put your own here (a .onion address works too, through the app's Tor). Leave empty to use {0}:{1}, meant for emergencies.": "Ein Mensch, ein Knoten: Trag hier deinen eigenen ein (auch eine .onion-Adresse geht, über das Tor der App). Leer lassen, um {0}:{1} zu nutzen, gedacht für Notfälle."
+"One person, one node: put your own here (a .onion address works too, through the app's Tor). Leave empty to use {0}:{1}, meant for emergencies.": "Ein Mensch, ein Knoten: Trag hier deinen eigenen ein (auch eine .onion-Adresse geht, über das Tor der App). Leer lassen, um {0}:{1} zu nutzen, gedacht für Notfälle.",
+"♻ Perpetual coinjoin: only with one mixed output per person (several remixing at once would be linked by their timing).": "♻ Dauer-Coinjoin: nur mit einem gemischten Output pro Person (mehrere, die gleichzeitig neu gemischt werden, wären durch den Zeitpunkt verknüpft)."
 }

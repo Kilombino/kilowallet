@@ -2358,5 +2358,6 @@
 "{0} is a .onion: it needs Tor, and Tor is not running on this phone (or did not start).": "{0} 是 .onion 地址：需要 Tor，而这部手机上的 Tor 没有运行（或没有启动）。",
 "Connecting through Tor is on, but Tor is not running on this phone (or did not start): nothing was sent without it.": "已开启通过 Tor 连接，但这部手机上的 Tor 没有运行（或没有启动）：没有在不经 Tor 的情况下发送任何内容。",
 "Could not reach {0} through Tor: {1}": "无法通过 Tor 连接到 {0}：{1}",
-"One person, one node: put your own here (a .onion address works too, through the app's Tor). Leave empty to use {0}:{1}, meant for emergencies.": "一人一节点：在这里填你自己的（.onion 地址也可以，通过应用内的 Tor）。留空则使用 {0}:{1}，仅供应急。"
+"One person, one node: put your own here (a .onion address works too, through the app's Tor). Leave empty to use {0}:{1}, meant for emergencies.": "一人一节点：在这里填你自己的（.onion 地址也可以，通过应用内的 Tor）。留空则使用 {0}:{1}，仅供应急。",
+"♻ Perpetual coinjoin: only with one mixed output per person (several remixing at once would be linked by their timing).": "♻ 永续混币：仅限每人一个混合输出（多个输出同时重新混合会因时间而被关联）。"
 }

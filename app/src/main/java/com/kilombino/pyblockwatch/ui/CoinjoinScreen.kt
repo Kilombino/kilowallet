@@ -499,6 +499,8 @@ private fun CoinPicker(
     perpetualOk: Boolean = false,
     /** No exact coin to prepare from here (another seat). */
     noExactCoin: Boolean = false,
+    /** The perpetual coinjoin as already chosen on the sheet before (opening a pool by its amount). */
+    initialPerpetual: Boolean = false, initialCap: String? = null,
     /** The coins, where the outputs go, and the perpetual coinjoin's fee cap (null: not perpetual). */
     onPicked: (List<Scanner.SpendableUtxo>, Destination.Kind, Double?) -> Unit,
 ) {
@@ -530,8 +532,8 @@ private fun CoinPicker(
     val exact = min
     var making by remember { mutableStateOf(false) }
     var offerPerfect by remember { mutableStateOf(false) }
-    var perpetual by remember { mutableStateOf(false) }
-    var capText by remember { mutableStateOf(fmtRate(feeRate)) }
+    var perpetual by remember { mutableStateOf(initialPerpetual) }
+    var capText by remember { mutableStateOf(initialCap ?: fmtRate(feeRate)) }
     val cap = if (perpetualOk && perpetual && dest == Destination.Kind.HOT) capText.replace(',', '.').toDoubleOrNull() else null
     val capBad = perpetualOk && perpetual && dest == Destination.Kind.HOT && (cap == null || cap < 1.0 || cap > 500.0)
     val total = chosen.sumOf { it.value }
@@ -743,13 +745,17 @@ private fun CreatePool(
         outputs == null || outputs !in 1..Protocol.MAX_OUTPUTS -> "Mixed outputs per person: 1 to ${Protocol.MAX_OUTPUTS}."
         else -> null
     }
+    // Chosen here (by amount or from coins) and carried into the coin picker.
+    var perpetual by remember { mutableStateOf(false) }
+    var capText by remember { mutableStateOf("") }
     if (pickCoin && error == null) {
         val exactFor = WalletViewModel.ExactFor(null, null, org.json.JSONObject().put("amount", amount!!).put("feeRate", rate!!)
             .put("maxPeers", peers!!).put("hours", hours!!).put("minPeers", minPeers!!).put("password", password).put("maxInputs", maxInputs!!)
             .put("outputs", outputs!!))
         CoinPicker(vm, accent, if (pay != null) "Your coins for the payment" else "Your coins for the pool", amount, rate, type, maxInputs, outputs, exactFor,
             onCancel = { pickCoin = false }, initial = pay?.coins.orEmpty(), payment = pay != null,
-            feeOutputs = payV5?.size ?: outputs, paymentPool = payV5 != null, perpetualOk = pay == null && outputs == 1) { u, dest, cap ->
+            feeOutputs = payV5?.size ?: outputs, paymentPool = payV5 != null, perpetualOk = pay == null && outputs == 1,
+            initialPerpetual = perpetual, initialCap = capText.ifEmpty { rateText }) { u, dest, cap ->
             onCreate(amount, rate, minPeers!!, peers!!, hours!!, password, maxInputs, outputs, u, dest, cap)
         }
         return
@@ -757,9 +763,7 @@ private fun CreatePool(
     // From your coins, then where the outputs go (when there is more than this wallet).
     val dests = remember(type) { Destination.options(ctx, type) }
     var dest by remember(type) { mutableStateOf(Destination.Kind.HOT) }
-    var perpetual by remember { mutableStateOf(false) }
-    var capText by remember { mutableStateOf("") }
-    val perpetualOk = pay == null && fromCoins && outputs == 1
+    val perpetualOk = pay == null && outputs == 1
     val cap = if (perpetualOk && perpetual) (capText.ifEmpty { rateText }).replace(',', '.').toDoubleOrNull() else null
     val capBad = perpetualOk && perpetual && (cap == null || cap < 1.0 || cap > 500.0)
     fun open(d: Destination.Kind) = onCreate(amount!!, rate!!, minPeers!!, peers!!, hours!!, password, maxInputs!!, outputs!!, picked.toList(), d,
@@ -947,6 +951,9 @@ private fun CreatePool(
                 color = TextFaint, style = MaterialTheme.typography.bodySmall)
         }
         if (perpetualOk) PerpetualChoice(perpetual, capText.ifEmpty { rateText }, accent, { perpetual = it }, { capText = it })
+        else if (pay == null && outputs != null && outputs > 1)
+            Text("♻ Perpetual coinjoin: only with one mixed output per person (several remixing at once would be linked by their timing).",
+                color = TextFaint, style = MaterialTheme.typography.bodySmall)
         if (capBad) Text("Fee cap: 1 to 500 sat/vB.", color = Warn, style = MaterialTheme.typography.bodySmall)
         error?.let { Text(it, color = Warn, style = MaterialTheme.typography.bodySmall) }
         Spacer(Modifier.height(10.dp))
