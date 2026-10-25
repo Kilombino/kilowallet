@@ -565,6 +565,9 @@ private fun CoinPicker(
         Spacer(Modifier.height(8.dp))
         if (dests.size > 1) DestinationChooser(dests, dest, !making, type, outputs, accent) { dest = it }
         if (making) {
+            if (perpetualOk && perpetual && dest != Destination.Kind.HOT)
+                Text("A perpetual coinjoin only remixes outputs of this wallet: with another destination it is off.",
+                    color = Warn, style = MaterialTheme.typography.bodySmall)
             // The perpetual choice goes with the perfect coin: its pool, once joined, remixes as chosen here.
             ExactCoinPanel(vm, accent, exact, tag, exactFor.withPerpetual(cap), dest, outputs) { sent -> making = false; reload++; if (sent) onCancel() }
             return@Panel
