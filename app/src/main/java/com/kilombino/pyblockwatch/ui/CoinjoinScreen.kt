@@ -215,17 +215,31 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
             })
         return
     }
-    if (creating) {
-        CreatePool(vm, accent, testPools, onCancel = { creating = false }) { amount, rate, minPeers, peers, hours, password, maxInputs, outputs, u, dest ->
+    // A payment from SEND to be paid through a new pool: its sheet opens straight away.
+    val payment by com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.pending.collectAsState()
+    if (creating || payment != null) {
+        val pay = payment
+        CreatePool(vm, accent, testPools, pay, onCancel = {
+            creating = false; com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.pending.value = null
+            // A payment goes back to SEND as it was typed, nothing lost.
+            pay?.draft?.let { com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.backToSend.value = it }
+        }) { amount, rate, minPeers, peers, hours, password, maxInputs, outputs, u, dest ->
             scope.launch {
                 val type = if (u.first().type == ScriptType.P2TR) ScriptType.P2TR else ScriptType.P2WPKH
-                val scripts = runCatching { destinationScripts(ctx, dest, type, outputs) }
+                // A payment's outputs are the recipients' addresses as typed; nothing is derived for them.
+                val scripts = if (dest == Destination.Kind.PAY) pay?.scripts ?: run { message = "the payment was cancelled"; return@launch }
+                    else runCatching { destinationScripts(ctx, dest, type, outputs) }
                     .getOrElse { message = it.message ?: "could not find unused addresses"; return@launch }
-                unlockAndPick(activity, vm, u, outputs, "Open a coinjoin pool", "Unlock to put your coins in", scripts,
+                // A payment pool (v5): one output per payment, whatever the others' outputs are.
+                unlockAndPick(activity, vm, u, scripts?.size ?: outputs, "Open a coinjoin pool", "Unlock to put your coins in", scripts,
                     onPick = { pick ->
                         scope.launch {
-                            runCatching { withContext(Dispatchers.Default) { CoinjoinHub.create(ctx, pick, amount, rate, peers, hours, minPeers, password, maxInputs, CoinjoinHub.autoDefault(ctx), outputs) } }
-                                .onSuccess { st -> Destination.remember(ctx, st.poolId, dest); creating = false; tab = 1; reloadPools() }
+                            runCatching { withContext(Dispatchers.Default) { CoinjoinHub.create(ctx, pick, amount, rate, peers, hours, minPeers, password,
+                                maxInputs, CoinjoinHub.autoDefault(ctx), outputs, pay?.payments.orEmpty()) } }
+                                .onSuccess { st ->
+                                    Destination.remember(ctx, st.poolId, dest); creating = false; tab = 1; reloadPools()
+                                    com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.pending.value = null
+                                }
                                 .onFailure { message = it.message }
                         }
                     }, onError = { message = it })
@@ -280,13 +294,13 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
         PoolSession.Phase.CONFIRMED, PoolSession.Phase.BROADCAST) }.map { it.poolId }.toSet() +
         // A perfect coin being made for a pool: it is already in progress, not one to join again.
         waitingPerfect.mapNotNull { it.poolId }
-    val shown = pools.orEmpty().filter { it.id !in ours && (testPools || it.amount >= Protocol.MIN_AMOUNT) }
+    val shown = pools.orEmpty().filter { it.id !in ours && (testPools || !Protocol.isTest(it)) }
     if (pools != null && shown.isEmpty()) Explain("No open pools right now. Open one and others will be notified.")
     shown.forEach { t ->
         Panel(accent = accent) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text((if (t.private) "🔒 " else "") + "${poolAmount(t)} sats" + if (t.amount < Protocol.MIN_AMOUNT) "  · TEST" else "",
+                    Text((if (t.private) "🔒 " else "") + "${poolAmount(t)} sats" + if (Protocol.isTest(t)) "  · TEST" else "",
                         style = MaterialTheme.typography.titleMedium, color = TextMain)
                     Text(poolTypeLine(t), style = MaterialTheme.typography.bodySmall, color = accent)
                     Text("${t.peers}/${t.maxPeers} people (min ${t.minPeers}) · ${t.feeRate} sat/vB · closes in ${remaining(t.expiresAt)}",
@@ -363,7 +377,9 @@ private fun poolKind(t: Protocol.Terms): String = if (t.script == ScriptType.P2T
 private fun poolTypeLine(t: Protocol.Terms): String =
     (if (t.script == ScriptType.P2TR) "Taproot (bc1p) coins only" else "Native SegWit (bc1q) coins only") +
         (if (t.maxInputs > 1) " · up to ${t.maxInputs} coins each" else " · one coin each") +
-        (if (t.outputs > 1) " · ${t.outputs} outputs each (v4)" else if (t.v3) " · blind outputs (v3)" else "")
+        (if (t.v5) " · " + (if (t.outputs > 1) "a payment pool (v5): the creator pays ${t.payments.size} recipient(s); you get ${groupSats(t.mixTotal)} in ${t.outputs} equal outputs"
+            else "a payment pool (v5): the creator pays ${t.payments.size} recipient(s); you get ${groupSats(t.mixTotal)} in one output")
+        else if (t.outputs > 1) " · ${t.outputs} outputs each (v4)" else if (t.v3) " · blind outputs (v3)" else "")
 
 /**
  * The mixed outputs' scripts for [dest]: null for the hot wallet (its own fresh addresses, picked
@@ -399,27 +415,45 @@ private fun CoinPicker(
     outputs: Int,
     /** The pool a perfect coin made here is for: it joins (or opens) it by itself once confirmed. */
     exactFor: WalletViewModel.ExactFor,
-    onCancel: () -> Unit, onPicked: (List<Scanner.SpendableUtxo>, Destination.Kind) -> Unit,
+    onCancel: () -> Unit,
+    /** Coins ticked already (coin control in SEND, for a payment): the ones that fit are preselected. */
+    initial: List<Scanner.SpendableUtxo> = emptyList(),
+    /** A payment through the pool: the outputs go to its recipients, and there is no perfect coin to make. */
+    payment: Boolean = false,
+    /** Outputs our fee share pays for: [outputs], or (v5 payment pool, creating it) the number of payments. */
+    feeOutputs: Int = outputs,
+    /** Opening a payment pool (v5): our outputs are the payments themselves. */
+    paymentPool: Boolean = false,
+    onPicked: (List<Scanner.SpendableUtxo>, Destination.Kind) -> Unit,
 ) {
     val tag = if (type == ScriptType.P2TR) ScriptType.P2TR else null
     val ctx = LocalContext.current
     // Where the mixed outputs go: this wallet by default; another one only when set up here and of the pool's type.
-    val dests = remember(type) { Destination.options(ctx, type) }
-    var dest by remember(type) { mutableStateOf(Destination.Kind.HOT) }
+    val dests = remember(type, payment) { if (payment) listOf(Destination.Kind.PAY) else Destination.options(ctx, type) }
+    var dest by remember(type, payment) { mutableStateOf(if (payment) Destination.Kind.PAY else Destination.Kind.HOT) }
     val kind = if (type == ScriptType.P2TR) "Taproot (bc1p)" else "native SegWit (bc1q)"
     var coins by remember { mutableStateOf<List<Scanner.SpendableUtxo>?>(null) }
     val chosen = remember { mutableStateListOf<Scanner.SpendableUtxo>() }
     var reload by remember { mutableStateOf(0) }
-    LaunchedEffect(reload) { coins = runCatching { vm.coinjoinCoins(tag) }.getOrDefault(emptyList()) }
-    val min = CoinjoinTx.minimumCoin(amount, feeRate, type, outputs)
+    var leftOut by remember { mutableStateOf(0) }
+    LaunchedEffect(reload) {
+        coins = runCatching { vm.coinjoinCoins(tag) }.getOrDefault(emptyList())
+        // Coins ticked before: those that can go in (confirmed, of the pool's type, free) are ticked here too.
+        if (reload == 0 && initial.isNotEmpty()) {
+            val keys = initial.map { "${it.txid}:${it.vout}" }.toSet()
+            val fit = coins.orEmpty().filter { "${it.txid}:${it.vout}" in keys }.take(maxInputs)
+            chosen.clear(); chosen.addAll(fit); leftOut = initial.size - fit.size
+        }
+    }
     // What goes into the mix: the amount, or (v4) the amount times the outputs each.
     val mixTotal = amount * outputs
+    val min = mixTotal + CoinjoinTx.feeShare(feeRate, false, 1, type, feeOutputs)
     // The perfect coin: exactly that plus this pool's fee, so nobody gets change.
-    val exact = mixTotal + CoinjoinTx.feeShare(feeRate, false, 1, type, outputs)
+    val exact = min
     var making by remember { mutableStateOf(false) }
     var offerPerfect by remember { mutableStateOf(false) }
     val total = chosen.sumOf { it.value }
-    val change = if (chosen.isEmpty()) null else CoinjoinTx.change(total, amount, feeRate, chosen.size, type, outputs)
+    val change = if (chosen.isEmpty()) null else CoinjoinTx.changeOf(total, mixTotal, feeRate, chosen.size, type, feeOutputs)
     val fee = if (change == null) 0L else total - mixTotal - change
     val mixedLine = if (outputs > 1) "$outputs × ${groupSats(amount)}" else groupSats(amount)
 
@@ -441,29 +475,22 @@ private fun CoinPicker(
     Panel(accent = accent) {
         SectionLabel(title, accent)
         Spacer(Modifier.height(8.dp))
-        if (dests.size > 1) {
-            Text("Mixed outputs go to", style = MaterialTheme.typography.bodyMedium, color = TextMain)
-            dests.forEach { d ->
-                TextButton(onClick = { dest = d }, enabled = !making, modifier = Modifier.fillMaxWidth()) {
-                    val c = if (dest == d) accent else TextMain
-                    Text(if (dest == d) "●" else "○", color = c, style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.width(6.dp))
-                    Text(Destination.label(d) + (if (d == Destination.Kind.HOT) " (default)" else "") +
-                        (Destination.which(ctx, d)?.let { " · $it" } ?: ""),
-                        color = c, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                }
-            }
-            if (dest != Destination.Kind.HOT) Text("Unused receive addresses of that wallet; the change, if any, comes back here. " +
-                "Nobody in the round can tell: an output is just an address of the pool's type.",
-                color = TextFaint, style = MaterialTheme.typography.bodySmall)
-            if (dest != Destination.Kind.HOT) DestinationPreview(dest, type, outputs, accent)
-            Spacer(Modifier.height(8.dp))
-        }
+        if (dests.size > 1) DestinationChooser(dests, dest, !making, type, outputs, accent) { dest = it }
         if (making) {
             ExactCoinPanel(vm, accent, exact, tag, exactFor, dest, outputs) { sent -> making = false; reload++; if (sent) onCancel() }
             return@Panel
         }
-        if (dest != Destination.Kind.HOT) Explain((if (maxInputs > 1)
+        if (paymentPool) Explain((if (maxInputs > 1)
+            "Pick up to $maxInputs confirmed $kind coins that together make at least ${groupSats(mixTotal)} sats plus your fee. " +
+                "The leftover comes back to a fresh change address."
+            else "Pick ONE confirmed $kind coin of at least ${groupSats(min)} sats. Its leftover comes back to a fresh change address.") +
+            "\n\n" + "Your outputs are the payments, one to each recipient.")
+        else if (payment) Explain((if (maxInputs > 1)
+            "Pick up to $maxInputs confirmed $kind coins that together make at least ${groupSats(mixTotal)} sats plus your fee. " +
+                "The leftover comes back to a fresh change address."
+            else "Pick ONE confirmed $kind coin of at least ${groupSats(min)} sats. Its leftover comes back to a fresh change address.") +
+            "\n\n" + "The pool's outputs go to the payment's recipients, one each.")
+        else if (dest != Destination.Kind.HOT) Explain((if (maxInputs > 1)
             "Pick up to $maxInputs confirmed $kind coins that together make at least ${groupSats(mixTotal)} sats plus your fee. " +
                 "The leftover comes back to a fresh change address."
             else "Pick ONE confirmed $kind coin of at least ${groupSats(min)} sats. Its leftover comes back to a fresh change address.") +
@@ -477,6 +504,8 @@ private fun CoinPicker(
         else "Pick ONE confirmed $kind coin of at least ${groupSats(min)} sats. Its leftover comes back to a fresh " +
             "change address; " + (if (outputs > 1) "each of your $outputs mixed outputs of ${groupSats(amount)} sats goes to its own fresh address of this wallet."
                 else "the mixed output goes to another fresh address of this wallet."))
+        if (leftOut > 0) Text("$leftOut of the coins ticked in SEND can't go in (unconfirmed, of another address type, or already in a pool): tick others here.",
+            color = Warn, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(8.dp))
         val list = coins
         val selectable = list?.filter { maxInputs > 1 || it.value >= min }
@@ -527,24 +556,27 @@ private fun CoinPicker(
             Spacer(Modifier.height(4.dp))
             Text(when {
                 change == null -> "${chosen.size} coin(s), ${groupSats(total)} sats: " +
-                    "${groupSats(mixTotal + CoinjoinTx.feeShare(feeRate, false, chosen.size, type, outputs) - total)} sats short"
+                    "${groupSats(mixTotal + CoinjoinTx.feeShare(feeRate, false, chosen.size, type, feeOutputs) - total)} sats short"
                 change == 0L && total == exact -> "★ exact: no change · fee ${groupSats(fee)} sats"
                 change == 0L -> "${chosen.size} coin(s) · no change, ${groupSats(fee)} sats to the miners"
+                // Opening a payment pool: what goes in is paid to the recipients, not mixed.
+                paymentPool -> "${chosen.size} coin(s) · ${groupSats(total)} sats → ${groupSats(mixTotal)} paid + ${groupSats(change)} change · fee ${groupSats(fee)}"
                 else -> "${chosen.size} coin(s) · ${groupSats(total)} sats → $mixedLine mixed + ${groupSats(change)} change · fee ${groupSats(fee)}"
             }, color = if (change == null) Warn else accent, style = MaterialTheme.typography.bodySmall)
         }
-        if (list != null) Text(if (type == ScriptType.P2TR)
+        // A payment has no exact coin to make (below), so no word about one.
+        if (list != null && !payment) Text(if (type == ScriptType.P2TR)
             "Only Taproot (bc1p) coins can join this pool. Your native SegWit coins can still pay for a Taproot exact coin below."
         else "Only native SegWit (bc1q) coins can join this pool. Your Taproot coins can still pay for a native SegWit exact coin below.",
             color = TextFaint, style = MaterialTheme.typography.bodySmall)
-        if (list != null && list.none { it.value == exact }) TextButton(onClick = { vm.resetSend(); making = true }) {
+        if (!payment && list != null && list.none { it.value == exact }) TextButton(onClick = { vm.resetSend(); making = true }) {
             Text("＋ PREPARE AN EXACT COIN OF ${groupSats(exact)} SATS", color = accent, style = MaterialTheme.typography.bodySmall)
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onCancel, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = TextSoft),
-                shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text("CANCEL") }
-            Button(onClick = { if ((change ?: 0) > 0) offerPerfect = true else onPicked(chosen.toList(), dest) },
+                shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text(if (payment) "BACK" else "CANCEL") }
+            Button(onClick = { if ((change ?: 0) > 0 && !payment) offerPerfect = true else onPicked(chosen.toList(), dest) },
                 enabled = change != null,
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
                 shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
@@ -556,32 +588,67 @@ private fun CoinPicker(
 
 @Composable
 private fun CreatePool(
-    vm: WalletViewModel, accent: Color, allowTest: Boolean, onCancel: () -> Unit,
+    vm: WalletViewModel, accent: Color, allowTest: Boolean,
+    /** A payment from SEND: the amount, the outputs and the address type are the payment's, not to be changed here. */
+    pay: com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.Request?,
+    onCancel: () -> Unit,
     onCreate: (amount: Long, rate: Double, minPeers: Int, maxPeers: Int, hours: Int, password: String, maxInputs: Int,
                outputs: Int, coins: List<Scanner.SpendableUtxo>, dest: Destination.Kind) -> Unit,
 ) {
-    var taproot by remember { mutableStateOf(false) }
-    var outputsText by remember { mutableStateOf("1") }
-    val outputs = outputsText.toIntOrNull()
+    val ctx = LocalContext.current
+    // From your coins (the default): whole coins ticked first, and the amount worked out so they
+    // go in with no change. The other way, the amount typed and the coins picked for it.
+    var fromCoins by remember { mutableStateOf(pay == null) }
+    var taproot by remember { mutableStateOf(pay?.type == ScriptType.P2TR) }
+    // A payment pool (v5): the creator's outputs are the payments; the field below is the others' outputs.
+    val payV5 = pay?.payments
+    var outputsText by remember { mutableStateOf(if (payV5 != null) "1" else pay?.scripts?.size?.toString() ?: "1") }
     var inputsText by remember { mutableStateOf("5") }
     val maxInputs = inputsText.toIntOrNull()
     val type = if (taproot) ScriptType.P2TR else ScriptType.P2WPKH
-    var amountText by remember { mutableStateOf(if (allowTest) "1000" else "100000") }
-    var rateText by remember { mutableStateOf("1") }
+    var amountText by remember { mutableStateOf(pay?.amount?.toString() ?: if (allowTest) "1000" else "100000") }
+    var rateText by remember { mutableStateOf(pay?.let { fmtRate(maxOf(1.0, it.feeRate)) } ?: "1") }
     var peersText by remember { mutableStateOf("5") }
     var minText by remember { mutableStateOf("2") }
     var password by remember { mutableStateOf("") }
     var hoursText by remember { mutableStateOf("6") }
     var pickCoin by remember { mutableStateOf(false) }
+    var choosingDest by remember { mutableStateOf(false) }
+    // What each person puts in, in all (amount × outputs); each output at least TEST_MIN_AMOUNT.
     val minAmount = if (allowTest) Protocol.TEST_MIN_AMOUNT else Protocol.MIN_AMOUNT
-    val amount = amountText.filter { it.isDigit() }.toLongOrNull()
+    // v5: the payments' total split for the others: the outputs asked for when it splits evenly, else one.
+    val split = payV5?.let { Protocol.v5Split(it.sum(), outputsText.toIntOrNull() ?: 1) }
+    val outputs = split?.second ?: outputsText.toIntOrNull()
     val rate = rateText.replace(',', '.').toDoubleOrNull()
     val peers = peersText.toIntOrNull()
     val minPeers = minText.toIntOrNull()
     val hours = hoursText.toIntOrNull()
+    // The coins of the pool's type, for opening it from them.
+    val tag = if (taproot) ScriptType.P2TR else null
+    var coins by remember(taproot) { mutableStateOf<List<Scanner.SpendableUtxo>?>(null) }
+    val picked = remember(taproot) { mutableStateListOf<Scanner.SpendableUtxo>() }
+    LaunchedEffect(taproot, fromCoins) { if (fromCoins) coins = runCatching { vm.coinjoinCoins(tag) }.getOrDefault(emptyList()) }
+    val coinsTotal = picked.sumOf { it.value }
+    val rateOk = rate != null && rate >= 1.0 && rate <= 500.0
+    val outputsOk = outputs != null && outputs in 1..Protocol.MAX_OUTPUTS
+    val amount = if (split != null) split.first
+        else if (!fromCoins) amountText.filter { it.isDigit() }.toLongOrNull()
+        else if (picked.isEmpty() || !rateOk || !outputsOk) null
+        else CoinjoinTx.noChangeAmount(coinsTotal, picked.size, rate!!, type, outputs!!)
     val error = when {
-        amount == null || amount < minAmount || amount > Protocol.MAX_AMOUNT ->
-            "Amount: ${groupSats(minAmount)} to ${groupSats(Protocol.MAX_AMOUNT)} sats (1 BTC)."
+        fromCoins && !rateOk -> "Fee: 1 to 500 sat/vB."
+        fromCoins && !outputsOk -> "Mixed outputs per person: 1 to ${Protocol.MAX_OUTPUTS}."
+        fromCoins && picked.isEmpty() -> "Tick the coins to put in."
+        fromCoins && (maxInputs == null || maxInputs !in 1..Protocol.MAX_INPUTS) -> "Coins per person: 1 to ${Protocol.MAX_INPUTS}."
+        fromCoins && picked.size > maxInputs!! -> "You ticked ${picked.size} coins: set the most coins per person to at least ${picked.size}."
+        fromCoins && (amount == null || amount < Protocol.TEST_MIN_AMOUNT || amount * outputs!! < minAmount) ->
+            "These coins make ${groupSats(maxOf(0L, amount ?: 0L) * outputs!!)} sats in all: a pool takes at least ${groupSats(minAmount)} each, and ${groupSats(Protocol.TEST_MIN_AMOUNT)} per output."
+        fromCoins && amount!! > Protocol.MAX_AMOUNT ->
+            "These coins make ${groupSats(amount)} sats per output: a pool takes at most ${groupSats(Protocol.MAX_AMOUNT)} (1 BTC). Tick fewer coins or give more outputs."
+        amount == null || amount < Protocol.TEST_MIN_AMOUNT || amount > Protocol.MAX_AMOUNT ->
+            "Amount per output: ${groupSats(Protocol.TEST_MIN_AMOUNT)} to ${groupSats(Protocol.MAX_AMOUNT)} sats (1 BTC)."
+        outputs != null && amount * outputs < minAmount ->
+            "${groupSats(amount)} × $outputs = ${groupSats(amount * outputs)} sats each: a pool takes at least ${groupSats(minAmount)} each in all."
         rate == null || rate < 1.0 || rate > 500.0 -> "Fee: 1 to 500 sat/vB."
         peers == null || peers !in Protocol.MIN_PEERS..Protocol.MAX_PEERS -> "Most people: ${Protocol.MIN_PEERS} to ${Protocol.MAX_PEERS}."
         minPeers == null || minPeers < Protocol.MIN_PEERS || minPeers > peers -> "Fewest people: ${Protocol.MIN_PEERS} to $peers (the most)."
@@ -594,46 +661,177 @@ private fun CreatePool(
         val exactFor = WalletViewModel.ExactFor(null, null, org.json.JSONObject().put("amount", amount!!).put("feeRate", rate!!)
             .put("maxPeers", peers!!).put("hours", hours!!).put("minPeers", minPeers!!).put("password", password).put("maxInputs", maxInputs!!)
             .put("outputs", outputs!!))
-        CoinPicker(vm, accent, "Your coins for the pool", amount, rate, type, maxInputs, outputs, exactFor, onCancel = { pickCoin = false }) { u, dest ->
+        CoinPicker(vm, accent, if (pay != null) "Your coins for the payment" else "Your coins for the pool", amount, rate, type, maxInputs, outputs, exactFor,
+            onCancel = { pickCoin = false }, initial = pay?.coins.orEmpty(), payment = pay != null,
+            feeOutputs = payV5?.size ?: outputs, paymentPool = payV5 != null) { u, dest ->
             onCreate(amount, rate, minPeers!!, peers!!, hours!!, password, maxInputs, outputs, u, dest)
         }
         return
     }
+    // From your coins, then where the outputs go (when there is more than this wallet).
+    val dests = remember(type) { Destination.options(ctx, type) }
+    var dest by remember(type) { mutableStateOf(Destination.Kind.HOT) }
+    fun open(d: Destination.Kind) = onCreate(amount!!, rate!!, minPeers!!, peers!!, hours!!, password, maxInputs!!, outputs!!, picked.toList(), d)
+    if (choosingDest && fromCoins && error == null) {
+        Panel(accent = accent) {
+            SectionLabel("Open a pool from your coins", accent)
+            Spacer(Modifier.height(8.dp))
+            Text(if (outputs!! > 1) "Pool of $outputs × ${groupSats(amount!!)} sats · change 0" else "Pool of ${groupSats(amount!!)} sats per output · change 0",
+                color = Good, style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(8.dp))
+            DestinationChooser(dests, dest, true, type, outputs, accent) { dest = it }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { choosingDest = false }, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = TextSoft),
+                    shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text("BACK") }
+                Button(onClick = { open(dest) },
+                    colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
+                    shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text("OPEN THE POOL") }
+            }
+        }
+        return
+    }
     Panel(accent = accent) {
-        SectionLabel("Open a pool", accent)
+        SectionLabel(if (pay != null) "Pay through a coinjoin" else "Open a pool", accent)
         Spacer(Modifier.height(8.dp))
         @Composable fun field(label: String, v: String, set: (String) -> Unit) = OutlinedTextField(
             value = v, onValueChange = set, label = { Text(label, style = MaterialTheme.typography.bodySmall) },
             singleLine = true, textStyle = MaterialTheme.typography.bodyMedium,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
-        // The pool's one address type: its coins, mixed outputs and change are all of it.
-        Text("Address type", style = MaterialTheme.typography.bodyMedium, color = TextMain)
-        listOf(false to "Native SegWit (bc1q)", true to "Taproot (bc1p)").forEach { (t, label) ->
-            val sel = taproot == t
-            val can = !t || vm.taprootPools()
-            TextButton(onClick = { if (can) taproot = t }, enabled = can, modifier = Modifier.fillMaxWidth()) {
-                Text((if (sel) "● " else "○ ") + label + if (!can) " — turn on Taproot in settings" else "",
-                    color = if (sel) accent else if (can) TextMain else TextFaint,
-                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth())
+        if (pay != null) {
+            // The payment as SEND had it: what is paid, to whom, and when.
+            if (payV5 != null) {
+                // A payment pool (v5): each recipient's own amount; the others get the total in equal outputs.
+                Text("${groupSats(payV5.sum())} sats to ${payV5.size} recipient(s)", style = MaterialTheme.typography.titleMedium, color = TextMain)
+                pay.addresses.forEachIndexed { i, a ->
+                    Text(shortAddress(a) + " · " + groupSats(payV5[i]) + " sats", color = accent, style = MaterialTheme.typography.bodySmall)
+                }
+                Text((if (pay.type == ScriptType.P2TR) "Taproot (bc1p)" else "Native SegWit (bc1q)") + " pool · a payment pool (v5)",
+                    color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(6.dp))
+                Explain("A new payment pool opens: each of the others puts in ${groupSats(payV5.sum())} sats too and gets it back in " +
+                    "equal outputs, while your outputs are the payments. On the chain the payments show as odd amounts, and as " +
+                    "one person's; which coins paid them stays hidden among the members, best when everyone uses perfect coins. " +
+                    "The payment only goes out when the pool closes, which can take hours. If it doesn't fill, nothing is paid " +
+                    "and your coins stay here: you can cancel it and send normally.")
+                field("outputs for each of the others (1–${Protocol.MAX_OUTPUTS})", outputsText) { outputsText = it }
+                split?.let { (d, k) ->
+                    Text(if (k > 1) "The others get ${groupSats(payV5.sum())} sats back as $k × ${groupSats(d)}."
+                        else "The others get ${groupSats(payV5.sum())} sats back as one output.",
+                        color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                    if ((outputsText.toIntOrNull() ?: 1) > 1 && k == 1)
+                        Text("It doesn't split evenly into ${outputsText.toIntOrNull()} outputs of at least ${groupSats(minAmount)} sats: one output each.",
+                            color = Warn, style = MaterialTheme.typography.bodySmall)
+                }
+            } else {
+            Text(if (pay.scripts.size > 1) "${pay.scripts.size} recipients × ${groupSats(pay.amount)} sats"
+                else "${groupSats(pay.amount)} sats to 1 recipient",
+                style = MaterialTheme.typography.titleMedium, color = TextMain)
+            pay.addresses.forEach { a -> Text(shortAddress(a), color = accent, style = MaterialTheme.typography.bodySmall) }
+            Text((if (pay.type == ScriptType.P2TR) "Taproot (bc1p)" else "Native SegWit (bc1q)") + " pool · one output per recipient",
+                color = TextFaint, style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(6.dp))
+            Explain("A new pool of exactly this amount opens, and its outputs for you go straight to the recipients: on the chain " +
+                "the payment looks like any other output of the round. The payment only goes out when the pool closes, " +
+                "which can take hours. If it doesn't fill, nothing is paid and your coins stay here: you can cancel it and send normally.")
+            }
+            Spacer(Modifier.height(6.dp))
+        } else {
+            // How the pool's amount is set: from whole coins (no change), or typed.
+            Text("Pool amount", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+            listOf(true to "From your coins: tick them, no change (the best for privacy)", false to "Type the amount").forEach { (c, label) ->
+                val sel = fromCoins == c
+                // The mark apart from the words, so the words are found in the translations.
+                TextButton(onClick = { fromCoins = c }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (sel) "●" else "○", color = if (sel) accent else TextMain, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.width(6.dp))
+                    Text(label, color = if (sel) accent else TextMain,
+                        style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                }
+            }
+            // The pool's one address type: its coins, mixed outputs and change are all of it.
+            Text("Address type", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+            listOf(false to "Native SegWit (bc1q)", true to "Taproot (bc1p)").forEach { (t, label) ->
+                val sel = taproot == t
+                val can = !t || vm.taprootPools()
+                TextButton(onClick = { if (can) taproot = t }, enabled = can, modifier = Modifier.fillMaxWidth()) {
+                    Text((if (sel) "● " else "○ ") + label + if (!can) " — turn on Taproot in settings" else "",
+                        color = if (sel) accent else if (can) TextMain else TextFaint,
+                        style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth())
+                }
+            }
+            Text(if (taproot) "Only Taproot coins can join, and everyone gets Taproot outputs back."
+                else "Only native SegWit coins can join, and everyone gets native SegWit outputs back.",
+                color = TextFaint, style = MaterialTheme.typography.bodySmall)
+            field("mixed outputs per person (1–${Protocol.MAX_OUTPUTS})", outputsText) { outputsText = it }
+            Text(if ((outputs ?: 1) > 1) (if (fromCoins) "Each person gets $outputs mixed outputs of the pool's amount, each to an unused address of their own. "
+                    else "Each person gets $outputs mixed outputs of the amount below, each to an unused address of their own. ") +
+                    "Only Kilowallet 1.2.0 or newer (Kilojoin v4) sees this pool."
+                else "One mixed output each: every Kilojoin v3 wallet can join it.",
+                color = TextFaint, style = MaterialTheme.typography.bodySmall)
+            if (!fromCoins) {
+                field(if ((outputs ?: 1) > 1) "amount of each output (sats)" else "amount per person (sats)", amountText) { amountText = it }
+                amount?.let { Text("= ${"%.8f".format(it / 1e8)} BTC" + if ((outputs ?: 1) > 1) " · ${groupSats(it * outputs!!)} sats per person in all" else "",
+                    color = TextFaint, style = MaterialTheme.typography.bodySmall) }
             }
         }
-        Text(if (taproot) "Only Taproot coins can join, and everyone gets Taproot outputs back."
-            else "Only native SegWit coins can join, and everyone gets native SegWit outputs back.",
-            color = TextFaint, style = MaterialTheme.typography.bodySmall)
-        field("mixed outputs per person (1–${Protocol.MAX_OUTPUTS})", outputsText) { outputsText = it }
-        Text(if ((outputs ?: 1) > 1) "Each person gets $outputs mixed outputs of the amount below, each to an unused address of their own. " +
-                "Only Kilowallet 1.2.0 or newer (Kilojoin v4) sees this pool."
-            else "One mixed output each: every Kilojoin v3 wallet can join it.",
-            color = TextFaint, style = MaterialTheme.typography.bodySmall)
-        field(if ((outputs ?: 1) > 1) "amount of each output (sats)" else "amount per person (sats)", amountText) { amountText = it }
-        amount?.let { Text("= ${"%.8f".format(it / 1e8)} BTC" + if ((outputs ?: 1) > 1) " · ${groupSats(it * outputs!!)} sats per person in all" else "",
-            color = TextFaint, style = MaterialTheme.typography.bodySmall) }
         field("fee rate (sat/vB)", rateText) { rateText = it }
+        if (fromCoins) {
+            // Whole coins, ticked: the pool's amount comes out of them.
+            Spacer(Modifier.height(8.dp))
+            SectionLabel("Your coins", accent)
+            Explain("Tick whole coins: the pool's amount is worked out from them so they go in with no change at all. " +
+                "The others join with coins of their own.")
+            val kind = if (taproot) "Taproot (bc1p)" else "native SegWit (bc1q)"
+            val list = coins
+            when {
+                list == null -> Text("reading your coins…", color = TextSoft, style = MaterialTheme.typography.bodySmall)
+                list.isEmpty() -> Text("No confirmed $kind coin.", color = Warn, style = MaterialTheme.typography.bodySmall)
+                else -> list.forEach { u ->
+                    val sel = picked.any { it.txid == u.txid && it.vout == u.vout }
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                            .background(if (sel) accent.copy(alpha = 0.15f) else Color.Transparent)
+                            .clickable {
+                                if (sel) picked.removeAll { it.txid == u.txid && it.vout == u.vout }
+                                else if (picked.size < Protocol.MAX_INPUTS) picked.add(u)
+                            }.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Row {
+                                Text("${groupSats(u.value)} sats", color = TextMain, style = MaterialTheme.typography.bodyMedium)
+                                if (vm.isMixedCoin(u)) Text(" · mixed", color = Warn, style = MaterialTheme.typography.bodyMedium)
+                            }
+                            Text(vm.coinAddress(u)?.let { shortAddress(it) } ?: "${u.txid.take(10)}…:${u.vout}",
+                                color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (sel) Text("✓", color = accent)
+                    }
+                }
+            }
+            // A seat's coins are tied together by the round itself: a mixed one with others undoes its mix.
+            if (picked.count { vm.isMixedCoin(it) } > 0 && picked.size > 1) Text(
+                "A mixed coin in one seat with other coins ties them together: the round shows they are one person's. Remix mixed coins one at a time.",
+                color = Warn, style = MaterialTheme.typography.bodySmall)
+            if (picked.isNotEmpty() && amount != null && amount > 0 && rateOk && outputsOk) {
+                val fee = CoinjoinTx.feeShare(rate!!, false, picked.size, type, outputs!!)
+                val rounding = coinsTotal - fee - amount * outputs
+                Spacer(Modifier.height(4.dp))
+                Text(if (outputs > 1) "Pool of $outputs × ${groupSats(amount)} sats · change 0" else "Pool of ${groupSats(amount)} sats per output · change 0",
+                    color = if (error == null) Good else Warn, style = MaterialTheme.typography.bodyMedium)
+                Text("${picked.size} coin(s), ${groupSats(coinsTotal)} sats · fee ${groupSats(fee)} sats" +
+                    if (rounding > 0) " · $rounding sats of rounding to the miners" else "",
+                    color = TextFaint, style = MaterialTheme.typography.bodySmall)
+            }
+            Spacer(Modifier.height(8.dp))
+        }
         field("fewest people to close (${Protocol.MIN_PEERS}–${Protocol.MAX_PEERS - 1})", minText) { minText = it }
         field("most people (${Protocol.MIN_PEERS}–${Protocol.MAX_PEERS})", peersText) { peersText = it }
         field("open for (hours)", hoursText) { hoursText = it }
         field("most coins per person (1–${Protocol.MAX_INPUTS})", inputsText) { inputsText = it }
-        if ((outputs ?: 1) == 1) Text(if (!taproot && maxInputs == 1) "One coin each: Kilowallet versions before 0.27 can join it too."
+        if (payV5 != null) Text("Only Kilowallet 1.2.7 or newer (Kilojoin v5) sees this pool.",
+            color = TextFaint, style = MaterialTheme.typography.bodySmall)
+        else if ((outputs ?: 1) == 1) Text(if (!taproot && maxInputs == 1) "One coin each: Kilowallet versions before 0.27 can join it too."
             else "Only Kilowallet 0.27 or newer sees this pool.",
             color = TextFaint, style = MaterialTheme.typography.bodySmall)
         OutlinedTextField(value = password, onValueChange = { password = it },
@@ -641,7 +839,7 @@ private fun CreatePool(
             singleLine = true, textStyle = MaterialTheme.typography.bodyMedium, modifier = Modifier.fillMaxWidth())
         if (password.isNotEmpty()) Text("Only people you give this password to can join. It is not announced anywhere.",
             color = TextFaint, style = MaterialTheme.typography.bodySmall)
-        if (amount != null && rate != null && rate >= 1.0 && outputs != null && outputs in 1..Protocol.MAX_OUTPUTS) {
+        if (!fromCoins && payV5 == null && amount != null && rate != null && rate >= 1.0 && outputs != null && outputs in 1..Protocol.MAX_OUTPUTS) {
             val withChange = CoinjoinTx.feeShare(rate, true, 1, type, outputs); val exact = CoinjoinTx.feeShare(rate, false, 1, type, outputs)
             val mixTotal = amount * outputs
             Text("Each person pays their own fee, the same however many join: with one coin $withChange sats with change, " +
@@ -655,10 +853,16 @@ private fun CreatePool(
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onCancel, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = TextSoft),
-                shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text("CANCEL") }
-            Button(onClick = { pickCoin = true }, enabled = error == null,
+                shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text(if (pay != null) "BACK" else "CANCEL") }
+            if (fromCoins) Button(onClick = { if (dests.size > 1) choosingDest = true else open(Destination.Kind.HOT) }, enabled = error == null,
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
-                shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text("CHOOSE COINS") }
+                shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text(if (dests.size > 1) "CONTINUE" else "OPEN THE POOL") }
+            else Button(onClick = { pickCoin = true }, enabled = error == null,
+                colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
+                shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
+                // Coins ticked in SEND already: the picker opens with them ticked, only to confirm.
+                Text(if (pay?.coins.isNullOrEmpty()) "CHOOSE COINS" else "CONTINUE WITH YOUR COINS")
+            }
         }
     }
 }
@@ -704,16 +908,24 @@ private fun MyPoolCard(
             PoolSession.Phase.REJECTED -> "Refused: ${st.reason}"
         }, style = MaterialTheme.typography.bodySmall, color = color)
         }
-        Text((if (st.seat.coins.size > 1) "your ${st.seat.coins.size} coins " else "your coin ") +
-            "${groupSats(st.seat.inputValue)} → ${poolAmount(st.terms)} mixed" +
-            (if (st.seat.changeValue > 0) " + ${groupSats(st.seat.changeValue)} change" else "") +
-            " · fee ${groupSats(st.seat.inputValue - st.terms.mixTotal - st.seat.changeValue)}",
+        // Whole sentences (one per case), so each is found in the translations as it is.
+        val coins = if (st.seat.coins.size > 1) "your ${st.seat.coins.size} coins" else "your coin"
+        // The creator of a payment pool (v5): its outputs are the payments, not mixed outputs.
+        val out = if (st.terms.v5 && st.creator) "${groupSats(st.terms.mixTotal)} paid to ${st.terms.payments.size} recipient(s)"
+            else "${poolAmount(st.terms)} mixed"
+        val fee = groupSats(st.seat.inputValue - st.terms.mixTotal - st.seat.changeValue)
+        Text("$coins ${groupSats(st.seat.inputValue)} → $out" +
+            (if (st.seat.changeValue > 0) " + ${groupSats(st.seat.changeValue)} change · fee $fee" else " · fee $fee"),
             style = MaterialTheme.typography.bodySmall, color = TextFaint)
         // Only on this phone: where the mixed outputs go when it is not this wallet.
         val goesTo = remember(st.poolId) { Destination.of(ctx, st.poolId) }
         val which = remember(st.poolId) { Destination.whichOf(ctx, st.poolId) }
-        if (goesTo != Destination.Kind.HOT) Text("mixed outputs go to: " + Destination.label(goesTo) + (which?.let { " · $it" } ?: ""),
+        if (goesTo != Destination.Kind.HOT) Text((if (goesTo == Destination.Kind.PAY) "the payments go to: " else "mixed outputs go to: ") +
+            Destination.label(goesTo) + (which?.let { " · $it" } ?: ""),
             style = MaterialTheme.typography.bodySmall, color = accent)
+        if (goesTo == Destination.Kind.PAY && st.phase in setOf(PoolSession.Phase.JOINING, PoolSession.Phase.OPEN, PoolSession.Phase.VOTING))
+            Text("A payment: it goes out only when the pool closes. If the pool doesn't fill, nothing is paid; cancel it and send normally.",
+                style = MaterialTheme.typography.bodySmall, color = TextFaint)
         if (goesTo != Destination.Kind.HOT && st.mixScripts.isNotEmpty()) {
             var show by remember(st.poolId) { mutableStateOf(false) }
             TextButton(onClick = { show = !show }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
@@ -1099,12 +1311,25 @@ private fun TelegramAlertsPanel(accent: Color, mine: List<com.kilombino.pyblockw
     val ctx = LocalContext.current.applicationContext
     val uri = androidx.compose.ui.platform.LocalUriHandler.current
     var on by remember { mutableStateOf(com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.enabled(ctx)) }
-    var linked by remember { mutableStateOf<Boolean?>(null) }
+    // null: not known yet, or the bot was out of reach when asked (not the same as an unpressed Start).
+    var linked by remember { mutableStateOf<Boolean?>(com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.knownLinked(ctx).takeIf { it }) }
     var asking by remember { mutableStateOf(false) }
+    // How the last request to the bot went, and what still waits to be sent again.
+    var status by remember { mutableStateOf(com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.status(ctx)) }
+    var waiting by remember { mutableStateOf(com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.waiting(ctx)) }
+    var checking by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(on) {
+        while (on) {
+            kotlinx.coroutines.delay(5_000)
+            status = com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.status(ctx); waiting = com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.waiting(ctx)
+        }
+    }
     LaunchedEffect(on) {
         // Until the user presses Start in the bot, check now and then (over Tor, so not too often).
         while (on && linked != true) {
-            linked = withContext(Dispatchers.IO) { com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.linked(ctx) }
+            linked = withContext(Dispatchers.IO) { com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.check(ctx) }
+            status = com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.status(ctx)
             if (linked == true) {
                 // Pools already running get followed too.
                 mine.filter { it.phase !in setOf(com.kilombino.pyblockwatch.coinjoin.PoolSession.Phase.CONFIRMED,
@@ -1124,10 +1349,10 @@ private fun TelegramAlertsPanel(accent: Color, mine: List<com.kilombino.pyblockw
                     "step by step: someone joined or left, someone asks to close, your turn to sign, sent, confirmed, cancelled.",
                     style = MaterialTheme.typography.bodySmall)
                 Text("⚠ Privacy: to do it, the bot's server learns that your Telegram account is in those pools " +
-                    "(and Telegram sees the messages). It never learns which mixed output is yours, it talks to this " +
-                    "app over Tor, and it forgets each pool when it ends. If that is too much, leave this off: the " +
-                    "app's own notifications already tell you everything." +
-                    (if (com.kilombino.pyblockwatch.chain.Tor.available) "" else "\n\nThis phone has no Tor: the alerts go to the bot's server over https, from your IP."),
+                    "(and Telegram sees the messages). It never learns which mixed output is yours, and it forgets " +
+                    "each pool when it ends. The app talks to it over Tor; turning \"Only over Tor\" off lets it use https " +
+                    "from your IP when Tor isn't running (Telegram already sees it). If that is too much, " +
+                    "leave this off: the app's own notifications already tell you everything.",
                     style = MaterialTheme.typography.bodySmall, color = Warn)
             }
         },
@@ -1147,7 +1372,9 @@ private fun TelegramAlertsPanel(accent: Color, mine: List<com.kilombino.pyblockw
                 Explain(when {
                     !on -> "Follow your pools step by step in @${com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.BOT}. Optional."
                     linked == true -> "On: your pools are followed in @${com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.BOT}."
-                    else -> "Waiting for you to press Start in @${com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.BOT}…"
+                    linked == false -> "Waiting for you to press Start in @${com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.BOT}…"
+                    status?.error != null -> "Could not reach the bot to check whether you pressed Start in @${com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.BOT}: trying again."
+                    else -> "Checking with @${com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.BOT}…"
                 })
             }
             when {
@@ -1163,6 +1390,57 @@ private fun TelegramAlertsPanel(accent: Color, mine: List<com.kilombino.pyblockw
                 else -> TextButton(onClick = {
                     com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.disable(ctx); on = false; linked = null
                 }) { Text("TURN OFF", color = TextSoft) }
+            }
+        }
+        if (on) {
+            status?.let { st ->
+                Text(if (st.error == null) "Last delivery: ok at ${hhmm(st.at / 1000)}" else "Last delivery failed at ${hhmm(st.at / 1000)}: ${st.error}",
+                    style = MaterialTheme.typography.bodySmall, color = if (st.error == null) Good else Warn)
+            }
+            if (waiting > 0) Text(if (waiting == 1) "1 alert waiting to be sent again." else "$waiting alerts waiting to be sent again.",
+                style = MaterialTheme.typography.bodySmall, color = TextFaint)
+            // The bot has no test message: this asks it whether the phone is linked, the same way every alert goes.
+            TextButton(enabled = !checking, onClick = {
+                checking = true
+                scope.launch {
+                    val r = withContext(Dispatchers.IO) {
+                        com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.check(ctx).also { com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.flush(ctx) }
+                    }
+                    if (r != null) linked = r
+                    status = com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.status(ctx); waiting = com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.waiting(ctx)
+                    checking = false
+                }
+            }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                Text(if (checking) "checking… (over Tor it can take a few minutes)" else "CHECK THE CONNECTION TO THE BOT",
+                    color = accent, style = MaterialTheme.typography.labelSmall)
+            }
+            if (com.kilombino.pyblockwatch.chain.Tor.available) {
+                var torOnly by remember { mutableStateOf(com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.torOnly(ctx)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Only over Tor", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                        Text(if (torOnly) "Alerts wait for Tor to start; if it doesn't, they wait here and nothing goes over https."
+                            else "Over Tor when it is already running, otherwise over https (cjbot.kilombino.com): the bot's server sees this phone's address, as Telegram already does.",
+                            style = MaterialTheme.typography.bodySmall, color = TextFaint)
+                    }
+                    Switch(checked = torOnly, onCheckedChange = { torOnly = it; com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.setTorOnly(ctx, it) })
+                }
+            }
+            // Why Tor doesn't come up, to copy and send: Arti's own log, without addresses or keys.
+            if (com.kilombino.pyblockwatch.chain.Tor.available) {
+                var torLog by remember { mutableStateOf<String?>(null) }
+                val clip = androidx.compose.ui.platform.LocalClipboardManager.current
+                TextButton(onClick = { torLog = if (torLog == null) com.kilombino.pyblockwatch.chain.Tor.logTail(ctx).ifBlank { "(Tor has not run yet)" } else null },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                    Text(if (torLog == null) "SHOW TOR'S LOG" else "HIDE TOR'S LOG", color = accent, style = MaterialTheme.typography.labelSmall)
+                }
+                torLog?.let { l ->
+                    Text(l, style = MaterialTheme.typography.bodySmall, color = TextFaint)
+                    TextButton(onClick = { clip.setText(androidx.compose.ui.text.AnnotatedString(l)) },
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                        Text("COPY THE LOG", color = accent, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
             }
         }
     }
@@ -1241,17 +1519,24 @@ private fun RoundCard(
         PoolSession.Phase.ABORTED -> "Cancelled"
         PoolSession.Phase.REJECTED -> "Refused"
     }
+    // A payment through the pool: its outputs are the recipients', never this wallet's.
+    val pay = remember(st.poolId) { Destination.of(activity.applicationContext, st.poolId) == Destination.Kind.PAY }
     val where = when (st.phase) {
-        PoolSession.Phase.BROADCAST -> "Your coin left in the group transaction. Waiting for a block."
-        PoolSession.Phase.CONFIRMED -> if (st.terms.outputs > 1) "Done: your ${st.terms.outputs} mixed coins of ${groupSats(st.terms.amount)} sats are in your wallet."
+        PoolSession.Phase.BROADCAST -> if (pay) "The payment left in the group transaction. Waiting for a block."
+            else "Your coin left in the group transaction. Waiting for a block."
+        PoolSession.Phase.CONFIRMED -> if (pay) "Done: paid ${groupSats(st.terms.mixTotal)} sats to the recipients."
+            else if (st.terms.outputs > 1) "Done: your ${st.terms.outputs} mixed coins of ${groupSats(st.terms.amount)} sats are in your wallet."
             else "Done: your mixed coin of ${groupSats(st.terms.amount)} sats is in your wallet."
-        PoolSession.Phase.ABORTED, PoolSession.Phase.REJECTED -> "${st.reason.replaceFirstChar { it.uppercase() }}. Your coin did not move."
-        else -> "Your coin is still in your wallet — it hasn't left."
+        PoolSession.Phase.ABORTED, PoolSession.Phase.REJECTED -> "${st.reason.replaceFirstChar { it.uppercase() }}. " +
+            if (pay) "Nothing was paid: send it normally if you like." else "Your coin did not move."
+        else -> if (pay) "Not paid yet: the payment goes out when the pool closes." else "Your coin is still in your wallet — it hasn't left."
     }
     Panel(accent = color) {
         Column(Modifier.fillMaxWidth().clickable { onToggle() }) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text((if (st.terms.private) "🔒 " else "") + "${poolAmount(st.terms)} sats each" +
+                // A payment pool's creator pays its recipients: no "each" about it.
+                Text((if (st.terms.private) "🔒 " else "") + (if (pay) "💸 " else "") +
+                    (if (st.terms.v5 && st.creator) "${groupSats(st.terms.mixTotal)} sats to ${st.terms.payments.size} recipient(s)" else "${poolAmount(st.terms)} sats each") +
                     (if (st.terms.script == ScriptType.P2TR) " · Taproot" else ""),
                     style = MaterialTheme.typography.titleMedium, color = TextMain, modifier = Modifier.weight(1f))
                 // The bar shows the step; here, how long the current one has left.
@@ -1327,6 +1612,29 @@ private fun PerfectCoinCard(w: com.kilombino.pyblockwatch.coinjoin.PerfectCoin.W
             }
         }
     }
+}
+
+/** Where the mixed outputs go, when there is more than this wallet to choose from. */
+@Composable
+private fun DestinationChooser(dests: List<Destination.Kind>, dest: Destination.Kind, enabled: Boolean, type: ScriptType, outputs: Int,
+                               accent: Color, onDest: (Destination.Kind) -> Unit) {
+    val ctx = LocalContext.current
+    Text("Mixed outputs go to", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+    dests.forEach { d ->
+        TextButton(onClick = { onDest(d) }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+            val c = if (dest == d) accent else TextMain
+            Text(if (dest == d) "●" else "○", color = c, style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.width(6.dp))
+            Text(Destination.label(d) + (if (d == Destination.Kind.HOT) " (default)" else "") +
+                (Destination.which(ctx, d)?.let { " · $it" } ?: ""),
+                color = c, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+        }
+    }
+    if (dest != Destination.Kind.HOT) Text("Unused receive addresses of that wallet; the change, if any, comes back here. " +
+        "Nobody in the round can tell: an output is just an address of the pool's type.",
+        color = TextFaint, style = MaterialTheme.typography.bodySmall)
+    if (dest != Destination.Kind.HOT) DestinationPreview(dest, type, outputs, accent)
+    Spacer(Modifier.height(8.dp))
 }
 
 /**

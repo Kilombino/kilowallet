@@ -216,11 +216,13 @@ object CoinjoinHub {
         ctx: Context, pick: Pick, amount: Long, feeRate: Double, maxPeers: Int, hours: Int,
         minPeers: Int = Protocol.MIN_PEERS, password: String? = null, maxInputs: Int = 1, auto: Boolean = false,
         outputs: Int = 1,
+        /** v5: the payments [pick]'s outputs pay, one per script, summing to [outputs] × [amount]. */
+        payments: List<Long> = emptyList(),
     ): PoolSession.State {
         // New pools are v3 (outputs registered blindly), v4 with several outputs each; older
         // wallets keep joining v1 and v2 ones.
         val np = PoolSession.newPool(amount, feeRate, maxPeers, hours, minPeers, !password.isNullOrEmpty(),
-            pick.type, maxInputs, v3 = true, outputs = outputs)
+            pick.type, maxInputs, v3 = true, outputs = outputs, payments = payments)
         val st = PoolSession.newState(np.terms, true, np.secret, pick.txCoins(), pick.coins.map { it.coinKey.key }, pick.coins.map { it.coinPath },
             pick.mixScripts, pick.changeScript, password?.ifEmpty { null }, np.creatorSecret, np.blindPriv)
         add(ctx, st, if (auto) pick.coins.map { it.coinKey.key } else null)
@@ -274,7 +276,7 @@ object CoinjoinHub {
     fun notifyOpenNow(ctx: Context) {
         load(ctx)
         val ours = synchronized(this) { sessions.keys.toSet() }
-        val open = fetchPools().filter { it.amount >= Protocol.MIN_AMOUNT && !it.private && it.id !in ours }
+        val open = fetchPools().filter { !Protocol.isTest(it) && !it.private && it.id !in ours }
         open.maxOfOrNull { it.createdAt }?.let { prefs(ctx).edit().putLong(KEY_LAST_POOL_SEEN, it).apply() }
         open.firstOrNull { firstNotice(ctx, it.id) }?.let { t -> notify(ctx, t.id.hashCode(), "Coinjoin pool open now",
             "${amountOf(t)} sats${kind(t)} · ${t.peers}/${t.maxPeers} people · ${t.feeRate} sat/vB") }
@@ -305,10 +307,10 @@ object CoinjoinHub {
         val test = testPools(ctx)
         // Test pools only for whoever switched them on; private pools are announced by their creator.
         val pools = fetchPools(sinceSeconds = 86400).filter {
-            it.createdAt > last && it.id !in ours && (test || it.amount >= Protocol.MIN_AMOUNT) && !it.private
+            it.createdAt > last && it.id !in ours && (test || !Protocol.isTest(it)) && !it.private
         }
         pools.maxOfOrNull { it.createdAt }?.let { p.edit().putLong(KEY_LAST_POOL_SEEN, it).apply() }
-        for (t in pools.asSequence().filter { firstNotice(ctx, it.id) }.take(3)) notify(ctx, t.id.hashCode(), "New coinjoin pool" + if (t.amount < Protocol.MIN_AMOUNT) " (test)" else "",
+        for (t in pools.asSequence().filter { firstNotice(ctx, it.id) }.take(3)) notify(ctx, t.id.hashCode(), "New coinjoin pool" + if (Protocol.isTest(t)) " (test)" else "",
             "${amountOf(t)} sats${kind(t)} · ${t.peers}/${t.maxPeers} people · ${t.feeRate} sat/vB")
     }
 

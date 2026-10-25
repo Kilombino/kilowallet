@@ -71,7 +71,8 @@ object RoundNotifications {
         // The bar of dots already says the step.
         val status = when (st.phase) {
             PoolSession.Phase.JOINING -> "Asking to join"
-            PoolSession.Phase.OPEN -> "$people/${st.terms.maxPeers} people · waiting for more"
+            // The fewest it needs to close, not "waiting for more": whether it can already close is below.
+            PoolSession.Phase.OPEN -> "$people/${st.terms.maxPeers} people · min. ${st.terms.minPeers}"
             PoolSession.Phase.VOTING -> "$people people · closing vote"
             PoolSession.Phase.CLOSING -> "$people people · collecting outputs"
             PoolSession.Phase.SIGNING -> if (st.postedSig) "$people people · signed, waiting for the others" else "$people people · signing"
@@ -80,26 +81,40 @@ object RoundNotifications {
             PoolSession.Phase.ABORTED -> "Cancelled"
             PoolSession.Phase.REJECTED -> "Refused"
         }
+        // A payment through the pool: its outputs went to the recipients, not to this wallet.
+        val pay = Destination.of(ctx, st.poolId) == Destination.Kind.PAY
         val where = when (st.phase) {
-            PoolSession.Phase.BROADCAST -> "Your coin left in the group transaction. Waiting for a block."
-            PoolSession.Phase.CONFIRMED -> "Done: ${sats(st.terms.amount, masked)} sats mixed in your wallet" +
+            PoolSession.Phase.BROADCAST -> if (pay) "The payment left in the group transaction. Waiting for a block."
+                else "Your coin left in the group transaction. Waiting for a block."
+            PoolSession.Phase.CONFIRMED -> if (pay) "Done: paid ${sats(st.terms.mixTotal, masked)} sats to the recipients" +
+                (if (st.seat.changeValue > 0) ", plus ${sats(st.seat.changeValue, masked)} sats change in your wallet." else ".")
+                else "Done: ${sats(st.terms.amount, masked)} sats mixed in your wallet" +
                 (if (st.seat.changeValue > 0) ", plus ${sats(st.seat.changeValue, masked)} sats change." else ".")
-            PoolSession.Phase.ABORTED, PoolSession.Phase.REJECTED -> "${st.reason.replaceFirstChar { it.uppercase() }}. Your coin did not move."
-            else -> "Your coin is still in your wallet — it hasn't left."
+            PoolSession.Phase.ABORTED, PoolSession.Phase.REJECTED -> "${st.reason.replaceFirstChar { it.uppercase() }}. " +
+                if (pay) "Nothing was paid: send it normally if you like." else "Your coin did not move."
+            // Two lines on the card: the payment's note kept short, so whether it can close still fits.
+            PoolSession.Phase.OPEN -> (if (pay) "Not paid yet. " else "Your coin is still in your wallet. ") +
+                when (val missing = st.terms.minPeers - people) {
+                    in Int.MIN_VALUE..0 -> "It can close now: waiting for someone to close it."
+                    1 -> "Waiting for one more person."
+                    else -> "Waiting for $missing more people."
+                }
+            else -> if (pay) "Not paid yet: the payment goes out when the pool closes." else "Your coin is still in your wallet — it hasn't left."
         }
         val color = when {
             step == 0 -> 0xFFFF5D5D.toInt()
             step == STEPS -> 0xFF34D399.toInt()
             else -> 0xFF278BF5.toInt()
         }
-        val title = "${sats(st.terms.amount, masked)} sats each" + if (st.terms.script == com.kilombino.pyblockwatch.crypto.ScriptType.P2TR) " · Taproot" else ""
+        val title = (if (st.terms.v5 && st.creator) "${sats(st.terms.mixTotal, masked)} sats to ${st.terms.payments.size} recipient(s)"
+            else "${sats(st.terms.amount, masked)} sats each") + if (st.terms.script == com.kilombino.pyblockwatch.crypto.ScriptType.P2TR) " · Taproot" else ""
         val counting = st.phase == PoolSession.Phase.OPEN && st.terms.expiresAt > System.currentTimeMillis() / 1000
 
         fun views(layout: Int, big: Boolean) = RemoteViews(ctx.packageName, layout).apply {
             // Folded there is room for one line: the amount and the people (the dots say the step).
             setTextViewText(R.id.cj_title, com.kilombino.pyblockwatch.ui.i18n.I18n.tr(if (big) title else "${sats(st.terms.amount, masked)} sats · " + when (st.phase) {
                 PoolSession.Phase.JOINING -> "joining"
-                PoolSession.Phase.OPEN -> "$people/${st.terms.maxPeers} people"
+                PoolSession.Phase.OPEN -> "$people/${st.terms.maxPeers} · min. ${st.terms.minPeers}"
                 PoolSession.Phase.VOTING -> "$people people · vote"
                 PoolSession.Phase.CLOSING, PoolSession.Phase.SIGNING -> "$people people · signing"
                 PoolSession.Phase.BROADCAST -> "$people people · sent"
@@ -107,6 +122,7 @@ object RoundNotifications {
                 else -> "cancelled"
             }))
             setTextViewText(R.id.cj_status, com.kilombino.pyblockwatch.ui.i18n.I18n.tr(status))
+            if (big) setTextViewText(R.id.cj_timer_label, com.kilombino.pyblockwatch.ui.i18n.I18n.tr("closes in"))
             setTextColor(R.id.cj_status, color)
             if (big) setTextViewText(R.id.cj_where, com.kilombino.pyblockwatch.ui.i18n.I18n.tr(where))
             val dots = intArrayOf(R.id.cj_dot1, R.id.cj_dot2, R.id.cj_dot3, R.id.cj_dot4, R.id.cj_dot5)

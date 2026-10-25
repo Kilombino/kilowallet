@@ -42,7 +42,7 @@ object StreetMode {
         fun apply() {
             byDefault = on; hidden = on; prefs(activity).edit().putBoolean("street_mode_default", on).commit()
             // The coinjoin cards on the lock screen show amounts by the same setting: redraw them now.
-            Thread { runCatching { com.kilombino.pyblockwatch.coinjoin.RoundNotifications.update(activity.applicationContext) } }.start()
+            Thread { runCatching { com.kilombino.pyblockwatch.coinjoin.CoinjoinService.refresh(activity.applicationContext) } }.start()
         }
         if (on) apply() else Biometric.confirm(activity, "Turn street mode off", "Amounts will show without asking",
             onSuccess = { apply() }, onError = {})
@@ -51,10 +51,14 @@ object StreetMode {
     /** Back to the chosen default: hidden, unless street mode is turned off in settings. */
     fun lock() { val was = hidden; hidden = byDefault; if (was != hidden) redrawCards() }
 
-    /** The coinjoin cards (notification shade, lock screen) follow what the app shows: redraw them. */
+    /**
+     * The coinjoin cards (notification shade, lock screen) follow what the app shows: redraw them,
+     * through the service, which knows the round its own card shows (drawn again on its own, that
+     * round showed twice).
+     */
     private fun redrawCards() {
         val ctx = appCtx ?: return
-        Thread { runCatching { com.kilombino.pyblockwatch.coinjoin.RoundNotifications.update(ctx) } }.start()
+        Thread { runCatching { com.kilombino.pyblockwatch.coinjoin.CoinjoinService.refresh(ctx) } }.start()
     }
     @Volatile private var appCtx: android.content.Context? = null
 

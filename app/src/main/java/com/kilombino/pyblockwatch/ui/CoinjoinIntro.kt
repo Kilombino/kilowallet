@@ -34,7 +34,7 @@ fun CoinjoinIntro(accent: Color, onAccept: () -> Unit, onDecline: () -> Unit, de
         Explain("A coinjoin puts your coin in one transaction with other people's. Everyone gets back an " +
             "output of exactly the same amount, so nobody watching the chain can tell whose is whose.")
         Spacer(Modifier.height(6.dp))
-        Explain("• Someone opens a pool (from ${"%,d".format(Protocol.MIN_AMOUNT).replace(',', ' ')} sats to 1 BTC) and " +
+        Explain("• Someone opens a pool (from ${"%,d".format(Protocol.MIN_AMOUNT).replace(',', ' ')} sats each to 1 BTC per output) and " +
             "others join with one coin.\n" +
             "• With enough people in, anyone asks to close and the rest accept.\n" +
             "• Your wallet checks the transaction and you sign with your fingerprint. Nobody holds your " +

@@ -379,4 +379,94 @@ class CoinjoinE2ETest {
         println("v4 txid ${a.state.txid} vsize ${tx.getInt("vsize")}")
         a.stop(); b.stop(); c.stop()
     }
+
+    /** Pays [sats] from the regtest wallet to [seed]'s key ([type]) and gives back that coin, mined. */
+    private fun fund(seed: Int, sats: Long, type: ScriptType = ScriptType.P2WPKH): CoinjoinTx.Coin {
+        val spk = Address.scriptPubKey(pub(key(seed)), type)
+        // The regtest node only takes its own "bcrt" addresses.
+        val addr = com.kilombino.pyblockwatch.crypto.Bech32.encodeSegwit("bcrt", if (type == ScriptType.P2TR) 1 else 0, spk.copyOfRange(2, spk.size))
+        val txid = rpc("sendtoaddress", addr, sats / 1e8) as String
+        val tx = rpc("getrawtransaction", txid, true) as JSONObject
+        val vout = tx.getJSONArray("vout").let { v -> (0 until v.length()).first { v.getJSONObject(it).getJSONObject("scriptPubKey").getString("address") == addr } }
+        return CoinjoinTx.Coin(txid, vout, sats, pub(key(seed)), type)
+    }
+
+    /**
+     * Kilojoin v5 for real: A opens a payment pool paying two recipients of different amounts; B
+     * and C join and get the payments' total back in [k] equal outputs each; the round is signed,
+     * mined on the BLAKE2b regtest, and the recipients hold exactly what they were paid.
+     * KILOJOIN_E2E_V5=1 with the regtest node's wallet `w` funded (it pays the members' coins).
+     */
+    @Test fun v5PaymentPool() {
+        System.getenv("KILOJOIN_E2E_V5") ?: return
+        Protocol.NETWORK = "blake2b-regtest"
+        for (k in listOf(1, 2)) v5Round(k)
+    }
+
+    private fun v5Round(k: Int) {
+        val salt = System.nanoTime() % 1_000_000
+        val pays = listOf(37_123L, 162_877L)                       // S = 200 000
+        val (d, outs) = Protocol.v5Split(pays.sum(), k)
+        assertEquals(k, outs)
+        val rate = 2.0
+        val seed = (salt % 50_000).toInt() * 10 + k * 3
+        val ca = fund(seed + 1, 300_000)                            // A: change back
+        val cb = fund(seed + 2, CoinjoinTx.minimumCoin(d, rate, ScriptType.P2WPKH, k))  // B: a perfect coin
+        val cc1 = fund(seed + 3, 120_000); val cc2 = fund(seed + 4, 110_000)           // C: two coins, change
+        rpc("generatetoaddress", 1, rpc("getnewaddress") as String)
+
+        val np = PoolSession.newPool(d, rate, 5, 1, minPeers = 3, maxInputs = 2, v3 = true, outputs = k, payments = pays)
+        assertEquals(Protocol.V5, np.terms.version)
+        val payTo = pays.indices.map { script(40_000 + salt + it) }
+        fun mixes(base: Long) = (0 until k).map { script(base + salt + it) }
+        val mixB = mixes(41_000); val mixC = mixes(42_000)
+        val chA = script(43_000 + salt); val chC = script(44_000 + salt)
+        val a = PoolSession(Env("A$k"), PoolSession.newState(np.terms, true, np.secret, listOf(ca), listOf(key(seed + 1)), listOf("a"),
+            payTo, chA, creatorSecret = np.creatorSecret, blindPriv = np.blindPriv))
+        a.start(); waitFor("A open") { a.state.phase == PoolSession.Phase.OPEN }
+
+        val found = java.util.concurrent.CompletableFuture<Protocol.Terms>()
+        val r = RelayClient(Protocol.RELAY, { _, ev -> Protocol.Terms.parse(ev)?.let { if (it.id == np.terms.id) found.complete(it) } })
+        r.connect(); r.subscribe("p", listOf(JSONObject().put("kinds", JSONArray().put(Protocol.KIND_POOL)).put("#d", JSONArray().put(np.terms.id))))
+        val seen = found.get(30, java.util.concurrent.TimeUnit.SECONDS); r.close()
+        // The listing carries the payments' amounts, never their addresses.
+        assertEquals(pays, seen.payments)
+        assertTrue(payTo.none { p -> seen.toJson().toString().contains(p.joinToString("") { "%02x".format(it) }) })
+
+        val b = PoolSession(Env("B$k"), PoolSession.newState(seen, false, null, listOf(cb), listOf(key(seed + 2)), listOf("b"), mixB, script(45_000 + salt)))
+        assertEquals(0L, b.state.seat.changeValue)
+        b.start(); waitFor("B welcomed") { b.state.phase == PoolSession.Phase.OPEN && b.state.seats.size >= 2 }
+        val c = PoolSession(Env("C$k"), PoolSession.newState(seen, false, null, listOf(cc1, cc2), listOf(key(seed + 3), key(seed + 4)),
+            listOf("c1", "c2"), mixC, chC))
+        c.start(); waitFor("C welcomed") { c.state.phase == PoolSession.Phase.OPEN && c.state.seats.size == 3 }
+        waitFor("everyone sees three") { a.state.seats.size == 3 && b.state.seats.size == 3 }
+
+        c.requestClose()
+        waitFor("vote opened") { a.state.phase == PoolSession.Phase.VOTING && b.state.phase == PoolSession.Phase.VOTING }
+        a.vote(true); b.vote(true)
+        waitFor("all signing", 300) { listOf(a, b, c).all { it.state.phase == PoolSession.Phase.SIGNING } }
+        // Only the joiners asked for blind signatures; the creator listed its payments itself.
+        assertEquals(2, a.state.blindSigs.size)
+        assertEquals(2 * k, a.state.regOutputs.size)
+        assertEquals(pays.size, b.state.payOutputs.size)
+        val txid = CoinjoinTx.txid(a.plan()!!)
+        assertEquals(txid, CoinjoinTx.txid(b.plan()!!)); assertEquals(txid, CoinjoinTx.txid(c.plan()!!))
+
+        a.sign(key(seed + 1)); b.sign(key(seed + 2)); c.sign(listOf(key(seed + 3), key(seed + 4)))
+        waitFor("broadcast") { listOf(a, b, c).all { it.state.txid != null } }
+        rpc("generatetoaddress", 1, rpc("getnewaddress") as String)
+        waitFor("confirmed", 60) { listOf(a, b, c).all { it.state.phase == PoolSession.Phase.CONFIRMED } }
+        val tx = rpc("getrawtransaction", a.state.txid!!, true) as JSONObject
+        val got = tx.getJSONArray("vout").let { v -> (0 until v.length()).map { v.getJSONObject(it) } }
+            .map { it.getJSONObject("scriptPubKey").getString("hex") to Math.round(it.getDouble("value") * 1e8) }
+        fun hex(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
+        // The recipients got exactly their payments; each joiner its k outputs of d.
+        pays.indices.forEach { assertEquals(1, got.count { o -> o.first == hex(payTo[it]) && o.second == pays[it] }) }
+        for (m in mixB + mixC) assertEquals(1, got.count { it.first == hex(m) && it.second == d })
+        assertEquals(1, got.count { it.first == hex(chA) && it.second == a.state.seat.changeValue })
+        assertEquals(1, got.count { it.first == hex(chC) && it.second == c.state.seat.changeValue })
+        assertEquals(2 * k + pays.size + 2, got.size)
+        println("v5 k=$k txid ${a.state.txid} vsize ${tx.getInt("vsize")} fee ${a.plan()!!.fee}")
+        a.stop(); b.stop(); c.stop()
+    }
 }

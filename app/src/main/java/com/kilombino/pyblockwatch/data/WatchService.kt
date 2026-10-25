@@ -128,6 +128,9 @@ class WatchService : Service() {
                 if (com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.hasActive(this@WatchService))
                     com.kilombino.pyblockwatch.coinjoin.CoinjoinService.start(this@WatchService)
             }
+            // Telegram alerts still waiting (the round may be over and its service gone): once more.
+            runCatching { if (com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.waiting(this@WatchService) > 0)
+                com.kilombino.pyblockwatch.coinjoin.CoinjoinAlerts.flush(this@WatchService) }
             // Coinjoin: tell about pools other people opened since the last look (BLAKE2b
             // spending wallets only, the ones that could join).
             if (com.kilombino.pyblockwatch.data.SeedVault(this@WatchService).hasSeed() && com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.supported(store)) {

@@ -71,6 +71,11 @@ class CoinjoinService : Service() {
         /** Redraw the round cards and the ongoing notification, or stop when no round needs us any more. */
         fun refresh(ctx: Context) {
             runCatching { RoundNotifications.update(ctx, if (started) first()?.poolId else null) }
+            // Telegram alerts that did not get through yet go again (each after its own wait).
+            if (CoinjoinAlerts.waiting(ctx) > 0) {
+                val app = ctx.applicationContext
+                Thread { runCatching { CoinjoinAlerts.flush(app) } }.apply { isDaemon = true; name = "cj-alerts" }.start()
+            }
             if (!started) return
             if (!CoinjoinHub.hasActive(ctx)) { ctx.stopService(Intent(ctx, CoinjoinService::class.java)); return }
             // Unchanged, it is not posted again (it would come back on the phone every minute).
