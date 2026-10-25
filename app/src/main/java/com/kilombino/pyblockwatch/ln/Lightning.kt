@@ -23,7 +23,12 @@ import kotlinx.coroutines.sync.withLock
 object Lightning {
     /** Kilombino's node: offered for the first channel, never required. */
     const val KILOMBINO_NODE = "0222d36d7b634ead665c982145f6e4507ad65c4f369902ab3ca11e379d2139dc60"
-    const val KILOMBINO_HOST = "nodoblake2b.airdns.org:50002"
+    /**
+     * Its clearnet address, a name of ours kept on AirVPN's current exit IPs. AirDNS's own name is
+     * the fallback: on 25 Oct 2026 it kept the old IPs for over an hour after AirVPN changed them.
+     */
+    const val KILOMBINO_HOST = "ln.kilombino.com:50002"
+    val KILOMBINO_HOSTS = listOf(KILOMBINO_HOST, "nodoblake2b.airdns.org:50002")
     const val KILOMBINO_ONION = "eu2pntt4zzsvm2fkcn5uaqxac2mj5t2fk5ecwyhhejp3deu7env2h2ad.onion:9735"
     /** Kilombino's watchtower (onion: reached when Tor is on). */
     const val TOWER = "033f366c8e43b040dbc27648d68e123650ec1f23176de092f39b9e0a7fb4f2a95d"
@@ -317,17 +322,14 @@ object Lightning {
 
     /** Connects to Kilombino's node (its name resolved here, then the onion); true when connected. */
     suspend fun connectKilombino(): Boolean {
-        val host = KILOMBINO_HOST.substringBefore(':'); val port = KILOMBINO_HOST.substringAfter(':')
-        val ips = runCatching { java.net.InetAddress.getAllByName(host).map { it.hostAddress } }.getOrDefault(emptyList())
-        val targets = ips.map { if (':' in it) "[$it]:$port" else "$it:$port" } + KILOMBINO_HOST +
-            (if (torOn) listOf(KILOMBINO_ONION) else emptyList())
+        val targets = Lnd.resolved(KILOMBINO_HOSTS) + (if (torOn) listOf(KILOMBINO_ONION) else emptyList())
         val errors = ArrayList<String>()
         for (t in targets) {
             val r = runCatching { Lnd.connect(KILOMBINO_NODE, t) }
             if (r.isSuccess) { linked = true; linkError = null; return true }
             errors += "$t: ${r.exceptionOrNull()?.message}"
         }
-        linkError = if (targets.isEmpty()) "could not resolve $host" else errors.joinToString("\n")
+        linkError = errors.joinToString("\n")
         return false
     }
 
