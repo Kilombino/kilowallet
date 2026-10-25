@@ -2010,6 +2010,10 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
             }
             .flatMap { if (chainIndex == 0) it.mixScripts else listOfNotNull(it.seat.changeScript) }
             .map { it.toList() }.toMutableSet()
+        // A perpetual coin's first pool opens again with the same addresses: they stay held meanwhile.
+        com.kilombino.pyblockwatch.coinjoin.Perpetual.list.value.mapNotNull { it.first }
+            .filter { f -> f.coins.firstOrNull()?.type == type }
+            .forEach { f -> (if (chainIndex == 0) listOf(f.mixScript) else listOfNotNull(f.changeScript)).forEach { scripts += it.toList() } }
         if (scripts.isEmpty()) return 0
         // A seat's addresses were handed out at or past what was used then, so only what lies
         // at or past `from` can still push the next index. Derived scripts are cached: this
@@ -2383,7 +2387,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
             check(pub.contentEquals(childPubkey(xpub, 0, mixIndex))) { "the wallet's keys do not match its addresses" }
         }
         return com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.Pick(picked, type, mixes, changeScriptPubKey(changeIndex, tag),
-            mixIndex = if (mixScripts == null && outputs == 1) mixIndex else -1, perpBranch = branch)
+            mixIndex = if (mixScripts == null && outputs == 1) mixIndex else -1, perpBranch = branch,
+            perpChangeBranch = if (perpetual) com.kilombino.pyblockwatch.crypto.Bip32Priv.derivePath(master, "m/${Scanner.purposeFor(type)}'/0'/0'/1") else null)
     }
 
     /**
@@ -2602,8 +2607,12 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         return coinPaths.map { com.kilombino.pyblockwatch.crypto.Bip32Priv.derivePath(master, it).key }
     }
 
-    /** The hot wallet's receive branch key of [type] (m/purpose'/0'/0'/0), for a perpetual coinjoin turned on again. */
-    fun perpetualBranch(decryptCipher: javax.crypto.Cipher, type: ScriptType): com.kilombino.pyblockwatch.crypto.Bip32Priv.ExtendedPrivKey {
+    /**
+     * The hot wallet's receive and change branch keys of [type] (m/purpose'/0'/0'/0 and …/1), for a perpetual
+     * coinjoin turned on again (the change one for a first pool with a coin on a change address).
+     */
+    fun perpetualBranches(decryptCipher: javax.crypto.Cipher, type: ScriptType):
+        Pair<com.kilombino.pyblockwatch.crypto.Bip32Priv.ExtendedPrivKey, com.kilombino.pyblockwatch.crypto.Bip32Priv.ExtendedPrivKey> {
         val secret = seedVault.revealSecret(decryptCipher)
         val master = com.kilombino.pyblockwatch.crypto.Bip32Priv
             .fromSeed(com.kilombino.pyblockwatch.crypto.Bip39.toSeed(secret.words, secret.passphrase))
@@ -2612,7 +2621,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         check(com.kilombino.pyblockwatch.crypto.Bip32Priv.deriveChild(b, 0).publicKey().contentEquals(childPubkey(xpub, 0, 0))) {
             "the wallet's keys do not match its addresses"
         }
-        return b
+        return b to com.kilombino.pyblockwatch.crypto.Bip32Priv.derivePath(master, "m/${Scanner.purposeFor(type)}'/0'/0'/1")
     }
 
     /** The coin's private key again, for signing the round at the end. */

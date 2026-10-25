@@ -284,7 +284,8 @@ class CoinjoinSeatsE2ETest {
     // ------------------------------------------------------------------------------- perpetual
 
     /** The perpetual coinjoin's side, as [com.kilombino.pyblockwatch.coinjoin.Perpetual] runs it in the app, over the regtest node. */
-    private inner class PerpEnv(val branch: Bip32Priv.ExtendedPrivKey, val saved: MutableMap<String, String>) : Remixer.Env {
+    private inner class PerpEnv(val branch: Bip32Priv.ExtendedPrivKey, val saved: MutableMap<String, String>,
+                                val changeBranch: Bip32Priv.ExtendedPrivKey? = null) : Remixer.Env {
         val sessions = ConcurrentHashMap<String, PoolSession>()
         @Volatile var estimate: Double? = 1.0
         @Volatile var next = 10
@@ -324,6 +325,77 @@ class CoinjoinSeatsE2ETest {
             run(st, coinKey(r.index).key)
             return Remixer.NewSeat(st.key, i, spk(i))
         }
+        override fun firstUnspent(r: Remix): Boolean? = runCatching {
+            r.first!!.coins.all { rpc("gettxout", it.txid, it.vout, true) is JSONObject }
+        }.getOrNull()
+        /** As the app does it: the seat rebuilt by [com.kilombino.pyblockwatch.coinjoin.Perpetual.firstPick], the same pool opened again. */
+        override fun reopen(r: Remix): Remixer.NewSeat {
+            val f = r.first!!
+            val p = com.kilombino.pyblockwatch.coinjoin.Perpetual.firstPick(f, r.type) { if (it == 0) branch else changeBranch }
+            val np = PoolSession.newPool(f.amount, f.rate, f.maxPeers, f.hours, f.minPeers, maxInputs = f.maxInputs, v3 = true)
+            val st = PoolSession.newState(np.terms, true, np.secret, p.txCoins(), p.coins.map { it.coinKey.key }, p.coins.map { it.coinPath },
+                p.mixScripts, p.changeScript, creatorSecret = np.creatorSecret, blindPriv = np.blindPriv, perpId = r.id)
+            opened += np.terms
+            PoolSession(Env("P", saved).also { it.save(st) }, st).also { it.autoKeys = p.coins.map { c -> c.coinKey.key }; sessions[st.key] = it; it.start() }
+            return Remixer.NewSeat(st.key, r.seatIndex, f.mixScript)
+        }
+    }
+
+    /**
+     * The first pool of a perpetual coinjoin expires with nobody: the same pool opens again (same amount, fee
+     * and people, same coins, same mixed-output and change addresses), someone joins it, the round is mined,
+     * and the mixed coin goes on to its next pool.
+     */
+    @Test fun perpetualFirstPoolOpensAgain() {
+        System.getenv("KILOJOIN_E2E_PERP") ?: return
+        val salt = setup()
+        val seed = (salt % 50_000).toInt() * 10 + 6
+        val master = Bip32Priv.fromSeed(ByteArray(32) { (seed + it).toByte() })
+        val branch = Bip32Priv.derivePath(master, "m/84'/0'/0'/0"); val changeBranch = Bip32Priv.derivePath(master, "m/84'/0'/0'/1")
+        val saved = ConcurrentHashMap<String, String>()
+        val env = PerpEnv(branch, saved, changeBranch)
+        // Its coin is on a change address: the change branch's key opens the pool again.
+        val ck = Bip32Priv.deriveChild(changeBranch, 3)
+        val coin = fundScript(Address.scriptPubKey(ck.publicKey(), ScriptType.P2WPKH), ck.publicKey(), 150_000)
+        val peer = fund(seed + 1, 200_000)
+        mine()
+        // The first pool, as the app opens it, expiring in about a minute.
+        val np0 = PoolSession.newPool(100_000, 2.0, 5, 3, 2, maxInputs = 1, v3 = true)
+        val terms0 = np0.terms.copy(expiresAt = System.currentTimeMillis() / 1000 + 50)
+        val st0 = PoolSession.newState(terms0, true, np0.secret, listOf(coin), listOf(ck.key), listOf("m/84'/0'/0'/1/3"),
+            listOf(env.spk(10)), Address.scriptPubKey(Bip32Priv.deriveChild(changeBranch, 4).publicKey(), ScriptType.P2WPKH),
+            creatorSecret = np0.creatorSecret, blindPriv = np0.blindPriv, perpId = "perp1-$salt")
+        val s0 = env.run(st0, ck.key)
+        waitFor("first pool open") { s0.state.phase == PoolSession.Phase.OPEN }
+        val first = com.kilombino.pyblockwatch.coinjoin.FirstPool.of(st0, 3)
+        val r = Remix("perp1-$salt", ScriptType.P2WPKH, cap = 2.0, rate = 2.0, minPeers = 2, maxPeers = 5, hours = 3,
+            seat = st0.key, seatIndex = 10, seatScript = env.spk(10), first = first)
+        val drive = Driver(Remixer(env), r)
+        fun seatOf() = env.sessions[r.seat ?: ""]
+        // Nobody comes: it expires, and the very same pool opens again.
+        waitFor("first pool expired", 120) { s0.state.phase == PoolSession.Phase.ABORTED }
+        waitFor("the same pool opened again", 120) { seatOf()?.state?.let { it.poolId != s0.state.poolId && it.phase == PoolSession.Phase.OPEN } == true }
+        val again = seatOf()!!.state
+        assertEquals(terms0.amount, again.terms.amount); assertEquals(terms0.feeRate, again.terms.feeRate, 0.0)
+        assertEquals(terms0.minPeers, again.terms.minPeers); assertEquals(terms0.maxPeers, again.terms.maxPeers)
+        assertEquals(st0.seat.coins.map { it.outpoint }, again.seat.coins.map { it.outpoint })
+        assertTrue(st0.mixScript.contentEquals(again.mixScript))
+        assertTrue(st0.seat.changeScript!!.contentEquals(again.seat.changeScript!!)); assertEquals(st0.seat.changeValue, again.seat.changeValue)
+        assertEquals(Remix.State.SEATED, r.state); assertTrue(r.first != null)
+        // Someone joins it: the round is mined, and the mixed coin goes on.
+        val b = member("B", listed(again.poolId), peer, seed + 1, salt).also { it.start() }
+        waitFor("B in") { again.seats.size == 2 && b.state.phase == PoolSession.Phase.OPEN && b.state.seats.size == 2 }
+        b.requestClose()
+        waitFor("broadcast", 300) { seatOf()?.state?.txid != null }
+        mine()
+        waitFor("its first round done", 120) { synchronized(r) { r.rounds == 1 && r.state == Remix.State.WAITING } }
+        assertEquals(null, r.first); assertEquals(100_000L, r.value); assertEquals(10, r.index)
+        waitFor("its next pool", 120) { seatOf()?.state?.let { it.creator && it.phase == PoolSession.Phase.OPEN && it.poolId != again.poolId } == true }
+        assertTrue(seatOf()!!.state.seat.coins.single().outpoint == "${r.txid}:${r.vout}")
+        drive.stop(); seatOf()?.leave()
+        mine()
+        env.sessions.values.forEach { it.stop() }; b.stop()
+        println("perpetual: first pool opened again after it expired, round mined, then its next pool")
     }
 
     /** Moves [r] on every second, as the coinjoin service does every minute. */
@@ -438,17 +510,24 @@ class CoinjoinSeatsE2ETest {
         c4.requestClose()
         round(c4, 4)
 
-        // 5. Fees above the cap: it stops. Raised cap: on again, at the rate the chain asks now; then off mid-round.
+        // 5. Fees up on the chain: it carries on at the fee chosen. The fee changed on its card: its next pool at
+        // that fee, and a pool at another fee is not joined. Then turned off mid-round.
         env.estimate = 5.0
-        waitFor("stopped over the cap") { synchronized(r) { r.state == Remix.State.STOPPED } }
-        assertEquals(Remix.overCap(2.0), r.reason)
-        synchronized(r) { r.cap = 6.0; r.state = Remix.State.WAITING; r.nextAt = 0; r.reason = "" }
-        waitFor("a pool at 5 sat/vB", 120) { seatOf()?.state?.let { it.creator && it.phase == PoolSession.Phase.OPEN } == true }
+        waitFor("its pool at the fee chosen", 120) { seatOf()?.state?.let { it.creator && it.phase == PoolSession.Phase.OPEN } == true }
+        assertEquals(2.0, seatOf()!!.state.terms.feeRate, 0.0)
+        val e5 = creator("E5", 10, 50_000, rate = 4.0); waitFor("E5 open") { e5.state.phase == PoolSession.Phase.OPEN }
+        env.allowed += e5.state.poolId
+        val p5 = seatOf()!!
+        synchronized(r) { r.cap = 5.0 }
+        p5.leave()
+        waitFor("a pool at 5 sat/vB", 120) { seatOf()?.state?.let { it.creator && it.phase == PoolSession.Phase.OPEN && it.poolId != p5.state.poolId } == true }
         assertEquals(5.0, seatOf()!!.state.terms.feeRate, 0.0)
+        assertNotEquals(e5.state.poolId, seatOf()!!.state.poolId)
         synchronized(r) { r.state = Remix.State.STOPPED; r.reason = Remix.OFF }
         seatOf()!!.leave()
         waitFor("off, seat gone") { synchronized(r) { r.seat == null } }
         assertEquals(Remix.State.STOPPED, r.state); assertEquals(4, r.rounds)
+        e5.leave(); env.allowed.clear()
 
         // 6. On again, but its coin is spent some other way first: it stops.
         val spendTo = script(99_000 + salt)

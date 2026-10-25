@@ -20,6 +20,49 @@ import java.math.BigInteger
 import java.security.SecureRandom
 
 /**
+ * A perpetual coin's first pool, kept until it gets a round: when it ends without one (cancelled, or
+ * expired with nobody in), the same pool is opened again — same amount, fee, hours and people, the
+ * same coins, the same mixed-output and change addresses — and again, until a round happens.
+ */
+class FirstPool(
+    val amount: Long, val rate: Double, val minPeers: Int, val maxPeers: Int, val hours: Int, val maxInputs: Int,
+    val coins: List<CoinjoinTx.Coin>, val coinPaths: List<String>, val mixScript: ByteArray, val changeScript: ByteArray?,
+    /** A private pool: its password is not kept, so it can't be opened again the same. */
+    val private: Boolean,
+) {
+    val outpoints: List<String> get() = coins.map { it.outpoint }
+    /** Which branch (0 receive, 1 change) and index each coin's key is at, from its path m/purpose'/0'/0'/branch/index. */
+    fun branchAndIndex(i: Int): Pair<Int, Int> = coinPaths[i].split('/').let { p -> p[p.size - 2].toInt() to p.last().toInt() }
+    /** One of its coins is on a change address: its key is the change branch's. */
+    val needsChangeKey: Boolean get() = coins.indices.any { branchAndIndex(it).first == 1 }
+
+    fun toJson(): JSONObject = JSONObject().put("amount", amount).put("rate", rate).put("minPeers", minPeers).put("maxPeers", maxPeers)
+        .put("hours", hours).put("maxInputs", maxInputs).put("private", private)
+        .put("coins", JSONArray(coins.map { JSONObject().put("txid", it.txid).put("vout", it.vout).put("value", it.value)
+            .put("pub", it.pubkey.toHex()).put("type", it.type.name) }))
+        .put("paths", JSONArray(coinPaths)).put("mix", mixScript.toHex()).put("change", changeScript?.toHex() ?: "")
+
+    companion object {
+        fun parse(o: JSONObject): FirstPool {
+            val c = o.getJSONArray("coins"); val p = o.getJSONArray("paths")
+            return FirstPool(o.getLong("amount"), o.getDouble("rate"), o.getInt("minPeers"), o.getInt("maxPeers"), o.getInt("hours"),
+                o.getInt("maxInputs"),
+                (0 until c.length()).map { c.getJSONObject(it) }.map {
+                    CoinjoinTx.Coin(it.getString("txid"), it.getInt("vout"), it.getLong("value"), Hashes.hexToBytes(it.getString("pub")),
+                        ScriptType.valueOf(it.getString("type")))
+                },
+                (0 until p.length()).map { p.getString(it) }, Hashes.hexToBytes(o.getString("mix")),
+                o.optString("change").ifEmpty { null }?.let { Hashes.hexToBytes(it) }, o.optBoolean("private"))
+        }
+
+        /** The pool [st] as this phone's seat in it was made ([hours] for a pool opened again). */
+        fun of(st: PoolSession.State, hours: Int): FirstPool = FirstPool(st.terms.amount, st.terms.feeRate, st.terms.minPeers,
+            st.terms.maxPeers, hours.coerceIn(1, 72), st.terms.maxInputs, st.seat.coins, st.coinPaths, st.mixScript,
+            st.seat.changeScript, st.terms.private)
+    }
+}
+
+/**
  * A perpetual coinjoin: a coin that, each time its round confirms, mixes again on its own. Its
  * mixed output joins another open pool that fits (one output per person, of its address type, at
  * most the fee cap, best with no change), or opens one with the whole coin (no change). Every round
@@ -52,6 +95,8 @@ class Remix(
     /** What the coin was worth when it began, to show what the rounds cost. */
     var startValue: Long = 0,
     val since: Long = System.currentTimeMillis() / 1000,
+    /** Its first pool, until it gets a round: opened again the same when it ends without one. */
+    var first: FirstPool? = null,
 ) {
     enum class State { SEATED, WAITING, STOPPED }
 
@@ -62,7 +107,7 @@ class Remix(
         .put("maxPeers", maxPeers).put("hours", hours).put("state", state.name).put("seat", seat ?: "")
         .put("seatIndex", seatIndex).put("seatScript", seatScript?.toHex() ?: "").put("rounds", rounds)
         .put("nextAt", nextAt).put("reason", reason).put("tried", JSONArray(tried.toList())).put("startValue", startValue)
-        .put("since", since).put("coinScript", coinScript?.toHex() ?: "")
+        .put("since", since).put("coinScript", coinScript?.toHex() ?: "").put("first", first?.toJson() ?: JSONObject.NULL)
 
     /** The coin's own script (its address), kept to ask the server about it. */
     var coinScript: ByteArray? = null
@@ -77,6 +122,7 @@ class Remix(
             o.optString("reason"),
             o.optJSONArray("tried")?.let { a -> (0 until a.length()).map { a.getString(it) } }?.toMutableSet() ?: linkedSetOf(),
             o.optLong("startValue"), o.optLong("since"),
+            o.optJSONObject("first")?.let { runCatching { FirstPool.parse(it) }.getOrNull() },
         ).also { r -> r.coinScript = o.optString("coinScript").ifEmpty { null }?.let { Hashes.hexToBytes(it) } }
 
         fun listJson(list: List<Remix>): String = JSONArray(list.map { it.toJson() }).toString()
@@ -88,7 +134,8 @@ class Remix(
         const val MOVED = "the coin was spent or moved"
         const val BELOW_MINIMUM = "the coin fell below a pool's minimum"
         const val OFF = "turned off"
-        const val FIRST_CANCELLED = "its first round was cancelled: the coin did not move"
+        /** Only when its first pool can't be opened again the same: a private pool, or one started before 1.3.4. */
+        const val FIRST_CANCELLED = "its first pool ended without a round and can't be opened again the same (a private pool, or one from an older version): the coin did not move"
         const val NO_KEYS = "its keys are not on this phone any more: turn it on again"
         fun overCap(cap: Double) = "the fees rose above your cap (${fmt(cap)} sat/vB)"
         fun fmt(r: Double): String = if (r == Math.floor(r)) "%.0f".format(java.util.Locale.ROOT, r) else "%.1f".format(java.util.Locale.ROOT, r)
@@ -119,6 +166,10 @@ class Remixer(private val env: Env) {
         fun join(r: Remix, t: Protocol.Terms): NewSeat
         /** Opens a pool of [amount] at [rate] with the whole coin (no change). */
         fun create(r: Remix, amount: Long, rate: Double): NewSeat
+        /** Whether every coin of its first pool ([Remix.first]) is still unspent; null when the server can't be asked. */
+        fun firstUnspent(r: Remix): Boolean?
+        /** Opens its first pool again, exactly as it was: same terms, coins, mixed-output and change addresses. */
+        fun reopen(r: Remix): NewSeat
         fun log(msg: String) {}
     }
 
@@ -152,8 +203,15 @@ class Remixer(private val env: Env) {
                         // Refused, or never let in (its creator gone): that pool is not tried again.
                         if (st != null && (st.phase == PoolSession.Phase.REJECTED || st.token == null)) r.tried += st.poolId
                         r.seat = null
-                        // The coin did not move. Before its first round ends there is none of ours to go on with.
-                        if (r.txid == null) { r.state = Remix.State.STOPPED; r.reason = Remix.FIRST_CANCELLED; return true }
+                        // Its first pool ended without a round: the same pool opens again after the wait, and again,
+                        // until one happens (or its coins move, or it is turned off).
+                        if (r.txid == null) {
+                            val f = r.first
+                            if (f == null || f.private) { r.state = Remix.State.STOPPED; r.reason = Remix.FIRST_CANCELLED; return true }
+                            r.state = Remix.State.WAITING; r.nextAt = now + env.delay(); r.reason = st?.reason ?: ""
+                            env.log("remix ${r.id}: its first pool ended (${st?.reason}); the same pool opens again in ${r.nextAt - now} s")
+                            return true
+                        }
                         r.state = Remix.State.WAITING; r.nextAt = now + env.delay()
                         r.reason = st?.reason ?: ""
                         env.log("remix ${r.id}: its pool ended (${st?.reason}); next look in ${r.nextAt - now} s")
@@ -177,13 +235,15 @@ class Remixer(private val env: Env) {
         if (r.startValue == 0L) r.startValue = st.seat.inputValue
         r.txid = txid; r.vout = vout; r.value = value; r.index = r.seatIndex; r.coinScript = script
         r.rounds++
+        // Its first round is done: the first pool (and the change branch's key it kept) is no longer needed.
+        r.first = null
         return true
     }
 
     private fun look(r: Remix, now: Long): Boolean {
         fun stop(why: String): Boolean { r.state = Remix.State.STOPPED; r.reason = why; env.log("remix ${r.id} stops: $why"); return true }
         fun later(why: String, s: Long = 120): Boolean { r.nextAt = now + s; r.reason = why; env.log("remix ${r.id}: $why"); return true }
-        if (r.txid == null) return stop(Remix.FIRST_CANCELLED)
+        if (r.txid == null) return reopenFirst(r, now)
         when (env.unspent(r)) {
             false -> return stop(Remix.MOVED)
             null -> return later("the server could not be asked about the coin", 60)
@@ -202,6 +262,27 @@ class Remixer(private val env: Env) {
             return true
         } catch (e: Exception) {
             return later(e.message ?: "could not join a pool")
+        }
+    }
+
+    /** Its first pool once more, exactly the same, if its coins are still there. */
+    private fun reopenFirst(r: Remix, now: Long): Boolean {
+        fun stop(why: String): Boolean { r.state = Remix.State.STOPPED; r.reason = why; env.log("remix ${r.id} stops: $why"); return true }
+        fun later(why: String, s: Long = 120): Boolean { r.nextAt = now + s; r.reason = why; env.log("remix ${r.id}: $why"); return true }
+        val f = r.first
+        if (f == null || f.private) return stop(Remix.FIRST_CANCELLED)
+        when (env.firstUnspent(r)) {
+            false -> return stop(Remix.MOVED)
+            null -> return later("the server could not be asked about the coins", 60)
+            true -> {}
+        }
+        return try {
+            val seat = env.reopen(r)
+            r.state = Remix.State.SEATED; r.seat = seat.key; r.seatIndex = seat.mixIndex; r.seatScript = seat.mixScript; r.reason = ""
+            env.log("remix ${r.id}: its first pool opened again (${seat.key})")
+            true
+        } catch (e: Exception) {
+            later(e.message ?: "could not open the pool again")
         }
     }
 
@@ -247,6 +328,8 @@ object Perpetual {
     private const val PREFS = "cj_perpetual"
     private fun prefs(ctx: Context) = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private fun branchKey(type: ScriptType) = "perpbranch:" + type.name
+    /** The change branch's key, kept only while a perpetual coin of [type] waits for a first round with a coin on a change address. */
+    private fun changeKey(type: ScriptType) = "perpbranch-change:" + type.name
 
     private val _list = MutableStateFlow<List<Remix>>(emptyList())
     val list: StateFlow<List<Remix>> = _list.asStateFlow()
@@ -257,8 +340,10 @@ object Perpetual {
         prefs(ctx).edit().putString("list", Remix.listJson(l)).apply()
         _list.value = l
         // A branch key stays only while a perpetual coin of its type may still need it.
-        val need = l.filter { it.state != Remix.State.STOPPED || it.seat != null }.map { it.type }.toSet()
+        val (need, needChange) = keysNeeded(l)
         ScriptType.entries.filter { it !in need }.forEach { AutoKeyVault.remove(ctx, branchKey(it)) }
+        // The change branch's only while a first round is still to come with a coin on a change address.
+        ScriptType.entries.filter { it !in needChange }.forEach { AutoKeyVault.remove(ctx, changeKey(it)) }
         if (l.size > 50) prefs(ctx).edit().putString("list", Remix.listJson(l.takeLast(50))).apply()
     }
 
@@ -266,12 +351,30 @@ object Perpetual {
         val l = load(ctx); l.firstOrNull { it.id == id }?.let(f); save(ctx, l)
     }
 
-    /** Coins of perpetual remixes waiting for their next pool: not offered to a pool by hand. */
+    /**
+     * The types whose receive-branch key, and whose change-branch key, a list of perpetual coins still needs:
+     * the receive one while any of that type is on (or in a round), the change one only while one of them
+     * still waits for its first round with a coin on a change address.
+     */
+    fun keysNeeded(l: List<Remix>): Pair<Set<ScriptType>, Set<ScriptType>> {
+        val live = l.filter { it.state != Remix.State.STOPPED || it.seat != null }
+        return live.map { it.type }.toSet() to live.filter { it.first?.needsChangeKey == true }.map { it.type }.toSet()
+    }
+
+    /** The outpoints a perpetual coin holds now: its coin, or the coins of its first pool while that waits to open again. */
+    private fun held(r: Remix): List<String> = r.outpoint?.let { listOf(it) } ?: if (r.txid == null) r.first?.outpoints.orEmpty() else emptyList()
+
+    /** Coins of perpetual remixes waiting for their next pool (or their first one to open again): not offered to a pool by hand. */
     fun waitingOutpoints(ctx: Context): Set<String> =
-        load(ctx).filter { it.state == Remix.State.WAITING }.mapNotNull { it.outpoint }.toSet()
+        load(ctx).filter { it.state == Remix.State.WAITING }.flatMap { held(it) }.toSet()
 
     /** The perpetual coin of each outpoint it holds now (waiting, or stopped with its coin). */
-    fun byOutpoint(ctx: Context): Map<String, Remix> = load(ctx).filter { it.outpoint != null && it.seat == null }.associateBy { it.outpoint!! }
+    fun byOutpoint(ctx: Context): Map<String, Remix> =
+        load(ctx).filter { it.seat == null }.flatMap { r -> held(r).map { it to r } }.toMap()
+
+    /** Addresses a first pool waiting to open again will use again (its mixed output and change): nothing else may hand them out. */
+    fun reservedScripts(ctx: Context): List<ByteArray> =
+        load(ctx).mapNotNull { it.first }.flatMap { listOfNotNull(it.mixScript, it.changeScript) }
 
     fun ofSeat(key: String): Remix? = _list.value.firstOrNull { it.seat == key }
 
@@ -283,11 +386,15 @@ object Perpetual {
      * account's receive branch key (m/purpose'/0'/0'/0), kept for the rounds to come.
      */
     fun start(ctx: Context, seatKey: String, type: ScriptType, branch: Bip32Priv.ExtendedPrivKey, mixIndex: Int, mixScript: ByteArray,
-              terms: Protocol.Terms, cap: Double, perpId: String, hours: Int) {
+              terms: Protocol.Terms, cap: Double, perpId: String, hours: Int,
+              /** Its first pool, to open again the same if it ends without a round; [changeBranch] for its coins on change addresses. */
+              first: FirstPool? = null, changeBranch: Bip32Priv.ExtendedPrivKey? = null) {
         AutoKeyVault.save(ctx, branchKey(type), listOf(branch.key, BigInteger(1, branch.chainCode)))
+        if (first?.needsChangeKey == true && changeBranch != null)
+            AutoKeyVault.save(ctx, changeKey(type), listOf(changeBranch.key, BigInteger(1, changeBranch.chainCode)))
         val r = Remix(perpId, type, cap = cap, rate = terms.feeRate, minPeers = terms.minPeers, maxPeers = terms.maxPeers,
             hours = hours.coerceIn(1, 72),
-            seat = seatKey, seatIndex = mixIndex, seatScript = mixScript)
+            seat = seatKey, seatIndex = mixIndex, seatScript = mixScript, first = first)
         synchronized(this) { save(ctx, load(ctx).filter { it.id != perpId } + r) }
     }
 
@@ -296,13 +403,20 @@ object Perpetual {
 
     fun turnOff(ctx: Context, id: String) = edit(ctx, id) { it.state = Remix.State.STOPPED; it.reason = Remix.OFF }
 
-    /** On again, with the branch key from one fingerprint ([branch]); the coin must still be there. */
-    fun turnOn(ctx: Context, id: String, branch: Bip32Priv.ExtendedPrivKey) {
+    /**
+     * On again, with the branch keys from one fingerprint ([branch]; [changeBranch] for a first pool with a
+     * coin on a change address); the coin must still be there.
+     */
+    fun turnOn(ctx: Context, id: String, branch: Bip32Priv.ExtendedPrivKey, changeBranch: Bip32Priv.ExtendedPrivKey? = null) {
         val r = load(ctx).firstOrNull { it.id == id } ?: return
         AutoKeyVault.save(ctx, branchKey(r.type), listOf(branch.key, BigInteger(1, branch.chainCode)))
+        if (r.first?.needsChangeKey == true && changeBranch != null)
+            AutoKeyVault.save(ctx, changeKey(r.type), listOf(changeBranch.key, BigInteger(1, changeBranch.chainCode)))
         edit(ctx, id) {
             if (it.seat != null) { it.state = Remix.State.SEATED; it.reason = "" }
-            else if (it.txid != null) { it.state = Remix.State.WAITING; it.nextAt = System.currentTimeMillis() / 1000 + 20 + SecureRandom().nextInt(71); it.reason = "" }
+            else if (it.txid != null || it.first?.private == false) {
+                it.state = Remix.State.WAITING; it.nextAt = System.currentTimeMillis() / 1000 + 20 + SecureRandom().nextInt(71); it.reason = ""
+            }
         }
         CoinjoinService.start(ctx)
     }
@@ -311,10 +425,26 @@ object Perpetual {
 
     fun forget(ctx: Context, id: String) = synchronized(this) { save(ctx, load(ctx).filter { it.id != id }) }
 
-    private fun branch(ctx: Context, type: ScriptType): Bip32Priv.ExtendedPrivKey? =
-        AutoKeyVault.load(ctx, branchKey(type))?.takeIf { it.size == 2 }?.let { (k, c) ->
+    private fun branch(ctx: Context, type: ScriptType, chainIndex: Int = 0): Bip32Priv.ExtendedPrivKey? =
+        AutoKeyVault.load(ctx, if (chainIndex == 1) changeKey(type) else branchKey(type))?.takeIf { it.size == 2 }?.let { (k, c) ->
             Bip32Priv.ExtendedPrivKey(k, c.toByteArray().let { b -> if (b.size > 32) b.copyOfRange(b.size - 32, b.size) else ByteArray(32 - b.size) + b }, 4)
         }
+
+    /**
+     * The seat of [f] again, from the keys of the branches its coins are on ([branchOf] 0 receive, 1 change):
+     * each coin's key checked against the coin, and the very same mixed-output and change addresses.
+     */
+    fun firstPick(f: FirstPool, type: ScriptType, branchOf: (Int) -> Bip32Priv.ExtendedPrivKey?): CoinjoinHub.Pick {
+        val coins = f.coins.indices.map { i ->
+            val (chain, index) = f.branchAndIndex(i)
+            val b = branchOf(chain) ?: error(Remix.NO_KEYS)
+            val k = Bip32Priv.deriveChild(b, index)
+            check(k.publicKey().contentEquals(f.coins[i].pubkey)) { "a coin's key does not match it" }
+            CoinjoinHub.PickCoin(f.coins[i].txid, f.coins[i].vout, f.coins[i].value, k, f.coinPaths[i])
+        }
+        // No change in the first pool: the change address is never used (newState leaves it out).
+        return CoinjoinHub.Pick(coins, type, listOf(f.mixScript), f.changeScript ?: f.mixScript.copyOf().also { it[it.size - 1] = (it.last() + 1).toByte() })
+    }
 
     @Volatile private var checking = false
 
@@ -328,7 +458,10 @@ object Perpetual {
             for (r in load(app)) {
                 // Each one read again just before it moves: the user may have turned it off meanwhile.
                 val now = load(app).firstOrNull { it.id == r.id } ?: continue
-                if (now.state != Remix.State.STOPPED && branch(app, now.type) == null && now.state == Remix.State.WAITING) {
+                val keysGone = branch(app, now.type) == null ||
+                    (now.txid == null && now.first?.needsChangeKey == true && branch(app, now.type, 1) == null)
+                // Only when it is due to look for a pool: before, nothing is signed and nothing needs its keys.
+                if (now.state == Remix.State.WAITING && System.currentTimeMillis() / 1000 >= now.nextAt && keysGone) {
                     now.state = Remix.State.STOPPED; now.reason = Remix.NO_KEYS
                     synchronized(this) { save(app, load(app).map { if (it.id == now.id) now else it }) }
                     continue
@@ -410,6 +543,19 @@ object Perpetual {
             val (p, idx) = pick(r, amount, rate)
             val st = CoinjoinHub.create(ctx, p, amount, rate, r.maxPeers, r.hours, r.minPeers, null, 1, auto = true, outputs = 1, perpId = r.id)
             return Remixer.NewSeat(st.key, idx, p.mixScripts.first())
+        }
+
+        override fun firstUnspent(r: Remix): Boolean? = runCatching {
+            val f = r.first ?: return false
+            electrum { c -> f.coins.all { coin -> c.isUnspent(Address.electrumScriptHash(coin.script), coin.txid, coin.vout, coin.value, coin.script) } }
+        }.getOrNull()
+
+        override fun reopen(r: Remix): Remixer.NewSeat {
+            val f = r.first ?: error("no first pool")
+            val p = firstPick(f, r.type) { chain -> branch(ctx, r.type, chain) }
+            val st = CoinjoinHub.create(ctx, p, f.amount, f.rate, f.maxPeers, f.hours, f.minPeers, null, f.maxInputs, auto = true,
+                outputs = 1, perpId = r.id)
+            return Remixer.NewSeat(st.key, r.seatIndex, f.mixScript)
         }
     }
 }

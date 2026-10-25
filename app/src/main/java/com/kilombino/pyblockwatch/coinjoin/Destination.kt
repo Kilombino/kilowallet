@@ -61,7 +61,9 @@ object Destination {
             !(ended && !st.postedOutput)
         }.flatMap { it.mixScripts }
         val perfect = PerfectCoin.waiting.value.flatMap { it.mixScripts }
-        return (seats + perfect).map { it.toList() }.toSet()
+        // A perpetual coin's first pool, waiting to open again with the same addresses.
+        val first = runCatching { Perpetual.reservedScripts(ctx) }.getOrDefault(emptyList())
+        return (seats + perfect + first).map { it.toList() }.toSet()
     }
 
     /**

@@ -202,7 +202,8 @@ object PerfectCoin {
                 }
                 // The perpetual coinjoin chosen with the coin goes on from this round.
                 if (branch != null && perpId != null && st.terms.outputs == 1) Perpetual.start(app, st.key, w.type, branch, w.mixIndex,
-                    w.mixScripts.first(), st.terms, w.perpCap!!, perpId, c?.optInt("hours", 6) ?: 6)
+                    w.mixScripts.first(), st.terms, w.perpCap!!, perpId, c?.optInt("hours", 6) ?: 6,
+                    FirstPool.of(st, c?.optInt("hours", 6) ?: 6))
             }.onSuccess { CoinjoinHub.notifyPublic(app, "Perfect coin in", "Confirmed: " + (if (w.create != null) "your pool is open" else "asked to join the pool") + ", on its own.") }
              .onFailure { CoinjoinHub.notifyPublic(app, "Perfect coin ready", "Confirmed, but ${it.message}. Join a pool with it in COINJOIN.") }
         }

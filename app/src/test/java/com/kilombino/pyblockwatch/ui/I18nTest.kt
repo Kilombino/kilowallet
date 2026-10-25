@@ -170,6 +170,15 @@ class I18nTest {
      * 1.3.3: another seat in a pool, the perpetual coinjoin and mined rewards still locked, as the code
      * builds them (pieces joined with " · ", values inside, upper-case labels), in every language.
      */
+    /** The perpetual coinjoin's explanation, as the checkbox shows it, in every language. */
+    @Test fun perpetualExplainTranslated() {
+        val k = "When the round confirms, your mixed coin joins another pool by itself (or opens one with the whole coin, no change), again and again; each round costs it its fee share. It stops when you turn it off or spend the coin, or when it falls below a pool's minimum. Its pools use the fee you chose for this one. Only the hot wallet's output remixes, never a change. If this pool ends without a round, the same pool opens again, with the same coins and addresses, until one happens. While it is on, the key of this wallet's receive addresses of this type stays on the phone, encrypted, so it can sign without you; until its first round, that of its change addresses too."
+        for (l in I18n.LANGUAGES.map { it.first }.filter { it != I18n.EN }) {
+            val o = JSONObject(File(dir, "$l.json").readText())
+            assertTrue("$l lacks the perpetual coinjoin's explanation", o.has(k) && o.getString(k) != k)
+        }
+    }
+
     @Test fun seatsPerpetualAndMinedRewardTexts() {
         val shown = listOf(
             "Another seat of yours counts as one more member: the others get less privacy than they see, and spending both results together later links them.",
@@ -212,6 +221,10 @@ class I18nTest {
             I18n.tr("One person, one node: put your own here (a .onion address works too, through the app's Tor). Leave empty to use " +
                 "fulcrum.kilombino.com:17717, meant for emergencies."))
         assertEquals("Conectar al servidor a través de Tor", I18n.tr("Connect to the server through Tor"))
+        assertEquals("♻ Perpetuo: su primer pool terminó sin ronda; el mismo pool se vuelve a abrir en 42 s",
+            I18n.tr("♻ Perpetual: its first pool ended without a round; the same pool opens again in 42 s"))
+        assertEquals("♻ Perpetuo: detenido (su primer pool terminó sin ronda y no se puede volver a abrir igual (un pool privado, o uno de una versión anterior): la moneda no se movió)",
+            I18n.tr("♻ Perpetual: stopped (its first pool ended without a round and can't be opened again the same (a private pool, or one from an older version): the coin did not move)"))
         assertEquals("♻ Coinjoin perpetuo: tras esa ronda sigue volviendo a mezclarse (tope de comisión 2.5 sat/vB).",
             I18n.tr("♻ Perpetual coinjoin: after that round it keeps remixing (fee cap 2.5 sat/vB)."))
         assertEquals("Después se une sola al pool como otro puesto tuyo, tras una espera aleatoria, y la ronda va sola.",

@@ -90,6 +90,10 @@ class SeatsAndPerpetualTest {
         override fun busyPools() = busy
         override fun join(r: Remix, t: Protocol.Terms): Remixer.NewSeat { joined += t.id; n++; return Remixer.NewSeat("seat$n", 100 + n, script(900L + n)) }
         override fun create(r: Remix, amount: Long, rate: Double): Remixer.NewSeat { created += amount to rate; n++; return Remixer.NewSeat("seat$n", 100 + n, script(900L + n)) }
+        var firstUnspent: Boolean? = true
+        val reopened = mutableListOf<FirstPool>()
+        override fun firstUnspent(r: Remix) = firstUnspent
+        override fun reopen(r: Remix): Remixer.NewSeat { reopened += r.first!!; n++; return Remixer.NewSeat("seat$n", r.seatIndex, r.first!!.mixScript) }
     }
 
     /** A seat state in [phase], of a pool of [amount], with [txid] once sent. */
@@ -235,5 +239,104 @@ class SeatsAndPerpetualTest {
         assertEquals(1.5, Remixer.createRate(r, 1.0)!!, 0.0)
         assertNull(Remixer.createAmount(10_050, 2.0, ScriptType.P2WPKH))
         assertNotNull(Remixer.createAmount(10_300, 2.0, ScriptType.P2WPKH))
+    }
+
+    // ------------------------------------------------------------------------------- the first pool again
+
+    /** A first pool of two coins (one on a change address), from real keys of a test wallet. */
+    private fun firstPool(private: Boolean = false): Triple<FirstPool, com.kilombino.pyblockwatch.crypto.Bip32Priv.ExtendedPrivKey,
+        com.kilombino.pyblockwatch.crypto.Bip32Priv.ExtendedPrivKey> {
+        val master = com.kilombino.pyblockwatch.crypto.Bip32Priv.fromSeed(ByteArray(32) { 7 })
+        val recv = com.kilombino.pyblockwatch.crypto.Bip32Priv.derivePath(master, "m/84'/0'/0'/0")
+        val chg = com.kilombino.pyblockwatch.crypto.Bip32Priv.derivePath(master, "m/84'/0'/0'/1")
+        val k1 = com.kilombino.pyblockwatch.crypto.Bip32Priv.deriveChild(recv, 4); val k2 = com.kilombino.pyblockwatch.crypto.Bip32Priv.deriveChild(chg, 9)
+        val coins = listOf(CoinjoinTx.Coin("%064x".format(41), 0, 60_000, k1.publicKey()), CoinjoinTx.Coin("%064x".format(42), 1, 50_000, k2.publicKey()))
+        val f = FirstPool(100_000, 2.0, 2, 5, 6, 2, coins, listOf("m/84'/0'/0'/0/4", "m/84'/0'/0'/1/9"), script(77), script(78), private)
+        return Triple(f, recv, chg)
+    }
+
+    private fun waitingFirst(f: Fake, first: FirstPool?) = Remix("rf", ScriptType.P2WPKH, cap = 2.0, rate = 2.0, minPeers = 2, maxPeers = 5,
+        hours = 6, seat = "s0", seatIndex = 33, seatScript = first?.mixScript ?: script(77), first = first).also {
+        f.seats["s0"] = seat(PoolSession.Phase.ABORTED, reason = "the pool expired")
+    }
+
+    @Test fun firstPoolWithNobodyOpensAgainTheSame() {
+        val (fp, _, _) = firstPool()
+        val f = Fake(); val r = waitingFirst(f, fp)
+        // Expired with nobody: not stopped, it waits and opens the same pool again.
+        assertTrue(Remixer(f).step(r)); assertEquals(Remix.State.WAITING, r.state); assertNull(r.txid)
+        assertEquals(f.now + 30, r.nextAt)
+        f.now = r.nextAt
+        assertTrue(Remixer(f).step(r)); assertEquals(Remix.State.SEATED, r.state)
+        assertEquals(1, f.reopened.size); assertTrue(f.reopened.single() === fp)
+        assertTrue(f.joined.isEmpty() && f.created.isEmpty())
+        // The same mixed-output address and receive index as before.
+        assertTrue(r.seatScript!!.contentEquals(fp.mixScript)); assertEquals(33, r.seatIndex)
+        // Again with nobody, again the same pool.
+        f.seats[r.seat!!] = seat(PoolSession.Phase.ABORTED, reason = "the creator closed the pool")
+        Remixer(f).step(r); f.now = r.nextAt; Remixer(f).step(r)
+        assertEquals(2, f.reopened.size); assertEquals(Remix.State.SEATED, r.state)
+        // Now it gets a round: the mixed coin goes on to the next pools, and the first pool is dropped.
+        f.seats[r.seat!!] = seat(PoolSession.Phase.CONFIRMED, txid = "cc".repeat(32)); f.outputValue = 100_000
+        assertTrue(Remixer(f).step(r)); assertEquals(Remix.State.WAITING, r.state); assertEquals(1, r.rounds); assertNull(r.first)
+        assertEquals(33, r.index); assertEquals(100_000L, r.value)
+        f.now = r.nextAt; Remixer(f).step(r)
+        assertEquals(1, f.created.size); assertEquals(2, f.reopened.size)
+    }
+
+    @Test fun firstPoolCoinsSpentStopIt() {
+        val (fp, _, _) = firstPool()
+        val f = Fake(); val r = waitingFirst(f, fp)
+        Remixer(f).step(r); f.now = r.nextAt
+        f.firstUnspent = null // the server out of reach: asks again later, doesn't stop
+        Remixer(f).step(r); assertEquals(Remix.State.WAITING, r.state); assertEquals(f.now + 60, r.nextAt)
+        f.now = r.nextAt; f.firstUnspent = false
+        Remixer(f).step(r)
+        assertEquals(Remix.State.STOPPED, r.state); assertEquals(Remix.MOVED, r.reason); assertTrue(f.reopened.isEmpty())
+    }
+
+    @Test fun aPrivateOrOldFirstPoolStillStops() {
+        val f = Fake(); val r = waitingFirst(f, firstPool(private = true).first)
+        Remixer(f).step(r); assertEquals(Remix.State.STOPPED, r.state); assertEquals(Remix.FIRST_CANCELLED, r.reason)
+        val g = Fake(); val q = waitingFirst(g, null)
+        Remixer(g).step(q); assertEquals(Remix.State.STOPPED, q.state); assertEquals(Remix.FIRST_CANCELLED, q.reason)
+    }
+
+    @Test fun firstPoolSeatRebuiltFromTheBranchKeys() {
+        val (fp, recv, chg) = firstPool()
+        assertTrue(fp.needsChangeKey)
+        val pick = Perpetual.firstPick(fp, ScriptType.P2WPKH) { if (it == 0) recv else chg }
+        assertEquals(fp.coins.map { it.outpoint }, pick.coins.map { "${it.txid}:${it.vout}" })
+        assertTrue(pick.coins.indices.all { pick.coins[it].coinKey.publicKey().contentEquals(fp.coins[it].pubkey) })
+        assertTrue(pick.mixScripts.single().contentEquals(fp.mixScript)); assertTrue(pick.changeScript.contentEquals(fp.changeScript))
+        // The same seat as before: same terms, coins, change.
+        val np = PoolSession.newPool(fp.amount, fp.rate, fp.maxPeers, fp.hours, fp.minPeers, maxInputs = fp.maxInputs, v3 = true)
+        val st = PoolSession.newState(np.terms, true, np.secret, pick.txCoins(), pick.coins.map { it.coinKey.key }, pick.coins.map { it.coinPath },
+            pick.mixScripts, pick.changeScript, creatorSecret = np.creatorSecret, blindPriv = np.blindPriv)
+        assertEquals(110_000L - 100_000 - CoinjoinTx.feeShare(2.0, true, 2), st.seat.changeValue)
+        // Without the change branch's key it can't sign the coin on a change address.
+        try { Perpetual.firstPick(fp, ScriptType.P2WPKH) { if (it == 0) recv else null }; org.junit.Assert.fail() } catch (_: IllegalStateException) {}
+        // Nor with another wallet's keys.
+        try { Perpetual.firstPick(fp, ScriptType.P2WPKH) { chg }; org.junit.Assert.fail() } catch (_: IllegalStateException) {}
+        // Kept and read back as it was.
+        val back = FirstPool.parse(JSONObject(fp.toJson().toString()))
+        assertEquals(fp.toJson().toString(), back.toJson().toString())
+        val r = Remix("x", ScriptType.P2WPKH, cap = 2.0, rate = 2.0, minPeers = 2, maxPeers = 5, hours = 6, first = fp)
+        assertEquals(fp.toJson().toString(), Remix.parseList(Remix.listJson(listOf(r))).single().first!!.toJson().toString())
+    }
+
+    @Test fun branchKeysKeptOnlyWhileNeeded() {
+        val (fp, _, _) = firstPool()
+        fun rx(id: String, st: Remix.State, first: FirstPool?, seat: String? = null) =
+            Remix(id, ScriptType.P2WPKH, cap = 2.0, rate = 2.0, minPeers = 2, maxPeers = 5, hours = 6, state = st, seat = seat, first = first)
+        // Waiting for its first round with a coin on a change address: both keys.
+        assertEquals(setOf(ScriptType.P2WPKH) to setOf(ScriptType.P2WPKH), Perpetual.keysNeeded(listOf(rx("a", Remix.State.WAITING, fp))))
+        // First round done: only the receive branch's.
+        assertEquals(setOf(ScriptType.P2WPKH) to emptySet<ScriptType>(), Perpetual.keysNeeded(listOf(rx("a", Remix.State.WAITING, null))))
+        // Stopped (and in no round): none.
+        assertEquals(emptySet<ScriptType>() to emptySet<ScriptType>(), Perpetual.keysNeeded(listOf(rx("a", Remix.State.STOPPED, fp))))
+        // First pool's coins only on receive addresses: the change branch's is not needed.
+        val recvOnly = FirstPool(fp.amount, fp.rate, 2, 5, 6, 1, fp.coins.take(1), fp.coinPaths.take(1), fp.mixScript, null, false)
+        assertEquals(emptySet<ScriptType>(), Perpetual.keysNeeded(listOf(rx("a", Remix.State.SEATED, recvOnly, "s"))).second)
     }
 }

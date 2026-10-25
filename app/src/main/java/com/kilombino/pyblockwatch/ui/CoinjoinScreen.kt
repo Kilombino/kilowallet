@@ -457,7 +457,9 @@ private fun beginPerpetual(ctx: android.content.Context, st: PoolSession.State, 
     require(pick.mixIndex >= 0 && st.terms.outputs == 1) { "a perpetual coinjoin needs one output of this wallet" }
     // Pools it opens later last as long as the one opened here did; joined, the usual 6 hours.
     val hours = if (st.creator) ((st.terms.expiresAt - st.created + 1800) / 3600).toInt() else 6
-    com.kilombino.pyblockwatch.coinjoin.Perpetual.start(ctx, st.key, pick.type, branch, pick.mixIndex, pick.mixScripts.first(), st.terms, cap, st.perpId, hours)
+    // Its first pool kept as it is: if it ends without a round, the same pool opens again.
+    com.kilombino.pyblockwatch.coinjoin.Perpetual.start(ctx, st.key, pick.type, branch, pick.mixIndex, pick.mixScripts.first(), st.terms, cap, st.perpId, hours,
+        com.kilombino.pyblockwatch.coinjoin.FirstPool.of(st, hours), pick.perpChangeBranch)
 }
 
 /** Next to "ask to close" and "leave" while this phone has more than one seat in a pool, and before taking one. */
@@ -1101,7 +1103,12 @@ private fun MyPoolCard(
                             "transaction exists until all have signed, so every coin stays where it is."
                         else if (manySeats) "Only this seat leaves (its coin of ${groupSats(st.seat.inputValue)} sats is yours to spend again); your other seat stays in the pool."
                         else "Your seat is freed and your coin is yours to spend again. Nothing was signed, so nothing moves.") },
-                    confirmButton = { TextButton(onClick = { confirmLeave = false; act { session?.leave() } }) {
+                    confirmButton = { TextButton(onClick = {
+                        confirmLeave = false
+                        // Left or cancelled by hand: a perpetual coinjoin stops with it (it would open the pool again).
+                        st.perpId?.let { com.kilombino.pyblockwatch.coinjoin.Perpetual.turnOff(ctx, it) }
+                        act { session?.leave() }
+                    }) {
                         Text(if (st.creator) "CANCEL POOL" else "LEAVE", color = Bad) } },
                     dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("STAY", color = TextSoft) } },
                     containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
@@ -1861,14 +1868,19 @@ private fun PerpetualChoice(on: Boolean, capText: String, accent: Color, onOn: (
 private const val PERPETUAL_EXPLAIN = "When the round confirms, your mixed coin joins another pool by itself (or opens one with the " +
     "whole coin, no change), again and again; each round costs it its fee share. It stops when you turn it off or spend the coin, " +
     "or when it falls below a pool's minimum. Its pools use the fee you chose for this one. Only the hot wallet's output remixes, never a change. " +
-    "While it is on, the key of this wallet's receive addresses of this type stays on the phone, encrypted, so it can sign without you."
+    "If this pool ends without a round, the same pool opens again, with the same coins and addresses, until one happens. " +
+    "While it is on, the key of this wallet's receive addresses of this type stays on the phone, encrypted, so it can sign without you; " +
+    "until its first round, that of its change addresses too."
 
 /** What a perpetual coin is doing, as one line. */
 private fun perpetualLine(r: com.kilombino.pyblockwatch.coinjoin.Remix): String = when (r.state) {
     com.kilombino.pyblockwatch.coinjoin.Remix.State.SEATED -> "♻ Perpetual: in a round now"
     com.kilombino.pyblockwatch.coinjoin.Remix.State.WAITING -> {
         val s = r.nextAt - System.currentTimeMillis() / 1000
-        if (s > 0) "♻ Perpetual: looking for its next pool in ${s} s" else "♻ Perpetual: looking for its next pool"
+        // Before its first round: its first pool ended with nobody, and the same pool opens again.
+        if (r.txid == null) { if (s > 0) "♻ Perpetual: its first pool ended without a round; the same pool opens again in ${s} s"
+            else "♻ Perpetual: opening its first pool again" }
+        else if (s > 0) "♻ Perpetual: looking for its next pool in ${s} s" else "♻ Perpetual: looking for its next pool"
     }
     com.kilombino.pyblockwatch.coinjoin.Remix.State.STOPPED -> "♻ Perpetual: stopped (${r.reason})"
 }
@@ -1918,7 +1930,7 @@ private fun PerpetualCard(vm: WalletViewModel, r: com.kilombino.pyblockwatch.coi
                 runCatching { vm.seedDecryptCipher() }.onSuccess { cipher ->
                     Biometric.authenticate(activity, "Perpetual coinjoin", "Unlock to let it go on by itself", cipher,
                         onSuccess = { authed -> scope.launch {
-                            runCatching { withContext(Dispatchers.Default) { com.kilombino.pyblockwatch.coinjoin.Perpetual.turnOn(ctx, r.id, vm.perpetualBranch(authed, r.type)) } }
+                            runCatching { withContext(Dispatchers.Default) { vm.perpetualBranches(authed, r.type).let { (b, c) -> com.kilombino.pyblockwatch.coinjoin.Perpetual.turnOn(ctx, r.id, b, c) } } }
                                 .onFailure { onMessage(it.message ?: "could not unlock") }
                         } }, onError = onMessage)
                 }.onFailure { onMessage(it.message ?: "could not unlock") }

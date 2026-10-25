@@ -61,8 +61,8 @@ object AutoKeyVault {
     fun keepOnly(ctx: Context, keep: Set<String>) {
         val p = prefs(ctx)
         // A perfect coin's key ("exact:…") waits for its pool and is not a round's: left alone.
-        // Nor a perpetual coinjoin's branch key ("perpbranch:…"), which [Perpetual] keeps and drops itself.
-        val gone = p.all.keys.filter { it !in keep && !it.startsWith("exact:") && !it.startsWith("perpbranch:") }
+        // Nor a perpetual coinjoin's branch keys ("perpbranch:…", "perpbranch-change:…"), which [Perpetual] keeps and drops itself.
+        val gone = p.all.keys.filter { it !in keep && !it.startsWith("exact:") && !it.startsWith("perpbranch") }
         if (gone.isNotEmpty()) p.edit().apply { gone.forEach { remove(it) } }.apply()
     }
 }

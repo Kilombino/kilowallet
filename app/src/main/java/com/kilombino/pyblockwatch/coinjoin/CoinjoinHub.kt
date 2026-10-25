@@ -185,6 +185,8 @@ object CoinjoinHub {
         val mixIndex: Int = -1,
         /** A perpetual coinjoin's start: the hot wallet's receive branch key of [type], for the rounds after this one. */
         val perpBranch: Bip32Priv.ExtendedPrivKey? = null,
+        /** And its change branch's, for opening the first pool again with coins on change addresses. */
+        val perpChangeBranch: Bip32Priv.ExtendedPrivKey? = null,
     ) {
         fun txCoins(): List<CoinjoinTx.Coin> = coins.map { CoinjoinTx.Coin(it.txid, it.vout, it.value, it.coinKey.publicKey(), type) }
     }
