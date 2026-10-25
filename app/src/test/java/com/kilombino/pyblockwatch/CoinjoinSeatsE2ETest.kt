@@ -245,6 +245,42 @@ class CoinjoinSeatsE2ETest {
         listOf(a, r1, r2, b).forEach { it.stop() }
     }
 
+    /**
+     * Another seat with a perfect coin (made for it, so it joins with no change): W's second seat, its
+     * own key and its own wait, as the perfect coin's join does once it confirms; the round is mined.
+     */
+    @Test fun perfectCoinAsAnotherSeat() {
+        System.getenv("KILOJOIN_E2E_SEATS") ?: return
+        val salt = setup()
+        val seed = (salt % 50_000).toInt() * 10 + 4
+        val exact = CoinjoinTx.minimumCoin(100_000, 2.0)
+        val ca = fund(seed, 150_000); val cw1 = fund(seed + 1, 140_000); val cw2 = fund(seed + 2, exact); val cb = fund(seed + 3, 160_000)
+        mine()
+        val np = PoolSession.newPool(100_000, 2.0, 5, 3, minPeers = 4, v3 = true)
+        val a = PoolSession(Env("A"), PoolSession.newState(np.terms, true, np.secret, listOf(ca), listOf(key(seed)), listOf("a"),
+            listOf(script(50_000 + salt)), script(51_000 + salt), creatorSecret = np.creatorSecret, blindPriv = np.blindPriv)).also { it.autoKeys = listOf(key(seed)) }
+        a.start(); waitFor("A open") { a.state.phase == PoolSession.Phase.OPEN }
+        val seen = listed(np.terms.id)
+        val w1 = member("W1", seen, cw1, seed + 1, salt); w1.start()
+        val b = member("B", seen, cb, seed + 3, salt); b.start()
+        waitFor("W1 and B in") { a.state.seats.size == 3 }
+        val w2 = member("W2", seen, cw2, seed + 2, salt, CoinjoinHub.newSeatId(seen.id, setOf(seen.id)), System.currentTimeMillis() / 1000 + 20)
+        assertEquals(0L, w2.state.seat.changeValue) // the perfect coin: no change
+        w2.start()
+        waitFor("W2 in after its wait", 90) { w2.state.phase == PoolSession.Phase.OPEN && listOf(a, w1, w2, b).all { it.state.seats.size == 4 } }
+        b.requestClose()
+        waitFor("broadcast", 300) { listOf(a, w1, w2, b).all { it.state.txid != null } }
+        val tx = rpc("getrawtransaction", a.state.txid!!, true) as JSONObject
+        val outs = tx.getJSONArray("vout").let { v -> (0 until v.length()).map { v.getJSONObject(it) } }
+            .map { it.getJSONObject("scriptPubKey").getString("hex") to Math.round(it.getDouble("value") * 1e8) }
+        assertEquals(1, outs.count { it.first == hex(w2.state.mixScript) && it.second == 100_000L })
+        assertEquals(4 + 3, outs.size) // four mixed outputs and three changes: none for the perfect coin
+        mine()
+        waitFor("confirmed", 90) { listOf(a, w1, w2, b).all { it.state.phase == PoolSession.Phase.CONFIRMED } }
+        println("perfect coin as another seat txid ${a.state.txid}")
+        listOf(a, w1, w2, b).forEach { it.stop() }
+    }
+
     // ------------------------------------------------------------------------------- perpetual
 
     /** The perpetual coinjoin's side, as [com.kilombino.pyblockwatch.coinjoin.Perpetual] runs it in the app, over the regtest node. */

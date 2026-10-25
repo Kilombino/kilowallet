@@ -212,6 +212,10 @@ class I18nTest {
             I18n.tr("One person, one node: put your own here (a .onion address works too, through the app's Tor). Leave empty to use " +
                 "fulcrum.kilombino.com:17717, meant for emergencies."))
         assertEquals("Conectar al servidor a través de Tor", I18n.tr("Connect to the server through Tor"))
+        assertEquals("♻ Coinjoin perpetuo: tras esa ronda sigue volviendo a mezclarse (tope de comisión 2.5 sat/vB).",
+            I18n.tr("♻ Perpetual coinjoin: after that round it keeps remixing (fee cap 2.5 sat/vB)."))
+        assertEquals("Después se une sola al pool como otro puesto tuyo, tras una espera aleatoria, y la ronda va sola.",
+            I18n.tr("Then it joins the pool by itself as another seat of yours, after a random wait, and the round runs on its own."))
         // BTC, never XBT, on screen.
         for (l in I18n.LANGUAGES.map { it.first }.filter { it != I18n.EN }) {
             val o = JSONObject(File(dir, "$l.json").readText())

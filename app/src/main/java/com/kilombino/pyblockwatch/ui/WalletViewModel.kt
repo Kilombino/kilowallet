@@ -2070,6 +2070,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         // A perfect coin for a pool: its key, from the same unlock, goes with it (see [ExactFor]).
         val exact = exactPending?.takeIf { exactFor != null }
         var exactKey: java.math.BigInteger? = null
+        // A perpetual coinjoin chosen with the perfect coin: its rounds' key, from this same unlock.
+        var exactBranch: com.kilombino.pyblockwatch.crypto.Bip32Priv.ExtendedPrivKey? = null
+        val perpetual = exactFor?.let { it.perpCap != null && it.destScripts == null } == true
         viewModelScope.launch {
             runCatching {
                 val signed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
@@ -2079,6 +2082,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     exact?.let { (i, tag, _) ->
                         exactKey = com.kilombino.pyblockwatch.crypto.Bip32Priv
                             .derivePath(master, "m/${Scanner.purposeFor(typeFor(tag))}'/0'/0'/0/$i").key
+                        if (perpetual) exactBranch = com.kilombino.pyblockwatch.crypto.Bip32Priv
+                            .derivePath(master, "m/${Scanner.purposeFor(typeFor(tag))}'/0'/0'/0")
                     }
                     // A pool may have reached its closing or signing step while the review was open:
                     // its coins are taken now, so spending one here would break that round.
@@ -2126,7 +2131,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.leavePools(getApplication(), draft.leavesPools)
                 // A cancelled payment that made a perfect coin: the coin is gone, and its pool with it.
                 if (draft.cancels) draft.replaces?.let { com.kilombino.pyblockwatch.coinjoin.PerfectCoin.cancel(getApplication(), it) }
-                exact?.let { (i, tag, value) -> exactKey?.let { k -> runCatching { expectPerfectCoin(txid, draft, i, tag, value, k) } } }
+                exact?.let { (i, tag, value) -> exactKey?.let { k -> runCatching { expectPerfectCoin(txid, draft, i, tag, value, k, exactBranch) } } }
                 exactFor = null; exactPending = null
                 refresh(chain)
             }.onFailure { e ->
@@ -2465,8 +2470,15 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
      */
     class ExactFor(val poolId: String?, val poolPassword: String?, val create: org.json.JSONObject?, val terms: org.json.JSONObject? = null,
                    /** Where the mixed outputs go when not to this wallet (watch-only, Jam): found before the payment. */
-                   val destScripts: List<ByteArray>? = null) {
-        fun withDest(scripts: List<ByteArray>?) = ExactFor(poolId, poolPassword, create, terms, scripts)
+                   val destScripts: List<ByteArray>? = null,
+                   /** Another seat in a pool this phone is already in (＋ JOIN WITH ANOTHER UTXO). */
+                   val extraSeat: Boolean = false,
+                   /** A creator's own private pool: the pool's key from its password (hex), in place of the password. */
+                   val passwordKey: String? = null,
+                   /** The perpetual coinjoin chosen with it: its fee cap; null when not perpetual. */
+                   val perpCap: Double? = null) {
+        fun withDest(scripts: List<ByteArray>?) = ExactFor(poolId, poolPassword, create, terms, scripts, extraSeat, passwordKey, perpCap)
+        fun withPerpetual(cap: Double?) = ExactFor(poolId, poolPassword, create, terms, destScripts, extraSeat, passwordKey, cap)
     }
     @Volatile var exactFor: ExactFor? = null
     /** The perfect coin in the review: its address index, account and amount. */
@@ -2526,7 +2538,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
      * the seat's mixed-output and change addresses reserved now (marked used, so nothing else
      * hands them out meanwhile).
      */
-    private fun expectPerfectCoin(txid: String, draft: SendDraft, index: Int, tag: ScriptType?, value: Long, key: java.math.BigInteger) {
+    private fun expectPerfectCoin(txid: String, draft: SendDraft, index: Int, tag: ScriptType?, value: Long, key: java.math.BigInteger,
+                                  branch: com.kilombino.pyblockwatch.crypto.Bip32Priv.ExtendedPrivKey? = null) {
         val f = exactFor ?: return
         val xpub = xpubFor(tag) ?: return
         val type = typeFor(tag)
@@ -2538,8 +2551,10 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         // One fresh address per mixed output the pool gives each person (v4: several).
         val outputs = f.create?.optInt("outputs", 1) ?: f.terms?.optInt("outputs", 1) ?: 1
         // To another wallet (found before the payment), or fresh addresses of this one.
+        var hotMix = -1
         val mixes = f.destScripts?.takeIf { it.size == outputs } ?: run {
             val mixIndex = maxOf(nextUnused(0, tag), index + 1)
+            hotMix = mixIndex
             store.noteUsedTop(xpub, 0, mixIndex + outputs, type)
             (0 until outputs).map { j ->
                 com.kilombino.pyblockwatch.crypto.Address.scriptPubKey(
@@ -2552,7 +2567,10 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         com.kilombino.pyblockwatch.coinjoin.PerfectCoin.expect(getApplication(),
             com.kilombino.pyblockwatch.coinjoin.PerfectCoin.Waiting(txid, vout, value, type,
                 "m/${Scanner.purposeFor(type)}'/0'/0'/0/$index", script, mixes, changeScriptPubKey(changeIndex, tag),
-                f.poolId, f.poolPassword, f.create, terms = f.terms), key)
+                f.poolId, f.poolPassword, f.create, terms = f.terms, extraSeat = f.extraSeat, passwordKey = f.passwordKey,
+                // Perpetual only with one mixed output of this wallet, whose key the branch gives.
+                perpCap = f.perpCap?.takeIf { branch != null && hotMix >= 0 && outputs == 1 }, mixIndex = hotMix), key,
+            branch?.takeIf { f.perpCap != null && hotMix >= 0 && outputs == 1 })
     }
 
     /** True when [address] is one of this wallet's own (used so far, plus the gap). */

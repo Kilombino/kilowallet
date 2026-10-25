@@ -2371,5 +2371,7 @@
 "Connecting through Tor is on, but Tor is not running on this phone (or did not start): nothing was sent without it.": "Ligar através do Tor está ativado, mas o Tor não está a correr neste telefone (ou não arrancou): nada foi enviado sem ele.",
 "Could not reach {0} through Tor: {1}": "Não foi possível chegar a {0} através do Tor: {1}",
 "One person, one node: put your own here (a .onion address works too, through the app's Tor). Leave empty to use {0}:{1}, meant for emergencies.": "Uma pessoa, um nó: coloque o seu aqui (um endereço .onion também serve, através do Tor da app). Deixe vazio para usar {0}:{1}, pensado para emergências.",
-"♻ Perpetual coinjoin: only with one mixed output per person (several remixing at once would be linked by their timing).": "♻ Coinjoin perpétuo: só com uma saída misturada por pessoa (várias a remisturar ao mesmo tempo ficariam ligadas pelo momento)."
+"♻ Perpetual coinjoin: only with one mixed output per person (several remixing at once would be linked by their timing).": "♻ Coinjoin perpétuo: só com uma saída misturada por pessoa (várias a remisturar ao mesmo tempo ficariam ligadas pelo momento).",
+"Then it joins the pool by itself as another seat of yours, after a random wait, and the round runs on its own.": "Depois entra sozinha no pool como outro lugar seu, após uma espera aleatória, e a rodada segue sozinha.",
+"♻ Perpetual coinjoin: after that round it keeps remixing (fee cap {0} sat/vB).": "♻ Coinjoin perpétuo: depois dessa rodada continua a voltar a misturar (teto de taxa {0} sat/vB)."
 }

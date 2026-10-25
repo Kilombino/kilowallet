@@ -234,9 +234,13 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
                 singleLine = true, textStyle = MaterialTheme.typography.bodyMedium, modifier = Modifier.fillMaxWidth())
         }
         CoinPicker(vm, accent, "Another seat · ${poolAmount(t)} sats${poolKind(t)}", t.amount, t.feeRate, t.script, t.maxInputs, t.outputs,
-            exactFor = WalletViewModel.ExactFor(t.id, joinPassword.ifEmpty { null }, null, com.kilombino.pyblockwatch.coinjoin.PerfectCoin.agreed(t)),
+            // A perfect coin made from here joins as another seat too, once it confirms (see PerfectCoin).
+            exactFor = WalletViewModel.ExactFor(t.id, joinPassword.ifEmpty { null }, null, com.kilombino.pyblockwatch.coinjoin.PerfectCoin.agreed(t),
+                extraSeat = true, passwordKey = mineSt.pwKey),
             onCancel = { extraFor = null; joinPassword = "" },
-            perpetualOk = false, noExactCoin = true,
+            // Not perpetual: two seats of one person remixing on their own would go to the next pools at the same
+            // moment, tied by their timing, as several outputs each would (why those pools are left out too).
+            perpetualOk = false,
             onPicked = { u, dest, _ ->
                 if (needsPassword && joinPassword.isEmpty()) { message = "Type the pool's password first."; return@CoinPicker }
                 scope.launch {
@@ -561,7 +565,8 @@ private fun CoinPicker(
         Spacer(Modifier.height(8.dp))
         if (dests.size > 1) DestinationChooser(dests, dest, !making, type, outputs, accent) { dest = it }
         if (making) {
-            ExactCoinPanel(vm, accent, exact, tag, exactFor, dest, outputs) { sent -> making = false; reload++; if (sent) onCancel() }
+            // The perpetual choice goes with the perfect coin: its pool, once joined, remixes as chosen here.
+            ExactCoinPanel(vm, accent, exact, tag, exactFor.withPerpetual(cap), dest, outputs) { sent -> making = false; reload++; if (sent) onCancel() }
             return@Panel
         }
         if (paymentPool) Explain((if (maxInputs > 1)
@@ -1747,8 +1752,12 @@ private fun PerfectCoinCard(w: com.kilombino.pyblockwatch.coinjoin.PerfectCoin.W
         }
         RoundSteps(0, accent)
         Text("Waiting for its first confirmation", style = MaterialTheme.typography.bodyMedium, color = accent)
-        Text(if (w.create != null) "Then your pool opens by itself and runs on its own." else "Then it joins the pool by itself and the round runs on its own.",
+        Text(if (w.create != null) "Then your pool opens by itself and runs on its own."
+            else if (w.extraSeat) "Then it joins the pool by itself as another seat of yours, after a random wait, and the round runs on its own."
+            else "Then it joins the pool by itself and the round runs on its own.",
             style = MaterialTheme.typography.bodySmall, color = TextSoft)
+        w.perpCap?.let { cap -> Text("♻ Perpetual coinjoin: after that round it keeps remixing (fee cap ${fmtRate(cap)} sat/vB).",
+            style = MaterialTheme.typography.bodySmall, color = Good) }
         Row {
             TextButton(onClick = { runCatching { uri.openUri("${vm.explorerFor(com.kilombino.pyblockwatch.chain.Chain.BLAKE2B)}/tx/${w.txid}") } }) {
                 Text("explorer", color = accent, style = MaterialTheme.typography.bodySmall)

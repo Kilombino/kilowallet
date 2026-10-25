@@ -35,16 +35,23 @@ object PerfectCoin {
         val since: Long = System.currentTimeMillis() / 1000,
         /** The joined pool's terms as the user saw and accepted them ([agreed]). */
         val terms: JSONObject? = null,
+        /** Another seat in a pool this phone is already in: joins as one (its own key, connection, random wait). */
+        val extraSeat: Boolean = false,
+        /** A creator's own private pool: the pool's key from its password (hex). */
+        val passwordKey: String? = null,
+        /** A perpetual coinjoin from the round it joins: its fee cap, and the hot wallet's receive index of its mixed output. */
+        val perpCap: Double? = null, val mixIndex: Int = -1,
     ) {
         val key get() = "exact:$txid"
         /** The same coin, now at [txid]:[vout] (its payment was replaced to speed it up). */
         fun movedTo(txid: String, vout: Int) = Waiting(txid, vout, value, type, path, script, mixScripts, changeScript,
-            poolId, poolPassword, create, since, terms)
+            poolId, poolPassword, create, since, terms, extraSeat, passwordKey, perpCap, mixIndex)
         fun toJson(): JSONObject = JSONObject().put("txid", txid).put("vout", vout).put("value", value).put("type", type.name)
             .put("path", path).put("script", script.toHex()).put("mix", mixScripts.first().toHex())
             .put("mixes", JSONArray(mixScripts.map { it.toHex() })).put("change", changeScript.toHex())
             .put("pool", poolId ?: "").put("poolPassword", poolPassword ?: "").put("create", create ?: JSONObject.NULL).put("since", since)
             .put("terms", terms ?: JSONObject.NULL)
+            .put("extraSeat", extraSeat).put("passwordKey", passwordKey ?: "").put("perpCap", perpCap ?: JSONObject.NULL).put("mixIndex", mixIndex)
 
         companion object {
             private fun hex(s: String) = ByteArray(s.length / 2) { s.substring(2 * it, 2 * it + 2).toInt(16).toByte() }
@@ -53,7 +60,8 @@ object PerfectCoin {
                 o.optJSONArray("mixes")?.let { a -> (0 until a.length()).map { hex(a.getString(it)) } } ?: listOf(hex(o.getString("mix"))),
                 hex(o.getString("change")),
                 o.optString("pool").ifEmpty { null }, o.optString("poolPassword").ifEmpty { null }, o.optJSONObject("create"), o.optLong("since"),
-                o.optJSONObject("terms"))
+                o.optJSONObject("terms"), o.optBoolean("extraSeat"), o.optString("passwordKey").ifEmpty { null },
+                if (o.isNull("perpCap") || !o.has("perpCap")) null else o.getDouble("perpCap"), o.optInt("mixIndex", -1))
         }
     }
 
@@ -108,9 +116,12 @@ object PerfectCoin {
         _waiting.value = list
     }
 
-    /** The payment to ourselves went out: remember it, its key and the seat's addresses. */
-    fun expect(ctx: Context, w: Waiting, coinKey: java.math.BigInteger) {
-        AutoKeyVault.save(ctx, w.key, listOf(coinKey))
+    /**
+     * The payment to ourselves went out: remember it, its key and the seat's addresses; with a perpetual
+     * coinjoin, also the receive branch key ([branch]) its later rounds sign with, kept with the coin's.
+     */
+    fun expect(ctx: Context, w: Waiting, coinKey: java.math.BigInteger, branch: Bip32Priv.ExtendedPrivKey? = null) {
+        AutoKeyVault.save(ctx, w.key, listOfNotNull(coinKey, branch?.key, branch?.let { java.math.BigInteger(1, it.chainCode) }))
         save(ctx, load(ctx).filter { it.txid != w.txid } + w)
         CoinjoinService.start(ctx)
     }
@@ -166,21 +177,32 @@ object PerfectCoin {
                 }
             }
             if (!confirmed) continue
-            val k = AutoKeyVault.load(app, w.key)?.firstOrNull()
+            val keys = AutoKeyVault.load(app, w.key)
+            val k = keys?.firstOrNull()
+            val branch = keys?.takeIf { it.size == 3 && w.perpCap != null && w.mixIndex >= 0 }?.let { (_, b, c) ->
+                Bip32Priv.ExtendedPrivKey(b, c.toByteArray().let { x -> if (x.size > 32) x.copyOfRange(x.size - 32, x.size) else ByteArray(32 - x.size) + x }, 4)
+            }
             cancel(app, w.txid)
             if (k == null) { CoinjoinHub.notifyPublic(app, "Perfect coin ready", "${w.value} sats confirmed. Join a pool with it in COINJOIN."); continue }
             runCatching {
                 val node = Bip32Priv.ExtendedPrivKey(k, ByteArray(32), 5)
                 val pick = CoinjoinHub.Pick(listOf(CoinjoinHub.PickCoin(w.txid, w.vout, w.value, node, w.path)), w.type, w.mixScripts, w.changeScript)
                 val c = w.create
-                if (c != null) CoinjoinHub.create(app, pick, c.getLong("amount"), c.getDouble("feeRate"), c.getInt("maxPeers"), c.getInt("hours"),
+                val perpId = if (branch != null) Perpetual.newId() else null
+                val st = if (c != null) CoinjoinHub.create(app, pick, c.getLong("amount"), c.getDouble("feeRate"), c.getInt("maxPeers"), c.getInt("hours"),
                     c.getInt("minPeers"), c.optString("password").ifEmpty { null }, c.optInt("maxInputs", 1), auto = true,
-                    outputs = c.optInt("outputs", 1))
+                    outputs = c.optInt("outputs", 1), perpId = perpId)
                 else {
                     val t = CoinjoinHub.fetchPools().firstOrNull { it.id == w.poolId } ?: error("that pool is no longer open")
                     changed(w.terms, t)?.let { error("the pool is not the one you chose ($it)") }
-                    CoinjoinHub.join(app, t, pick, w.poolPassword, auto = true)
+                    // Another seat of ours: the hub gives it a seat of its own (own key, connection and wait),
+                    // as long as our first seat is still in the pool; else it is just our seat there.
+                    CoinjoinHub.join(app, t, pick, w.poolPassword, auto = true, perpId = perpId,
+                        passwordKey = w.passwordKey?.let { com.kilombino.pyblockwatch.crypto.Hashes.hexToBytes(it) })
                 }
+                // The perpetual coinjoin chosen with the coin goes on from this round.
+                if (branch != null && perpId != null && st.terms.outputs == 1) Perpetual.start(app, st.key, w.type, branch, w.mixIndex,
+                    w.mixScripts.first(), st.terms, w.perpCap!!, perpId, c?.optInt("hours", 6) ?: 6)
             }.onSuccess { CoinjoinHub.notifyPublic(app, "Perfect coin in", "Confirmed: " + (if (w.create != null) "your pool is open" else "asked to join the pool") + ", on its own.") }
              .onFailure { CoinjoinHub.notifyPublic(app, "Perfect coin ready", "Confirmed, but ${it.message}. Join a pool with it in COINJOIN.") }
         }
