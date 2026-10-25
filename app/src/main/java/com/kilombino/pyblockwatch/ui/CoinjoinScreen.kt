@@ -568,6 +568,9 @@ private fun CoinPicker(
             if (perpetualOk && perpetual && dest != Destination.Kind.HOT)
                 Text("A perpetual coinjoin only remixes outputs of this wallet: with another destination it is off.",
                     color = Warn, style = MaterialTheme.typography.bodySmall)
+            // Before signing, what this coin's pool will do after: remix on its own, or not.
+            if (cap != null) Text("♻ Perpetual coinjoin: on · fee cap ${fmtRate(cap)} sat/vB. After this pool, the mixed coin remixes on its own.",
+                color = Good, style = MaterialTheme.typography.bodySmall)
             // The perpetual choice goes with the perfect coin: its pool, once joined, remixes as chosen here.
             ExactCoinPanel(vm, accent, exact, tag, exactFor.withPerpetual(cap), dest, outputs) { sent -> making = false; reload++; if (sent) onCancel() }
             return@Panel
