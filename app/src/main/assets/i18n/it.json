@@ -2395,5 +2395,6 @@
 "COPY RAW": "COPIA GREZZA",
 "Raw transaction copied": "Transazione grezza copiata",
 "Could not broadcast it.": "Impossibile trasmetterla.",
-"Only this same transaction is accepted, and every signature is checked here. Nothing is sent until you choose.": "Viene accettata solo questa stessa transazione, e ogni firma viene verificata qui. Non si invia nulla finché non lo scegli tu."
+"Only this same transaction is accepted, and every signature is checked here. Nothing is sent until you choose.": "Viene accettata solo questa stessa transazione, e ogni firma viene verificata qui. Non si invia nulla finché non lo scegli tu.",
+"Its coin is still seated in a pool in IN PROGRESS: it can be removed once that pool is over, or after leaving it.": "La sua moneta è ancora seduta in un pool IN CORSO: si potrà rimuovere quando quel pool finisce, o dopo esserne uscito."
 }

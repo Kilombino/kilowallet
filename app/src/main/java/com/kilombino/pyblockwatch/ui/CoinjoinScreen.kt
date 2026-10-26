@@ -1955,6 +1955,11 @@ private fun PerpetualCard(vm: WalletViewModel, r: com.kilombino.pyblockwatch.coi
                 Text("remove", color = TextFaint, style = MaterialTheme.typography.bodySmall)
             }
         }
+        // Off but its coin still sits in a pool going on (IN PROGRESS): its key signs that seat, so it stays till then.
+        if (!on && !com.kilombino.pyblockwatch.coinjoin.Perpetual.removable(r, r.seat?.let { CoinjoinHub.session(it) }?.state,
+                r.seat?.let { CoinjoinHub.session(it) }?.done ?: true))
+            Text("Its coin is still seated in a pool in IN PROGRESS: it can be removed once that pool is over, or after leaving it.",
+                style = MaterialTheme.typography.bodySmall, color = TextFaint)
     }
     if (embedded) Column { body() } else Panel(accent = if (on) accent else TextFaint) { body() }
 }
