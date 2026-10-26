@@ -905,7 +905,7 @@
 "Some numbers come up far more often than others, which a fair die doesn't do.": "Algunos números salen mucho más que otros, cosa que un dado justo no hace.",
 "Some of these coins are seated in {0} coinjoin pool": "Algunas de estas monedas están en coinjoin, en {0} pool",
 "Some of these coins may be": "Algunas de estas monedas pueden ser",
-"Some signers need it to find their key; Bitcoin Knots does not.": "Algunos firmantes lo necesitan para encontrar su clave; Bitcoin Knots no.",
+"Signers need it to find their key. Left empty, the usual path for this address type is used and SeedSigner fills in the fingerprint.": "Los firmantes lo necesitan para encontrar su clave. Si lo dejas vacío, se usa la ruta habitual de este tipo de dirección y SeedSigner rellena la huella.",
 "Spamcoin balance": "Saldo spamcoin",
 "Spamcoin is not read from your own node: the wallet connects to public ": "Spamcoin no se lee de tu propio nodo: el monedero se conecta a servidores ",
 "Speed up payment": "Acelerar pago",

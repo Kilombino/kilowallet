@@ -41,6 +41,13 @@ object Bip32 {
         override fun hashCode(): Int = point.hashCode() * 31 + chainCode.contentHashCode()
     }
 
+    /** The child number an extended key was derived at (hardened = +2^31), from its own bytes. */
+    fun childNumber(encoded: String): Long {
+        val raw = Base58.decodeChecked(encoded.trim())
+        require(raw.size == 78)
+        return (9 until 13).fold(0L) { n, i -> (n shl 8) or (raw[i].toLong() and 0xff) }
+    }
+
     /**
      * Parse an xpub / ypub / zpub. Throws with a readable message on anything
      * malformed — this string is typed by a human, so the error surfaces in the UI.

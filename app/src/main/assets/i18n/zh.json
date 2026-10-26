@@ -899,7 +899,7 @@
 "Some numbers come up far more often than others, which a fair die doesn't do.": "有些数字出现得远比其他数字频繁，公平的骰子不会这样。",
 "Some of these coins are seated in {0} coinjoin pool": "其中一些币正在 {0} 个混币池中",
 "Some of these coins may be": "其中一些币可能是",
-"Some signers need it to find their key; Bitcoin Knots does not.": "有些签名器需要它来找到自己的密钥；Bitcoin Knots 不需要。",
+"Signers need it to find their key. Left empty, the usual path for this address type is used and SeedSigner fills in the fingerprint.": "签名设备需要它来找到自己的密钥。留空时将使用此地址类型的常用路径，SeedSigner 会自动补全指纹。",
 "Spamcoin balance": "Spamcoin 余额",
 "Spamcoin is not read from your own node: the wallet connects to public ": "Spamcoin 不从你自己的节点读取：钱包会连接由公司和机构运营的 ",
 "Speed up payment": "加速付款",

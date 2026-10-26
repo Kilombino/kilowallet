@@ -663,7 +663,7 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                     OutlinedTextField(value = origin, onValueChange = { origin = it },
                         label = { Text("key origin (optional), e.g. [d34db33f/84'/0'/0']", style = MaterialTheme.typography.bodySmall) },
                         textStyle = MaterialTheme.typography.bodySmall, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    Text("Some signers need it to find their key; Bitcoin Knots does not.",
+                    Text("Signers need it to find their key. Left empty, the usual path for this address type is used and SeedSigner fills in the fingerprint.",
                         color = TextFaint, style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(6.dp))
                     Button(onClick = { vm.exportPsbt(origin) }, enabled = canSign,

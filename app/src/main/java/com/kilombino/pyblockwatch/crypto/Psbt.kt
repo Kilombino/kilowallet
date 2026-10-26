@@ -26,6 +26,23 @@ object Psbt {
         fun child(chain: Int, index: Int) = Origin(fingerprint, path + chain.toLong() + index.toLong())
 
         companion object {
+            private const val H = 0x80000000L
+
+            /**
+             * The usual origin of an account key typed without one: an unknown (zero) master
+             * fingerprint and purpose'/0'/account' for its address type, the account read from the
+             * key itself. A signer that finds the key under that path fills the fingerprint
+             * (SeedSigner does); null when the key is not an account key (depth 3, hardened).
+             */
+            fun guess(type: ScriptType, depth: Int, childNumber: Long): Origin? {
+                if (depth != 3 || childNumber < H) return null
+                val purpose = when (type) {
+                    ScriptType.P2PKH -> 44L; ScriptType.P2SH_P2WPKH -> 49L
+                    ScriptType.P2WPKH -> 84L; ScriptType.P2TR -> 86L
+                }
+                return Origin(ByteArray(4), listOf(purpose + H, H, childNumber))
+            }
+
             /** `[d34db33f/84'/0'/0']` (or with h), as wallets print a key origin; null when blank. */
             fun parse(s: String): Origin? {
                 val t = s.trim().removePrefix("[").removeSuffix("]").trim()

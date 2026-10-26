@@ -2161,13 +2161,32 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * The watch-only key's origin for a PSBT: the one typed, checked against the key, or else the
+     * usual path for its address type with an unknown fingerprint. Without any, a signer such as
+     * SeedSigner cannot tell the coins are its own and adds no signature.
+     */
+    private fun psbtOrigin(typed: String): com.kilombino.pyblockwatch.crypto.Psbt.Origin? {
+        val xpub = _state.value.xpub ?: return null
+        val key = com.kilombino.pyblockwatch.crypto.Bip32.parseExtendedPubKey(xpub)
+        val child = com.kilombino.pyblockwatch.crypto.Bip32.childNumber(xpub)
+        val o = com.kilombino.pyblockwatch.crypto.Psbt.Origin.parse(typed)
+            ?: return com.kilombino.pyblockwatch.crypto.Psbt.Origin.guess(store.scriptType, key.depth, child)
+        require(o.path.size == key.depth && (key.depth == 0 || o.path.last() == child)) {
+            "That key origin does not match this wallet's key, which is " +
+                (if (key.depth == 3 && child >= 0x80000000L) "account ${child - 0x80000000L}' at depth 3"
+                 else "at depth ${key.depth}") + ". Leave it empty or fix it."
+        }
+        return o
+    }
+
     /** Make the PSBT for the reviewed draft; [origin] is the optional `[fingerprint/path]`. */
     fun exportPsbt(origin: String) {
         val draft = (_state.value.sendPhase as? SendPhase.Review)?.draft ?: return
         runCatching {
             require(psbtSupported() && draft.chain == Chain.BLAKE2B) { "Signing elsewhere is for BTC (BLAKE2b) only." }
             require(draft.silentRecipient == null) { "A silent payment needs the private keys while building it: send it from a hot wallet." }
-            val o = com.kilombino.pyblockwatch.crypto.Psbt.Origin.parse(origin)
+            val o = psbtOrigin(origin)
             store.keyOrigin = origin.trim()
             val account = com.kilombino.pyblockwatch.crypto.Bip32.parseExtendedPubKey(_state.value.xpub!!)
             // Our change output, so the signer can tell it is not a payment.
@@ -2198,7 +2217,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 val returned = runCatching { decode() }
                     .getOrElse { error("That is not a PSBT (base64 or hex).") }
                 val signed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                    val o = com.kilombino.pyblockwatch.crypto.Psbt.Origin.parse(store.keyOrigin)
+                    val o = psbtOrigin(store.keyOrigin)
                     com.kilombino.pyblockwatch.crypto.Psbt.finish(phase.psbt, returned, psbtCoins(draft, o), draft.outputs)
                 }
                 val endpoint = store.endpoint(draft.chain)
