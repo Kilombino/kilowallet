@@ -324,8 +324,13 @@ object CoinjoinHub {
 
     // ------------------------------------------------------------------------------- the open pools
 
-    /** Open pools on the relay right now (BLAKE2b, not expired), newest first. */
-    fun fetchPools(sinceSeconds: Long = 3 * 86400): List<Protocol.Terms> {
+    /**
+     * Open pools on the relay right now (BLAKE2b, not expired), newest first. Only listings from the
+     * last [sinceSeconds] are asked for: an open pool is announced again every few minutes and one not
+     * heard of for [Protocol.STALE_AFTER] is left out anyway, so asking for three days (as before)
+     * downloaded and checked hundreds of old listings on every look, slow over Tor.
+     */
+    fun fetchPools(sinceSeconds: Long = 2 * Protocol.STALE_AFTER): List<Protocol.Terms> {
         val found = java.util.concurrent.ConcurrentHashMap<String, Protocol.Terms>()
         val r = RelayClient(Protocol.RELAY, { _, ev ->
             Protocol.Terms.parse(ev)?.let { t ->
@@ -383,7 +388,7 @@ object CoinjoinHub {
         val ours = synchronized(this) { sessions.values.map { it.state.poolId }.toSet() }
         val test = testPools(ctx)
         // Test pools only for whoever switched them on; private pools are announced by their creator.
-        val pools = fetchPools(sinceSeconds = 86400).filter {
+        val pools = fetchPools().filter {
             it.createdAt > last && it.id !in ours && (test || !Protocol.isTest(it)) && !it.private
         }
         pools.maxOfOrNull { it.createdAt }?.let { p.edit().putLong(KEY_LAST_POOL_SEEN, it).apply() }
