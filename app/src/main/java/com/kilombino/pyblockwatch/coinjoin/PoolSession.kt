@@ -530,7 +530,8 @@ class PoolSession(private val env: Env, private val s: State) {
             val gone = held.map { it.tokenHash }.toSet()
             s.seats.removeAll { it.tokenHash in gone }
             gone.forEach { th -> s.tokens.remove(th); s.accepts.remove(th) }
-            s.joinPubs.entries.removeAll { it.value in gone }
+            // Its old join key stays listed: forgetting it made every replay of the channel hand the
+            // seat back to that key and then to the new one, again and again.
         }
         val token = randomHex(16)
         val th = Protocol.tokenHash(token)
@@ -543,7 +544,8 @@ class PoolSession(private val env: Env, private val s: State) {
             .put("seq", s.rosterSeq), replyKey!!)
         creatorChannel(roster)
         announce()
-        env.event(Event.Joined(s.poolId, s.seats.size))
+        // A coin taking its seat back is nobody new.
+        if (held.isEmpty()) env.event(Event.Joined(s.poolId, s.seats.size))
         // Full: ask everyone whether to close now (the creator's own seat counts as a yes).
         if (s.seats.size >= terms.maxPeers) {
             if (terms.v3) creatorChannel(JSONObject().put("type", "vote_open").put("by", myTokenHash).put("vote_id", randomHex(8)))

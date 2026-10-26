@@ -517,7 +517,18 @@ class CoinjoinE2ETest {
         c2.start(); waitFor("C welcomed again") { c2.state.phase == PoolSession.Phase.OPEN }
         waitFor("still three seats") { a.state.seats.size == 3 && b.state.seats.size == 3 && c2.state.seats.size == 3 }
         assertEquals(PoolSession.Phase.OPEN, b.state.phase)
-        a.stop(); b.stop(); c2.stop()
+
+        // The creator's app comes back and replays the channel, with C's two join requests in it:
+        // the seat stays with C2, and nobody is announced as joining.
+        a.stop()
+        val envA2 = Env("A2")
+        val a2 = PoolSession(envA2, PoolSession.State.parse(a.state.toJson()))
+        a2.start(); Thread.sleep(8_000)
+        assertEquals(3, a2.state.seats.size)
+        assertEquals(PoolSession.Phase.OPEN, c2.state.phase)
+        assertTrue(c2.state.seats.any { s -> a2.state.seats.any { it.tokenHash == s.tokenHash } && s.coins.any { it.outpoint == cc.outpoint } })
+        assertTrue("no one joined on replay: ${envA2.events}", envA2.events.none { it == "Joined" })
+        a2.stop(); b.stop(); c2.stop()
     }
 
     /** Spends a test coin elsewhere (as a perfect coin made from it would), to a throwaway script. */

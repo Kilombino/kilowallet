@@ -1936,7 +1936,7 @@ private fun PerpetualCard(vm: WalletViewModel, r: com.kilombino.pyblockwatch.coi
                 }.onFailure { onMessage(it.message ?: "could not unlock") }
             }) { Text("TURN ON AGAIN", color = accent, style = MaterialTheme.typography.bodySmall) }
             if (!editing && (on || canTurnOn)) TextButton(onClick = { editing = true }) {
-                Text("change its pools' fee", color = accent, style = MaterialTheme.typography.bodySmall)
+                Text("change the fee of its next pools", color = accent, style = MaterialTheme.typography.bodySmall)
             }
             if (!on && !embedded && r.seat == null) TextButton(onClick = { com.kilombino.pyblockwatch.coinjoin.Perpetual.forget(ctx, r.id) }) {
                 Text("remove", color = TextFaint, style = MaterialTheme.typography.bodySmall)

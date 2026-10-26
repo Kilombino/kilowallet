@@ -2368,7 +2368,7 @@
 "♻ Perpetual coinjoin: after that round it keeps remixing (its pools at {0} sat/vB).": "♻ 永续混币：该轮之后会继续再次混合（其池为 {0} sat/vB）。",
 "Its pools' fee: {0} sat/vB": "其池的手续费：{0} sat/vB",
 "its pools' fee (sat/vB)": "其池的手续费（sat/vB）",
-"change its pools' fee": "更改其池的手续费",
+"change the fee of its next pools": "更改其后续池的手续费",
 "Every pool it opens uses this pool's fee, {0} sat/vB, and it only joins pools at that same fee.": "它开启的每个池都使用本池的手续费 {0} sat/vB，并且只加入手续费完全相同的池。",
 "When the round confirms, your mixed coin joins another pool by itself (or opens one with the whole coin, no change), again and again; each round costs it its fee share. It stops when you turn it off or spend the coin, or when it falls below a pool's minimum. Its pools use the fee you chose for this one. Only the hot wallet's output remixes, never a change. If this pool ends without a round, the same pool opens again, with the same coins and addresses, until one happens. While it is on, the key of this wallet's receive addresses of this type stays on the phone, encrypted, so it can sign without you; until its first round, that of its change addresses too.": "本轮确认后，你混合后的币会自动加入另一个池（或用整枚币开一个池，没有找零），一次又一次；每轮花费它的手续费份额。当你关闭它或花掉这枚币，或者它低于池的最低额时停止。它的池使用你为这个池选择的手续费。只有热钱包的输出会再次混合，找零不会。如果这个池没有成轮就结束，会用同样的币和地址再次打开同一个池，直到成轮。开启期间，此钱包此类型接收地址的密钥会加密保存在手机上，以便无需你也能签名；在第一轮之前，其找零地址的密钥也会保存。",
 "its first pool ended without a round and can't be opened again the same (a private pool, or one from an older version): the coin did not move": "它的第一个池没有成轮就结束了，且无法按原样再次打开（私有池，或来自旧版本）：币没有移动",
