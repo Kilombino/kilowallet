@@ -67,30 +67,9 @@ class WatchService : Service() {
             // Both wallets are watched: the hot one and, if set up, the separate watch-only one.
             // The watch-only one's notifications say so in their title.
             for (wallet in listOf(Store.HOT, Store.WATCH)) {
-                val ws = Store(this, wallet)
-                val xpub = ws.xpub ?: continue
-                val notifier = Notifier(this, if (wallet == Store.WATCH) "Watch-only · " else "")
-                for (chain in Chain.entries.filter { it != Chain.SHA256 || store.spamchainAccepted }) {
-                    runCatching {
-                        // A hot wallet's Taproot account is watched too: its coins count in the balance.
-                        val taproot = ws.taprootXpub.takeIf { wallet == Store.HOT }
-                        val rows = deriveKnownAddresses(xpub, chain, ws) +
-                            (taproot?.let { deriveKnownAddresses(it, chain, ws, com.kilombino.pyblockwatch.crypto.ScriptType.P2TR) } ?: emptyList())
-                        if (rows.isEmpty()) return@runCatching
-                        val endpoint = store.endpoint(chain)
-                        val quick = !ws.fullLookDue(chain)
-                        val (updated, txs, _) = scanner.refreshDetails(rows, endpoint, store.pinnedFingerprint(endpoint), quick)
-                        if (!quick) ws.setLastFullLook(chain)
-                        // A payment to an address past the count moves it on: the next cycle looks further.
-                        for (r in updated.filter { it.txCount > 0 })
-                            ws.noteUsedTop(if (r.type == com.kilombino.pyblockwatch.crypto.ScriptType.P2TR) taproot ?: xpub else xpub,
-                                r.chainIndex, r.index + 1, r.type ?: ws.scriptType)
-                        BalanceWatch.evaluate(
-                            ws, notifier, chain,
-                            updated.sumOf { it.confirmed }, updated.sumOf { it.unconfirmed }, txs,
-                        )
-                    }
-                }
+                if (Store(this, wallet).xpub == null) continue
+                for (chain in Chain.entries.filter { it != Chain.SHA256 || store.spamchainAccepted })
+                    runCatching { look(this, scanner, wallet, chain) }
             }
             // JoinMarket (read-only, from Jam's export): its jars and bonds like a watch-only
             // wallet, plus the bond alerts (unlocks in 7 days, unlocked, no longer counts).
@@ -169,32 +148,6 @@ class WatchService : Service() {
         }
     }
 
-    /**
-     * Re-derive the addresses a scan already found. We keep only the count in
-     * storage, not the address list, so this walks the same deterministic path the
-     * scanner did — cheap, and it keeps a single source of truth for derivation.
-     */
-    private fun deriveKnownAddresses(
-        xpub: String, chain: Chain, store: Store, tag: com.kilombino.pyblockwatch.crypto.ScriptType? = null,
-    ): List<AddressRow> {
-        val account = runCatching { Bip32.parseExtendedPubKey(xpub) }.getOrNull() ?: return emptyList()
-        val type = tag ?: store.scriptType
-        val out = mutableListOf<AddressRow>()
-        for (chainIndex in 0..1) {
-            // Every address used so far plus the gap, not just the first [gapLimit]: a wallet
-            // past its 20th address would otherwise miss payments to its newer ones.
-            // Worked out once and remembered with the scanner's (the same addresses every cycle).
-            val depth = store.usedTopToWatch(xpub, chainIndex, type) + store.gapLimit
-            Scanner.derivedRange(account, type, chainIndex, depth).forEachIndexed { i, (address, sh) ->
-                out += AddressRow(
-                    chainIndex = chainIndex, index = i, address = address,
-                    path = "m/$chainIndex/$i", scriptHash = sh, type = tag,
-                )
-            }
-        }
-        return out
-    }
-
     private fun ongoingNotification(): Notification {
         Notifier(this).ensureChannels()
         return Notification.Builder(this, Notifier.CHANNEL_ONGOING)
@@ -217,5 +170,84 @@ class WatchService : Service() {
         private const val ONGOING_ID = 1
         /** The JoinMarket wallet's notifications say so in their title. */
         const val JAM_PREFIX = "JoinMarket · "
+        /** The watch-only wallet's notifications say so in their title. */
+        const val WATCH_PREFIX = "Watch-only · "
+
+        /**
+         * One look at [wallet] (the hot one or the watch-only one) on [chain]: the addresses it
+         * knows asked about, and what changed since the last notification notified once
+         * ([BalanceWatch] keeps the baseline, so a second look at the same thing says nothing).
+         */
+        suspend fun look(ctx: Context, scanner: Scanner, wallet: String, chain: Chain) {
+            val store = Store(ctx)
+            val ws = Store(ctx, wallet)
+            val xpub = ws.xpub ?: return
+            val notifier = Notifier(ctx, if (wallet == Store.WATCH) WATCH_PREFIX else "")
+            // A hot wallet's Taproot account is watched too: its coins count in the balance.
+            val taproot = ws.taprootXpub.takeIf { wallet == Store.HOT }
+            val rows = deriveKnownAddresses(xpub, chain, ws) +
+                (taproot?.let { deriveKnownAddresses(it, chain, ws, com.kilombino.pyblockwatch.crypto.ScriptType.P2TR) } ?: emptyList())
+            if (rows.isEmpty()) return
+            val endpoint = store.endpoint(chain)
+            val quick = !ws.fullLookDue(chain)
+            val (updated, txs, _) = scanner.refreshDetails(rows, endpoint, store.pinnedFingerprint(endpoint), quick)
+            if (!quick) ws.setLastFullLook(chain)
+            // A payment to an address past the count moves it on: the next cycle looks further.
+            for (r in updated.filter { it.txCount > 0 })
+                ws.noteUsedTop(if (r.type == com.kilombino.pyblockwatch.crypto.ScriptType.P2TR) taproot ?: xpub else xpub,
+                    r.chainIndex, r.index + 1, r.type ?: ws.scriptType)
+            BalanceWatch.evaluate(
+                ws, notifier, chain,
+                updated.sumOf { it.confirmed }, updated.sumOf { it.unconfirmed }, txs,
+            )
+        }
+
+        /**
+         * A coinjoin round whose mixed outputs go to the watch-only wallet was sent or confirmed:
+         * look at that wallet now. Otherwise only this watcher looks at it, every
+         * [Store.refreshBackgroundMinutes] (never, with background checks off), while the app on
+         * screen refreshes just the wallet shown and the round's own notifications speak for the
+         * pool, not for the wallet the coins reached. What the look finds is notified once, as
+         * any payment to that wallet; the watcher's next look then finds nothing new.
+         */
+        fun lookAtWatchSoon(ctx: Context, delayMs: Long = 0) {
+            val app = ctx.applicationContext
+            val store = Store(app)
+            if (!store.notificationsEnabled || Store(app, Store.WATCH).xpub == null) return
+            CoroutineScope(Dispatchers.IO).launch {
+                if (delayMs > 0) delay(delayMs)
+                runCatching {
+                    com.kilombino.pyblockwatch.chain.Tor.install(app) // a .onion server, as the watcher reaches it
+                    Scanner.useDisk(java.io.File(app.noBackupFilesDir, "scan-cache"))
+                    look(app, Scanner(), Store.WATCH, Chain.BLAKE2B)
+                }
+            }
+        }
+
+        /**
+         * Re-derive the addresses a scan already found. We keep only the count in
+         * storage, not the address list, so this walks the same deterministic path the
+         * scanner did — cheap, and it keeps a single source of truth for derivation.
+         */
+        private fun deriveKnownAddresses(
+            xpub: String, chain: Chain, store: Store, tag: com.kilombino.pyblockwatch.crypto.ScriptType? = null,
+        ): List<AddressRow> {
+            val account = runCatching { Bip32.parseExtendedPubKey(xpub) }.getOrNull() ?: return emptyList()
+            val type = tag ?: store.scriptType
+            val out = mutableListOf<AddressRow>()
+            for (chainIndex in 0..1) {
+                // Every address used so far plus the gap, not just the first [gapLimit]: a wallet
+                // past its 20th address would otherwise miss payments to its newer ones.
+                // Worked out once and remembered with the scanner's (the same addresses every cycle).
+                val depth = store.usedTopToWatch(xpub, chainIndex, type) + store.gapLimit
+                Scanner.derivedRange(account, type, chainIndex, depth).forEachIndexed { i, (address, sh) ->
+                    out += AddressRow(
+                        chainIndex = chainIndex, index = i, address = address,
+                        path = "m/$chainIndex/$i", scriptHash = sh, type = tag,
+                    )
+                }
+            }
+            return out
+        }
     }
 }

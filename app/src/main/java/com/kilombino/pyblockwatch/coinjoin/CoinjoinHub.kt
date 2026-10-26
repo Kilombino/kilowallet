@@ -454,6 +454,10 @@ object CoinjoinHub {
     private fun onEvent(ctx: Context, st: PoolSession.State, e: PoolSession.Event) {
         alert(ctx, st, e)
         if (e is PoolSession.Event.Broadcast || e is PoolSession.Event.Confirmed) runCatching { MixedCoins.keep(ctx) }
+        // Mixed outputs going to the watch-only wallet: that wallet is looked at now, so what
+        // reached it is told (once) like any payment to it, not only at the watcher's next round.
+        runCatching { Destination.watchLookAfter(e, Destination.of(ctx, st.key))?.let {
+            com.kilombino.pyblockwatch.data.WatchService.lookAtWatchSoon(ctx, it) } }
         // A perpetual coin goes on as soon as its round ends, not at the next minute.
         if (st.perpId != null && (e is PoolSession.Event.Confirmed || e is PoolSession.Event.Aborted || e is PoolSession.Event.Rejected))
             Thread { runCatching { Perpetual.check(ctx) } }.apply { isDaemon = true }.start()

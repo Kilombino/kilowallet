@@ -1179,6 +1179,7 @@
 "Wallet fingerprint: {0}": "钱包指纹：{0}",
 "Watch another wallet": "观察另一个钱包",
 "Watch-only is a SECOND wallet, apart from your hot wallet: paste the extended public ": "观察钱包是第二个钱包，独立于你的热钱包：粘贴另一个钱包的扩展公钥 ",
+"Watch-only": "观察钱包",
 "Watch-only wallet": "观察钱包",
 "Watching": "正在监视",
 "Watching your balances": "正在关注你的余额",

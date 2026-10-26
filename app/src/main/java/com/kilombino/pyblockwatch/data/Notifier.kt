@@ -220,6 +220,12 @@ class Notifier(private val context: Context, private val titlePrefix: String = "
  */
 object BalanceWatch {
 
+    /**
+     * One at a time: the watcher, the app's refresh and a look after a coinjoin round can check
+     * the same wallet together, and each must see the baseline the one before it left, or the
+     * same payment is told twice.
+     */
+    @Synchronized
     fun evaluate(
         store: Store,
         notifier: Notifier,

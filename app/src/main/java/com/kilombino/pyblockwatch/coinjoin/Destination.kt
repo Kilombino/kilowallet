@@ -192,6 +192,23 @@ object Destination {
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("coinjoin_dest", Context.MODE_PRIVATE)
 
     /**
+     * After [e], how long to wait before looking at the watch-only wallet a round's mixed outputs
+     * went to ([kind]), or null when there is nothing to look at: only a round to the watch-only
+     * wallet, once sent (a moment later, so the server has it in its mempool) and once confirmed.
+     * The hot wallet is the one the app refreshes on screen; a payment's outputs are the
+     * recipients'; Jam's wallet has its own look.
+     */
+    fun watchLookAfter(e: PoolSession.Event, kind: Kind): Long? = when {
+        kind != Kind.WATCH -> null
+        e is PoolSession.Event.Broadcast -> SENT_LOOK_DELAY_MS
+        e is PoolSession.Event.Confirmed -> 0L
+        else -> null
+    }
+
+    /** How long after a round is sent its outputs are looked for in the watch-only wallet. */
+    const val SENT_LOOK_DELAY_MS = 20_000L
+
+    /**
      * Which wallet of that kind it is, as the card shows it: the watch-only wallet's name, else the
      * start of its key; for Jam, the start of Apricot's key. Changing the watch-only wallet later
      * leaves a round already going on the old one, so the card must say which.
