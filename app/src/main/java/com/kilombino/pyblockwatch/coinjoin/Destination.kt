@@ -129,6 +129,8 @@ object Destination {
     private fun pick(ctx: Context, kind: Kind, type: ScriptType, n: Int): Pair<Bip32.ExtendedPubKey, List<Int>> {
         require(kind != Kind.HOT) { "the hot wallet's addresses come from its own seed" }
         require(kind != Kind.PAY) { "a payment's addresses are the recipients' own" }
+        // The watch-only wallet's own scan stops after its gap limit (5–100): never go past it.
+        val gap = if (kind == Kind.WATCH) minOf(GAP, Store(ctx, Store.WATCH).gapLimit) else GAP
         val (account, from) = when (kind) {
             Kind.WATCH -> {
                 val w = Store(ctx, Store.WATCH)
@@ -152,7 +154,7 @@ object Destination {
             c.connect()
             val derive = { i: Int -> Address.scriptPubKey(Bip32.derivePath(account, 0, i).pubkey(), type) }
             return account to pickUnusedIndexes(n, from, held, derive,
-                hasHistory = { sp -> c.history(Address.electrumScriptHash(sp)).isNotEmpty() })
+                hasHistory = { sp -> c.history(Address.electrumScriptHash(sp)).isNotEmpty() }, gap = gap)
         } finally { c.close() }
     }
 
@@ -168,18 +170,18 @@ object Destination {
 
     /** As [pickUnused], the indexes of the addresses picked. */
     internal fun pickUnusedIndexes(n: Int, from: Int, held: Set<List<Byte>>, derive: (Int) -> ByteArray,
-                                   hasHistory: (ByteArray) -> Boolean): List<Int> {
+                                   hasHistory: (ByteArray) -> Boolean, gap: Int = GAP): List<Int> {
         var i = from
         var lastUsed = from - 1
         var empty = 0
-        while (empty < GAP) {
+        while (empty < gap) {
             if (hasHistory(derive(i))) { lastUsed = i; empty = 0 } else empty++
             i++
         }
         val out = mutableListOf<Int>()
         var j = lastUsed + 1
         while (out.size < n) {
-            require(j - lastUsed <= GAP) {
+            require(j - lastUsed <= gap) {
                 "That wallet has too many addresses waiting for rounds: finish or cancel some first, " +
                     "or its own scan would not see the next ones."
             }

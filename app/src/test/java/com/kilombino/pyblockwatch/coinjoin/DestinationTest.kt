@@ -29,6 +29,13 @@ class DestinationTest {
         assertEquals(listOf(8), got.map { it[2].toInt() })
     }
 
+    @Test fun aSmallerGapLimitIsRespected() {
+        // A watch-only wallet scanning with a gap limit of 5: 3 held, 2 more fit, a 3rd would be out of sight.
+        val held = (0 until 3).map { s(it).toList() }.toSet()
+        assertEquals(listOf(3, 4), Destination.pickUnusedIndexes(2, 0, held, ::s, { false }, gap = 5))
+        assertThrows(IllegalArgumentException::class.java) { Destination.pickUnusedIndexes(3, 0, held, ::s, { false }, gap = 5) }
+    }
+
     @Test fun neverPastTheGap() {
         // 18 held by rounds still going: 2 more fit, a 3rd would be out of the wallet's sight.
         val held = (0 until 18).map { s(it).toList() }.toSet()
