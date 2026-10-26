@@ -401,7 +401,27 @@ object Perpetual {
     /** A new id for a perpetual coin. */
     fun newId(): String = ByteArray(8).also { SecureRandom().nextBytes(it) }.toHex()
 
-    fun turnOff(ctx: Context, id: String) = edit(ctx, id) { it.state = Remix.State.STOPPED; it.reason = Remix.OFF }
+    /**
+     * Off. A round it is in goes on and ends as any other; one that is already over without a round to
+     * follow (cancelled, refused, gone from the list) is let go now, so the card can be removed from
+     * HISTORY and the branch keys are not kept for it. A confirmed one keeps its seat until its output
+     * is read (the coin it would go on with if turned on again).
+     */
+    fun turnOff(ctx: Context, id: String) = CoinjoinHub.load(ctx).let { edit(ctx, id) {
+        it.state = Remix.State.STOPPED; it.reason = Remix.OFF
+        if (seatFinished(it.seat?.let { k -> CoinjoinHub.session(k)?.state })) it.seat = null
+    } }
+
+    /** A perpetual coin's seat [st] that is over without a coin to go on with: cancelled, refused, or gone (null). */
+    fun seatFinished(st: PoolSession.State?): Boolean =
+        st == null || st.phase == PoolSession.Phase.ABORTED || st.phase == PoolSession.Phase.REJECTED
+
+    /**
+     * Whether a perpetual coin that is off can be removed: its seat (if any) is not a live round. Removing
+     * it never touches a pool: it only forgets the perpetual coin (and the keys no other one needs).
+     */
+    fun removable(r: Remix, seat: PoolSession.State?, seatDone: Boolean): Boolean =
+        r.state == Remix.State.STOPPED && (r.seat == null || seat == null || seatDone)
 
     /**
      * On again, with the branch keys from one fingerprint ([branch]; [changeBranch] for a first pool with a
@@ -423,7 +443,28 @@ object Perpetual {
 
     fun setCap(ctx: Context, id: String, cap: Double) = edit(ctx, id) { it.cap = cap }
 
-    fun forget(ctx: Context, id: String) = synchronized(this) { save(ctx, load(ctx).filter { it.id != id }) }
+    fun forget(ctx: Context, id: String) = synchronized(this) {
+        // Only one that is off and not in a live round: the round's own keys stay with the round.
+        val r = load(ctx).firstOrNull { it.id == id } ?: return@synchronized
+        val s = r.seat?.let { CoinjoinHub.session(it) }
+        if (!removable(r, s?.state, s?.done ?: true)) return@synchronized
+        save(ctx, load(ctx).filter { it.id != id })
+    }
+
+    /** Stopped coins whose seat is over without a round (or gone): their seat is let go (no chain needed). */
+    fun settleStopped(ctx: Context) {
+        CoinjoinHub.load(ctx)
+        synchronized(this) { settle(ctx) }
+    }
+
+    private fun settle(ctx: Context) {
+        val l = load(ctx)
+        var changed = false
+        l.filter { it.state == Remix.State.STOPPED && it.seat != null }.forEach { r ->
+            if (seatFinished(CoinjoinHub.session(r.seat!!)?.state)) { r.seat = null; changed = true }
+        }
+        if (changed) save(ctx, l)
+    }
 
     private fun branch(ctx: Context, type: ScriptType, chainIndex: Int = 0): Bip32Priv.ExtendedPrivKey? =
         AutoKeyVault.load(ctx, if (chainIndex == 1) changeKey(type) else branchKey(type))?.takeIf { it.size == 2 }?.let { (k, c) ->

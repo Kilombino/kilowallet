@@ -1298,6 +1298,7 @@
 "asked to join the pool": "ha demanat unir-se al pool",
 "asking your node how busy the mempool is…": "preguntant al teu node com d'ocupada està la mempool…",
 "at least {0} people are needed": "calen almenys {0} persones",
+"at least {0} different people are needed: your own seats count as one": "calen almenys {0} persones diferents: els teus propis llocs compten com un",
 "back": "enrere",
 "back to default": "torna al de per defecte",
 "back to the next unused": "torna a la següent sense fer servir",
@@ -2385,5 +2386,8 @@
 "When the round confirms, your mixed coin joins another pool by itself (or opens one with the whole coin, no change), again and again; each round costs it its fee share. It stops when you turn it off or spend the coin, or when it falls below a pool's minimum. Its pools use the fee you chose for this one. Only the hot wallet's output remixes, never a change. If this pool ends without a round, the same pool opens again, with the same coins and addresses, until one happens. While it is on, the key of this wallet's receive addresses of this type stays on the phone, encrypted, so it can sign without you; until its first round, that of its change addresses too.": "Quan la ronda es confirma, la teva moneda barrejada s'uneix sola a un altre pool (o n'obre un amb la moneda sencera, sense canvi), una vegada i una altra; cada ronda li costa la seva part de la comissió. S'atura quan el desactives o gastes la moneda, o quan baixa del mínim d'un pool. Els seus pools fan servir la comissió que vas triar per a aquest. Només es torna a barrejar la sortida del moneder calent, mai un canvi. Si aquest pool acaba sense ronda, el mateix pool es torna a obrir, amb les mateixes monedes i adreces, fins que n'hi hagi una. Mentre està actiu, la clau de les adreces de recepció d'aquest tipus d'aquest moneder es queda al telèfon, xifrada, perquè pugui signar sense tu; fins a la seva primera ronda, també la de les seves adreces de canvi.",
 "its first pool ended without a round and can't be opened again the same (a private pool, or one from an older version): the coin did not move": "el seu primer pool va acabar sense ronda i no es pot tornar a obrir igual (un pool privat, o un d'una versió anterior): la moneda no es va moure",
 "♻ Perpetual: its first pool ended without a round; the same pool opens again in {0} s": "♻ Perpetu: el seu primer pool va acabar sense ronda; el mateix pool es torna a obrir d'aquí a {0} s",
-"♻ Perpetual: opening its first pool again": "♻ Perpetu: tornant a obrir el seu primer pool"
+"♻ Perpetual: opening its first pool again": "♻ Perpetu: tornant a obrir el seu primer pool",
+"▸ {0} coins": "▸ {0} monedes",
+"▾ {0} coins": "▾ {0} monedes",
+"{0} coins · {1} locked until ~{2}": "{0} monedes · {1} bloquejades fins a ~{2}"
 }

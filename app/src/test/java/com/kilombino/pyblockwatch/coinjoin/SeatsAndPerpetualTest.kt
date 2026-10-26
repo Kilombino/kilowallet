@@ -68,6 +68,62 @@ class SeatsAndPerpetualTest {
         assertEquals(Protocol.passwordProof(Protocol.passwordKey(np.terms.id, "secreto"), joinPub), seat.pwProof)
     }
 
+    // ------------------------------------------------------------------------------- own seats as one person
+
+    @Test fun ownSeatsCountAsOnePerson() {
+        // The creator and its own extra seat: one person, however many seats.
+        assertEquals(1, PoolSession.distinctPeople(listOf("c", "c2"), setOf("c", "c2")))
+        // With somebody else: two.
+        assertEquals(2, PoolSession.distinctPeople(listOf("c", "c2", "x"), setOf("c", "c2")))
+        // A member with two seats in another wallet's pool: the creator and that member.
+        assertEquals(2, PoolSession.distinctPeople(listOf("c", "m1", "m2"), setOf("m1", "m2")))
+        assertEquals(3, PoolSession.distinctPeople(listOf("c", "m1", "m2", "y"), setOf("m1", "m2")))
+        // One seat of ours, or seats of ours no longer in the roster: every seat counts as before.
+        assertEquals(3, PoolSession.distinctPeople(listOf("c", "x", "y"), setOf("c")))
+        assertEquals(3, PoolSession.distinctPeople(listOf("c", "x", "y"), setOf("gone", "c")))
+        assertEquals(3, PoolSession.distinctPeople(listOf("a", "b", "z"), emptySet()))
+        assertEquals(0, PoolSession.distinctPeople(emptyList(), setOf("c")))
+        // The reason given when a wallet won't ask to close or say yes, as a template the translations match.
+        assertEquals("at least 2 different people are needed: your own seats count as one", PoolSession.OWN_SEATS_ONE.format(2))
+    }
+
+    @Test fun aStoppedPerpetualIsRemovableOnlyOutsideALiveRound() {
+        val r = Remix("r", ScriptType.P2WPKH, cap = 2.0, rate = 2.0, minPeers = 2, maxPeers = 5, hours = 6,
+            state = Remix.State.STOPPED, seat = "s")
+        // Its seat still in a round (open, closing, sent…): not removable; the round must end as any other.
+        assertTrue(!Perpetual.removable(r, seat(PoolSession.Phase.OPEN), seatDone = false))
+        assertTrue(!Perpetual.removable(r, seat(PoolSession.Phase.BROADCAST), seatDone = false))
+        // Over (cancelled, confirmed), or gone from the list: removable.
+        assertTrue(Perpetual.removable(r, seat(PoolSession.Phase.ABORTED), seatDone = true))
+        assertTrue(Perpetual.removable(r, seat(PoolSession.Phase.CONFIRMED), seatDone = true))
+        assertTrue(Perpetual.removable(r, null, seatDone = true))
+        r.seat = null; assertTrue(Perpetual.removable(r, null, seatDone = true))
+        // On: never removable.
+        r.state = Remix.State.WAITING; assertTrue(!Perpetual.removable(r, null, seatDone = true))
+        // A seat over without a coin to go on with is let go when it is turned off; a confirmed one waits for its output.
+        assertTrue(Perpetual.seatFinished(null))
+        assertTrue(Perpetual.seatFinished(seat(PoolSession.Phase.ABORTED)))
+        assertTrue(Perpetual.seatFinished(seat(PoolSession.Phase.REJECTED)))
+        assertTrue(!Perpetual.seatFinished(seat(PoolSession.Phase.CONFIRMED)))
+        assertTrue(!Perpetual.seatFinished(seat(PoolSession.Phase.OPEN)))
+        // Once let go, no branch key is kept for it.
+        r.state = Remix.State.STOPPED; r.seat = null
+        assertEquals(emptySet<ScriptType>() to emptySet<ScriptType>(), Perpetual.keysNeeded(listOf(r)))
+    }
+
+    @Test fun neverJoinsAPoolWhoseOtherSeatsAreOurs() {
+        val f = Fake(); val r = fresh(f); f.outputValue = 100_000
+        Remixer(f).step(r); f.now = r.nextAt
+        val exact = CoinjoinTx.noChangeAmount(100_000, 1, 2.0, ScriptType.P2WPKH, 1)!!
+        // The best fit by far, but a seat of this phone is in it (another perpetual coin's pool, an extra
+        // seat): joining would only add one more seat of ours. It opens its own pool instead.
+        val ours = pool(exact, peers = 1)
+        f.pools = mutableListOf(ours); f.busy += ours.id
+        assertTrue(!Remixer.fits(r, ours, f.now, f.busy))
+        assertTrue(Remixer(f).step(r))
+        assertTrue(f.joined.isEmpty()); assertEquals(1, f.created.size); assertEquals(Remix.State.SEATED, r.state)
+    }
+
     // ------------------------------------------------------------------------------- perpetual
 
     private inner class Fake : Remixer.Env {

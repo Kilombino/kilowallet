@@ -1298,6 +1298,7 @@
 "asked to join the pool": "chiesto di unirsi al pool",
 "asking your node how busy the mempool is…": "chiedo al tuo nodo quanto è piena la mempool…",
 "at least {0} people are needed": "servono almeno {0} persone",
+"at least {0} different people are needed: your own seats count as one": "servono almeno {0} persone diverse: i tuoi posti contano come uno",
 "back": "indietro",
 "back to default": "torna al default",
 "back to the next unused": "torna al prossimo non usato",
@@ -2385,5 +2386,8 @@
 "When the round confirms, your mixed coin joins another pool by itself (or opens one with the whole coin, no change), again and again; each round costs it its fee share. It stops when you turn it off or spend the coin, or when it falls below a pool's minimum. Its pools use the fee you chose for this one. Only the hot wallet's output remixes, never a change. If this pool ends without a round, the same pool opens again, with the same coins and addresses, until one happens. While it is on, the key of this wallet's receive addresses of this type stays on the phone, encrypted, so it can sign without you; until its first round, that of its change addresses too.": "Quando il round è confermato, la tua moneta mescolata si unisce da sola a un altro pool (o ne apre uno con la moneta intera, senza resto), ancora e ancora; ogni round le costa la sua parte di commissione. Si ferma quando lo disattivi o spendi la moneta, o quando scende sotto il minimo di un pool. I suoi pool usano la commissione che hai scelto per questo. Si rimescola solo l'output del portafoglio caldo, mai un resto. Se questo pool finisce senza round, lo stesso pool si riapre, con le stesse monete e gli stessi indirizzi, finché non ce n'è uno. Finché è attivo, la chiave degli indirizzi di ricezione di questo tipo di questo portafoglio resta sul telefono, cifrata, così può firmare senza di te; fino al suo primo round, anche quella dei suoi indirizzi di resto.",
 "its first pool ended without a round and can't be opened again the same (a private pool, or one from an older version): the coin did not move": "il suo primo pool è finito senza round e non si può riaprire uguale (un pool privato, o di una versione precedente): la moneta non si è mossa",
 "♻ Perpetual: its first pool ended without a round; the same pool opens again in {0} s": "♻ Perpetuo: il suo primo pool è finito senza round; lo stesso pool si riapre tra {0} s",
-"♻ Perpetual: opening its first pool again": "♻ Perpetuo: riapre il suo primo pool"
+"♻ Perpetual: opening its first pool again": "♻ Perpetuo: riapre il suo primo pool",
+"▸ {0} coins": "▸ {0} monete",
+"▾ {0} coins": "▾ {0} monete",
+"{0} coins · {1} locked until ~{2}": "{0} monete · {1} bloccate fino al ~{2}"
 }

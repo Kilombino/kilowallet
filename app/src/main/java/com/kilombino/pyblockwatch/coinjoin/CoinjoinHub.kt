@@ -115,6 +115,21 @@ object CoinjoinHub {
         return "seat ${all.indexOfFirst { it.key == st.key } + 1} of ${all.size}"
     }
 
+    /**
+     * The token hashes of this phone's seats in [poolId] (going or over, once welcomed): one person,
+     * however many seats. Read from the last published list, without the hub's lock: a session asks
+     * while holding its own, and the hub stops sessions while holding this one.
+     */
+    fun ownSeatsIn(poolId: String): Set<String> =
+        _states.value.filter { it.poolId == poolId }.mapNotNull { it.token?.let { t -> Protocol.tokenHash(t) } }.toSet()
+
+    /** The people in [st]'s pool as this phone sees them: its own seats count as one. */
+    fun people(st: PoolSession.State): Int {
+        // Never through the session's lock: the screen asks, and a session holds it while it waits on the relay.
+        val list = if (st.round.isNotEmpty() && st.phase !in setOf(PoolSession.Phase.OPEN, PoolSession.Phase.VOTING)) st.round else st.seats
+        return runCatching { PoolSession.distinctPeople(list.toList().map { it.tokenHash }, ownSeatsIn(st.poolId)) }.getOrElse { list.size }
+    }
+
     /** Pools a live seat of this phone is in. */
     fun busyPools(ctx: Context): Set<String> {
         load(ctx)
@@ -413,6 +428,7 @@ object CoinjoinHub {
                 persist(app)
             }
             override fun event(e: PoolSession.Event) = onEvent(app, st, e)
+            override fun ownSeats(poolId: String): Set<String> = ownSeatsIn(poolId)
         }
     }
 

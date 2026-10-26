@@ -59,6 +59,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -984,33 +985,40 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
         // Mixed by a coinjoin, or seated in a pool still waiting: marked as in coin control.
         val seated = remember(coins) { vm.seatedInWaitingPools() }
         val btc = chain == com.kilombino.pyblockwatch.chain.Chain.BLAKE2B
+        // Addresses opened coin by coin (by script hash): all folded at first.
+        var unfolded by rememberSaveable { mutableStateOf("") }
+        /** One coin of [row], in the same pattern as an address. */
+        @Composable fun coinRow(row: AddressRow, u: Scanner.SpendableUtxo) {
+            val lk = im?.of(u)
+            Row(Modifier.fillMaxWidth().clickable { open = row }.padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(shortAddress(row.address), style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                    Text("${row.path}  ·  ${if (row.chainIndex == 0) "receive" else "change"}",
+                        style = MaterialTheme.typography.bodySmall, color = TextFaint)
+                    if (btc && vm.isMixedCoin(u)) Text("🌀 mixed", style = MaterialTheme.typography.bodySmall, color = Good)
+                    if ("${u.txid}:${u.vout}" in seated) Text("in a pool waiting for people: sending it leaves that pool",
+                        style = MaterialTheme.typography.bodySmall, color = Warn)
+                    if (lk != null) Text(immatureLine(im!!, lk), style = MaterialTheme.typography.bodySmall, color = Warn)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(street("${groupSats(u.value)} sats"),
+                        style = MaterialTheme.typography.bodyMedium, color = accent, fontWeight = FontWeight.Bold)
+                    Text(confText(u), style = MaterialTheme.typography.bodySmall, color = if (lk != null) Warn else Good)
+                }
+            }
+        }
         held.forEach { row ->
             val cs = coins?.get(row.scriptHash)
-            // An address holding mined rewards still locked (a pool's payout address gets one per
-            // block) is shown coin by coin, each in the same pattern as an address.
-            if (cs.orEmpty().any { im?.of(it) != null }) {
-                cs!!.sortedBy { it.height }.forEach { u ->
-                    val lk = im?.of(u)
-                    Row(Modifier.fillMaxWidth().clickable { open = row }.padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(shortAddress(row.address), style = MaterialTheme.typography.bodyMedium, color = TextMain)
-                            Text("${row.path}  ·  ${if (row.chainIndex == 0) "receive" else "change"}",
-                                style = MaterialTheme.typography.bodySmall, color = TextFaint)
-                            if (btc && vm.isMixedCoin(u)) Text("🌀 mixed", style = MaterialTheme.typography.bodySmall, color = Good)
-                            if ("${u.txid}:${u.vout}" in seated) Text("in a pool waiting for people: sending it leaves that pool",
-                                style = MaterialTheme.typography.bodySmall, color = Warn)
-                            if (lk != null) Text(immatureLine(im!!, lk), style = MaterialTheme.typography.bodySmall, color = Warn)
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(street("${groupSats(u.value)} sats"),
-                                style = MaterialTheme.typography.bodyMedium, color = accent, fontWeight = FontWeight.Bold)
-                            Text(confText(u), style = MaterialTheme.typography.bodySmall, color = if (lk != null) Warn else Good)
-                        }
-                    }
-                }
+            val many = (cs?.size ?: 0) > 1
+            // One coin, a mined reward still locked: that coin, with when it matures.
+            if (!many && cs.orEmpty().any { im?.of(it) != null }) {
+                cs!!.forEach { u -> coinRow(row, u) }
                 return@forEach
             }
+            // Several coins (a pool's payout address gets one per block): one row, folded; the toggle
+            // opens it coin by coin, each in the same pattern as an address.
+            val isOpen = many && row.scriptHash in unfolded.split(',')
             Row(Modifier.fillMaxWidth().clickable { open = row }.padding(vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -1025,6 +1033,18 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
                     if (mixed) Text("🌀 mixed", style = MaterialTheme.typography.bodySmall, color = Good)
                     if (inPool) Text("in a pool waiting for people: sending it leaves that pool",
                         style = MaterialTheme.typography.bodySmall, color = Warn)
+                    if (many) {
+                        val locked = cs!!.mapNotNull { im?.of(it) }
+                        val next = locked.minByOrNull { it.maturesAt }
+                        // Mined rewards still locked among them: how many, and when the next one can be spent.
+                        if (next != null) Text("${cs.size} coins · ${locked.size} locked until ~${approxDay(im!!, next.maturesAt)}",
+                            style = MaterialTheme.typography.bodySmall, color = Warn)
+                        Text((if (isOpen) "▾ " else "▸ ") + "${cs.size} coins", style = MaterialTheme.typography.bodySmall, color = accent,
+                            modifier = Modifier.clickable {
+                                val l = unfolded.split(',').filter { it.isNotEmpty() }
+                                unfolded = (if (isOpen) l - row.scriptHash else l + row.scriptHash).joinToString(",")
+                            }.padding(vertical = 2.dp))
+                    }
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(street("${groupSats(row.total)} sats"),
@@ -1034,7 +1054,7 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
                         // The least-confirmed coin is the one that decides whether it can be spent.
                         cs.isNotEmpty() -> cs.minByOrNull { conf(it) }!!.let { u ->
                             val c = conf(u)
-                            Text(confText(u) + if (cs.size > 1) " (${cs.size} coins)" else "",
+                            Text(confText(u),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (c == 0) Warn else if (c >= 6) Good else TextSoft)
                         }
@@ -1042,6 +1062,7 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
                     }
                 }
             }
+            if (isOpen) cs!!.sortedBy { it.height }.forEach { u -> coinRow(row, u) }
         }
     }
 }

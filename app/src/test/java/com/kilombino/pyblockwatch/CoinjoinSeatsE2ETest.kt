@@ -45,6 +45,9 @@ class CoinjoinSeatsE2ETest {
 
     private inner class Env(val name: String, val saved: MutableMap<String, String>? = null) : PoolSession.Env {
         val events = java.util.concurrent.CopyOnWriteArrayList<String>()
+        /** This wallet's seats, as the app's hub tells a session ([PoolSession.Env.ownSeats]); none by default. */
+        @Volatile var mine: (() -> Set<String>)? = null
+        override fun ownSeats(poolId: String): Set<String> = mine?.invoke() ?: emptySet()
         override fun coinUnspent(coin: CoinjoinTx.Coin): Boolean {
             val o = rpc("gettxout", coin.txid, coin.vout, true) as? JSONObject ?: return false
             return Math.round(o.getDouble("value") * 1e8) == coin.value &&
@@ -60,7 +63,10 @@ class CoinjoinSeatsE2ETest {
             // As the app keeps it: the JSON must read back, and the last one is what a restart starts from.
             val j = state.toJson().toString(); PoolSession.State.parse(JSONObject(j)); saved?.put(state.key, j)
         }
+        /** Runs first on every event (a test can put the phone to sleep here). */
+        @Volatile var hook: ((PoolSession.Event) -> Unit)? = null
         override fun event(e: PoolSession.Event) {
+            hook?.invoke(e)
             if (e is PoolSession.Event.Changed) return
             events.add(e.javaClass.simpleName); println("[$name] ${e.javaClass.simpleName}")
         }
@@ -279,6 +285,107 @@ class CoinjoinSeatsE2ETest {
         waitFor("confirmed", 90) { listOf(a, w1, w2, b).all { it.state.phase == PoolSession.Phase.CONFIRMED } }
         println("perfect coin as another seat txid ${a.state.txid}")
         listOf(a, w1, w2, b).forEach { it.stop() }
+    }
+
+    /**
+     * The creator and its own extra seat are one person. minPeers 2: alone with its two seats the pool
+     * can't be asked to close; with another wallet's seat that stays silent in the vote, the two yes of
+     * its own seats don't close it (the silent seat is left out and the pool reopens); with another
+     * wallet's seat that says yes, it closes and is mined.
+     */
+    @Test fun ownSeatsAreOnePerson() {
+        System.getenv("KILOJOIN_E2E_SEATS") ?: return
+        val salt = setup()
+        val seed = (salt % 50_000).toInt() * 10 + 5
+        val ca = fund(seed, 150_000); val ca2 = fund(seed + 1, 140_000); val cb = fund(seed + 2, 130_000); val cc = fund(seed + 3, 160_000)
+        mine()
+        val np = PoolSession.newPool(100_000, 2.0, 5, 3, minPeers = 2, v3 = true)
+        val wallet = java.util.concurrent.CopyOnWriteArrayList<PoolSession>()
+        val own = { wallet.mapNotNull { it.state.token?.let { t -> Protocol.tokenHash(t) } }.toSet() }
+        val envA = Env("A").also { it.mine = own }
+        val a = PoolSession(envA, PoolSession.newState(np.terms, true, np.secret, listOf(ca), listOf(key(seed)), listOf("a"),
+            listOf(script(50_000 + salt)), script(51_000 + salt), creatorSecret = np.creatorSecret, blindPriv = np.blindPriv)).also { it.autoKeys = listOf(key(seed)) }
+        wallet += a
+        a.start(); waitFor("A open") { a.state.phase == PoolSession.Phase.OPEN }
+        val seen = listed(np.terms.id)
+        // The creator's own extra seat ("+ JOIN WITH ANOTHER UTXO"), with a destination of its own.
+        val a2 = member("A2", seen, ca2, seed + 1, salt, CoinjoinHub.newSeatId(seen.id, setOf(seen.id)), System.currentTimeMillis() / 1000 + 3,
+            env = Env("A2").also { it.mine = own })
+        wallet += a2
+        a2.start()
+        waitFor("A2 in") { a2.state.phase == PoolSession.Phase.OPEN && a.state.seats.size == 2 && a2.state.seats.size == 2 }
+        assertEquals(1, a.people()); assertEquals(1, a2.people())
+        // Two seats, one person: nobody of this wallet can ask to close.
+        assertTrue(runCatching { a.requestClose() }.isFailure)
+        assertTrue(runCatching { a2.requestClose() }.isFailure)
+        // B, another wallet, joins and stays silent in the vote.
+        val envB = Env("B")
+        val b = member("B", seen, cb, seed + 2, salt, env = envB).also { it.autoKeys = null }
+        b.start()
+        waitFor("B in") { b.state.phase == PoolSession.Phase.OPEN && a.state.seats.size == 3 && a2.state.seats.size == 3 }
+        assertEquals(2, a.people())
+        a2.requestClose()
+        waitFor("vote open") { a.state.phase == PoolSession.Phase.VOTING && b.state.phase == PoolSession.Phase.VOTING }
+        // The vote runs out with only this wallet's two yes: B is left out and the pool reopens, no round.
+        waitFor("vote over without a round", (Protocol.VOTE_SECONDS + 120).toInt()) {
+            a.state.phase == PoolSession.Phase.OPEN && a.state.seats.size == 2 && a2.state.phase == PoolSession.Phase.OPEN }
+        assertTrue(listOf(a, a2).none { it.state.round.isNotEmpty() || it.state.txid != null })
+        assertFalse(envA.events.contains("Closing"))
+        waitFor("B out") { b.state.phase == PoolSession.Phase.ABORTED }
+        assertTrue(rpc("gettxout", ca.txid, ca.vout, true) is JSONObject)
+        // C, another wallet, joins and asks to close: two people, the round closes and is mined.
+        val c = member("C", seen, cc, seed + 3, salt); c.start()
+        waitFor("C in") { c.state.phase == PoolSession.Phase.OPEN && a.state.seats.size == 3 && a2.state.seats.size == 3 }
+        c.requestClose()
+        waitFor("broadcast", 300) { listOf(a, a2, c).all { it.state.txid != null } }
+        val tx = rpc("getrawtransaction", a.state.txid!!, true) as JSONObject
+        assertEquals(3, tx.getJSONArray("vin").length())
+        mine()
+        waitFor("confirmed", 90) { listOf(a, a2, c).all { it.state.phase == PoolSession.Phase.CONFIRMED } }
+        println("own seats as one person txid ${a.state.txid}")
+        listOf(a, a2, b, c).forEach { it.stop() }
+    }
+
+    /**
+     * A member that falls asleep as the round closes (an app suspended by its phone) never asks for its
+     * blind signature: when the outputs' time is over the creator closes the round again without it, the
+     * others hand their outputs in again, and the round is mined. Its coin stays where it was.
+     */
+    @Test fun aSeatAsleepAtClosingIsLeftOut() {
+        System.getenv("KILOJOIN_E2E_SEATS") ?: return
+        val salt = setup()
+        val seed = (salt % 50_000).toInt() * 10 + 6
+        val ca = fund(seed, 150_000); val cb = fund(seed + 1, 140_000); val cc = fund(seed + 2, 130_000); val cd = fund(seed + 3, 160_000)
+        mine()
+        val np = PoolSession.newPool(100_000, 2.0, 5, 3, minPeers = 2, v3 = true)
+        val envA = Env("A")
+        val a = PoolSession(envA, PoolSession.newState(np.terms, true, np.secret, listOf(ca), listOf(key(seed)), listOf("a"),
+            listOf(script(50_000 + salt)), script(51_000 + salt), creatorSecret = np.creatorSecret, blindPriv = np.blindPriv)).also { it.autoKeys = listOf(key(seed)) }
+        a.start(); waitFor("A open") { a.state.phase == PoolSession.Phase.OPEN }
+        val seen = listed(np.terms.id)
+        val b = member("B", seen, cb, seed + 1, salt); val c = member("C", seen, cc, seed + 2, salt)
+        val envD = Env("D")
+        val d = member("D", seen, cd, seed + 3, salt, env = envD)
+        // D's phone puts the app to sleep the moment the round closes: no blind request ever goes out.
+        envD.hook = { e -> if (e is PoolSession.Event.Closing) { d.stop(); throw IllegalStateException("asleep") } }
+        listOf(b, c, d).forEach { it.start() }
+        waitFor("four in", 120) { a.state.seats.size == 4 && listOf(b, c, d).all { it.state.phase == PoolSession.Phase.OPEN && it.state.seats.size == 4 } }
+        b.requestClose()
+        waitFor("closing") { listOf(a, b, c).all { it.state.phase == PoolSession.Phase.CLOSING } && d.state.phase == PoolSession.Phase.CLOSING }
+        assertEquals(4, a.state.round.size)
+        waitFor("closed again without D", (Protocol.OUTPUTS_SECONDS + 120).toInt()) { a.state.closeSeq == 1 && a.state.round.size == 3 }
+        waitFor("broadcast", 300) { listOf(a, b, c).all { it.state.txid != null } }
+        assertTrue(listOf(b, c).all { it.state.closeSeq == 1 })
+        val tx = rpc("getrawtransaction", a.state.txid!!, true) as JSONObject
+        assertEquals(3, tx.getJSONArray("vin").length())
+        assertTrue(rpc("gettxout", cd.txid, cd.vout, true) is JSONObject)
+        mine()
+        waitFor("confirmed", 90) { listOf(a, b, c).all { it.state.phase == PoolSession.Phase.CONFIRMED } }
+        assertFalse(envA.events.contains("Aborted"))
+        // Saved and read back with its second closing.
+        assertEquals(1, PoolSession.State.parse(JSONObject(a.state.toJson().toString())).closeSeq)
+        println("asleep seat left out txid ${a.state.txid}")
+        listOf(a, b, c).forEach { it.stop() }
     }
 
     // ------------------------------------------------------------------------------- perpetual

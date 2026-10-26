@@ -302,9 +302,15 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
     LaunchedEffect(rev / 1_000_000) { com.kilombino.pyblockwatch.coinjoin.PerfectCoin.load(ctx) }
     // Perpetual coins: between rounds on IN PROGRESS, stopped ones in HISTORY (their rounds have cards of their own).
     val remixes by com.kilombino.pyblockwatch.coinjoin.Perpetual.list.collectAsState()
-    LaunchedEffect(rev / 500_000) { withContext(Dispatchers.IO) { com.kilombino.pyblockwatch.coinjoin.Perpetual.load(ctx) } }
+    LaunchedEffect(rev / 500_000) { withContext(Dispatchers.IO) {
+        com.kilombino.pyblockwatch.coinjoin.Perpetual.load(ctx)
+        // Off, with its round over without a coin to go on with: let that round go, so it can be removed.
+        runCatching { com.kilombino.pyblockwatch.coinjoin.Perpetual.settleStopped(ctx) }
+    } }
     val remixWaiting = remixes.filter { it.state == com.kilombino.pyblockwatch.coinjoin.Remix.State.WAITING }
-    val remixStopped = remixes.filter { it.state == com.kilombino.pyblockwatch.coinjoin.Remix.State.STOPPED && it.seat == null }
+    // A stopped one shows on its round's card while that round is listed; on a card of its own otherwise.
+    val remixStopped = remixes.filter { it.state == com.kilombino.pyblockwatch.coinjoin.Remix.State.STOPPED &&
+        (it.seat == null || CoinjoinHub.session(it.seat!!) == null) }
     // JOIN · IN PROGRESS · HISTORY: rounds going are shown first when there are any.
     CoinjoinTabs(tab, active.size + remixWaiting.size, accent) { tab = it }
     // A card opens by itself while its round waits on you; a tap opens or folds it.
@@ -1011,7 +1017,8 @@ private fun MyPoolCard(
     fun act(f: () -> Unit) = scope.launch { withContext(Dispatchers.IO) { runCatching(f) }.onFailure { onMessage(it.message ?: "failed") } }
     @Composable fun frame(content: @Composable () -> Unit) { if (embedded) Column { content() } else Panel(accent = color) { content() } }
     frame {
-        val people = if (st.round.isNotEmpty()) st.round.size else st.seats.size
+        // This phone's own seats count as one person.
+        val people = CoinjoinHub.people(st)
         if (!embedded) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("${poolAmount(st.terms)} sats" + if (st.terms.script == ScriptType.P2TR) " · Taproot" else "",
@@ -1659,7 +1666,7 @@ private fun RoundCard(
     if (rev < 0) return
     val step = stepOf(st)
     val over = step == 0
-    val people = if (st.round.isNotEmpty()) st.round.size else st.seats.size
+    val people = CoinjoinHub.people(st)
     val color = if (over) Bad else if (step == STEPS) Good else accent
     val status = when (st.phase) {
         PoolSession.Phase.JOINING -> "Asking to join"
@@ -1938,7 +1945,10 @@ private fun PerpetualCard(vm: WalletViewModel, r: com.kilombino.pyblockwatch.coi
             if (!editing && (on || canTurnOn)) TextButton(onClick = { editing = true }) {
                 Text("change the fee of its next pools", color = accent, style = MaterialTheme.typography.bodySmall)
             }
-            if (!on && !embedded && r.seat == null) TextButton(onClick = { com.kilombino.pyblockwatch.coinjoin.Perpetual.forget(ctx, r.id) }) {
+            // Off and not in a live round (its round over, or gone): it can go. The round itself is untouched.
+            val seat = r.seat?.let { CoinjoinHub.session(it) }
+            if (com.kilombino.pyblockwatch.coinjoin.Perpetual.removable(r, seat?.state, seat?.done ?: true))
+                TextButton(onClick = { com.kilombino.pyblockwatch.coinjoin.Perpetual.forget(ctx, r.id) }) {
                 Text("remove", color = TextFaint, style = MaterialTheme.typography.bodySmall)
             }
         }

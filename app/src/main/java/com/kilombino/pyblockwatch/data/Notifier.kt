@@ -60,12 +60,15 @@ class Notifier(private val context: Context, private val titlePrefix: String = "
         return (if (v < 0) "-" else "") + sb
     }
 
+    /** The chain as notifications name it: "Bitcoin" for the BLAKE2b chain, "SHA-256" for the other. */
+    internal fun label(chain: Chain): String = if (chain == Chain.BLAKE2B) "Bitcoin" else chain.display
+
     fun found(chain: Chain, confirmed: Long, unconfirmed: Long) {
         val total = confirmed + unconfirmed
         val text = if (unconfirmed != 0L)
             "${sats(total)} sats · ${sats(unconfirmed)} in the mempool (0 conf)"
         else "${sats(confirmed)} sats · confirmed"
-        post(idFor(chain, "found", ""), "${chain.display}: balance detected", text, tabFor(chain))
+        post(idFor(chain, "found", ""), "${label(chain)}: balance detected", text, tabFor(chain))
     }
 
     /** Coins arriving at the Lightning node's on-chain wallet (FUND). */
@@ -76,43 +79,43 @@ class Notifier(private val context: Context, private val titlePrefix: String = "
 
     fun mempoolIn(chain: Chain, amount: Long, txid: String) =
         post(idFor(chain, "mem", txid), "New incoming payment in the mempool",
-             "${chain.display} · +${sats(amount)} sats (0 conf)", tabFor(chain))
+             "${label(chain)} · +${sats(amount)} sats (0 conf)", tabFor(chain))
 
     fun mempoolOut(chain: Chain, amount: Long, txid: String) =
         post(idFor(chain, "mem", txid), "New outgoing payment in the mempool",
-             "${chain.display} · ${sats(amount)} sats (0 conf)", tabFor(chain))
+             "${label(chain)} · ${sats(amount)} sats (0 conf)", tabFor(chain))
 
     fun firstConfIn(chain: Chain, amount: Long, txid: String) =
         post(idFor(chain, "conf", txid), "First confirmation of the incoming payment",
-             "${chain.display} · +${sats(amount)} sats (1 conf)", tabFor(chain))
+             "${label(chain)} · +${sats(amount)} sats (1 conf)", tabFor(chain))
 
     /** A confirmed incoming payment whose proof (merkle + block proof of work) did not check out. */
     fun unprovenIn(chain: Chain, amount: Long, txid: String) =
         post(idFor(chain, "unproven", txid), "⚠ Incoming payment NOT proven",
-             "${chain.display} · +${sats(amount)} sats: the server says it confirmed, but its proof does not check " +
+             "${label(chain)} · +${sats(amount)} sats: the server says it confirmed, but its proof does not check " +
                  "out. Do not count on it; check it on your own node or another server.", tabFor(chain))
 
     fun firstConfOut(chain: Chain, amount: Long, txid: String) =
         post(idFor(chain, "conf", txid), "First confirmation of the outgoing payment",
-             "${chain.display} · ${sats(amount)} sats (1 conf)", tabFor(chain))
+             "${label(chain)} · ${sats(amount)} sats (1 conf)", tabFor(chain))
 
     // A change we only ever saw already-confirmed (received or spent between two checks,
     // never observed in the mempool). No txid to key on, so it collapses per chain.
     fun receivedConfirmed(chain: Chain, amount: Long) =
         post(idFor(chain, "recv", ""), "Received",
-             "${chain.display} · +${sats(amount)} sats · confirmed", tabFor(chain))
+             "${label(chain)} · +${sats(amount)} sats · confirmed", tabFor(chain))
 
     fun receivedPending(chain: Chain, amount: Long) =
         post(idFor(chain, "recv", ""), "Received",
-             "${chain.display} · +${sats(amount)} sats · in the mempool (0 conf)", tabFor(chain))
+             "${label(chain)} · +${sats(amount)} sats · in the mempool (0 conf)", tabFor(chain))
 
     fun sentPending(chain: Chain, amount: Long) =
         post(idFor(chain, "sent", ""), "Sent",
-             "${chain.display} · ${sats(amount)} sats · in the mempool (0 conf)", tabFor(chain))
+             "${label(chain)} · ${sats(amount)} sats · in the mempool (0 conf)", tabFor(chain))
 
     fun sentConfirmed(chain: Chain, amount: Long) =
         post(idFor(chain, "sent", ""), "Sent",
-             "${chain.display} · ${sats(amount)} sats · confirmed", tabFor(chain))
+             "${label(chain)} · ${sats(amount)} sats · confirmed", tabFor(chain))
 
     // ---------------------------------------------------------------- JoinMarket fidelity bonds
 
