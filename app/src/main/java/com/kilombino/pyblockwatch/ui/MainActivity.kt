@@ -946,7 +946,9 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
     val held = rows.filter { it.total > 0 }.sortedWith(compareBy({ it.type?.ordinal ?: -1 }, { it.chainIndex }, { it.index }))
     if (held.isEmpty()) return
     // The coins in each address, with their height, for the confirmations.
-    var coins by remember { mutableStateOf<Map<String, List<Scanner.SpendableUtxo>>?>(null) }
+    // Kept per wallet and chain: the same list switching wallet must not carry the other's coins or folds.
+    val wallet = vm.state.value.xpub + "/" + vm.state.value.isHot + "/" + chain.name
+    var coins by remember(wallet) { mutableStateOf<Map<String, List<Scanner.SpendableUtxo>>?>(null) }
     // Looked up again when a coin confirms (its total stays the same but moves from unconfirmed
     // to confirmed) and on each new block, so the confirmations keep pace with the movements.
     LaunchedEffect(held.map { Triple(it.scriptHash, it.total, it.confirmed) }, tip) {
@@ -986,14 +988,17 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
         val seated = remember(coins) { vm.seatedInWaitingPools() }
         val btc = chain == com.kilombino.pyblockwatch.chain.Chain.BLAKE2B
         // Addresses opened coin by coin (by script hash): all folded at first.
-        var unfolded by rememberSaveable { mutableStateOf("") }
-        /** One coin of [row], in the same pattern as an address. */
-        @Composable fun coinRow(row: AddressRow, u: Scanner.SpendableUtxo) {
+        var unfolded by rememberSaveable(wallet) { mutableStateOf("") }
+        /**
+         * One coin of [row], in the same pattern as an address; [inner] when it is one of a folded address's
+         * coins, set in under it. A mined reward still locked is dimmer: it can't be spent yet.
+         */
+        @Composable fun coinRow(row: AddressRow, u: Scanner.SpendableUtxo, inner: Boolean = false) {
             val lk = im?.of(u)
-            Row(Modifier.fillMaxWidth().clickable { open = row }.padding(vertical = 6.dp),
+            Row(Modifier.fillMaxWidth().clickable { open = row }.padding(start = if (inner) 16.dp else 0.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(shortAddress(row.address), style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                    Text(shortAddress(row.address), style = MaterialTheme.typography.bodyMedium, color = if (lk != null) TextFaint else TextMain)
                     Text("${row.path}  ·  ${if (row.chainIndex == 0) "receive" else "change"}",
                         style = MaterialTheme.typography.bodySmall, color = TextFaint)
                     if (btc && vm.isMixedCoin(u)) Text("🌀 mixed", style = MaterialTheme.typography.bodySmall, color = Good)
@@ -1003,8 +1008,8 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(street("${groupSats(u.value)} sats"),
-                        style = MaterialTheme.typography.bodyMedium, color = accent, fontWeight = FontWeight.Bold)
-                    Text(confText(u), style = MaterialTheme.typography.bodySmall, color = if (lk != null) Warn else Good)
+                        style = MaterialTheme.typography.bodyMedium, color = if (lk != null) TextSoft else accent, fontWeight = FontWeight.Bold)
+                    Text(confText(u), style = MaterialTheme.typography.bodySmall, color = if (lk != null) TextFaint else Good)
                 }
             }
         }
@@ -1062,7 +1067,7 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
                     }
                 }
             }
-            if (isOpen) cs!!.sortedBy { it.height }.forEach { u -> coinRow(row, u) }
+            if (isOpen) cs!!.sortedBy { it.height }.forEach { u -> coinRow(row, u, inner = true) }
         }
     }
 }

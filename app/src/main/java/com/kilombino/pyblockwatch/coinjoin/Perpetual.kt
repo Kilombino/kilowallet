@@ -432,14 +432,33 @@ object Perpetual {
         AutoKeyVault.save(ctx, branchKey(r.type), listOf(branch.key, BigInteger(1, branch.chainCode)))
         if (r.first?.needsChangeKey == true && changeBranch != null)
             AutoKeyVault.save(ctx, changeKey(r.type), listOf(changeBranch.key, BigInteger(1, changeBranch.chainCode)))
+        CoinjoinHub.load(ctx)
         edit(ctx, id) {
+            // A seat already over without a round (cancelled, refused, gone) is let go: it looks for its next pool.
+            if (it.seat != null && seatFinished(CoinjoinHub.session(it.seat!!)?.state)) it.seat = null
             if (it.seat != null) { it.state = Remix.State.SEATED; it.reason = "" }
             else if (it.txid != null || it.first?.private == false) {
                 it.state = Remix.State.WAITING; it.nextAt = System.currentTimeMillis() / 1000 + 20 + SecureRandom().nextInt(71); it.reason = ""
             }
         }
         CoinjoinService.start(ctx)
+        // Moved on now (a confirmed round's output read), and again the moment its wait is over: the
+        // service's own look comes only once a minute, which added up to two more minutes.
+        val app = ctx.applicationContext
+        Thread {
+            runCatching { check(app) }
+            val at = load(app).firstOrNull { it.id == id }?.takeIf { it.state == Remix.State.WAITING }?.nextAt ?: return@Thread
+            Thread.sleep(((at - System.currentTimeMillis() / 1000) * 1000 + 1_500).coerceIn(0, 120_000))
+            runCatching { check(app) }
+        }.apply { isDaemon = true }.start()
     }
+
+    /**
+     * A perpetual coin that is on but has no round card of its own going: waiting for its next pool, or
+     * with a round already over that it has not moved on from yet. It shows (and counts) in IN PROGRESS.
+     */
+    fun pendingCard(r: Remix, seat: PoolSession.State?, seatDone: Boolean): Boolean =
+        r.state == Remix.State.WAITING || (r.state == Remix.State.SEATED && (r.seat == null || seat == null || seatDone))
 
     fun setCap(ctx: Context, id: String, cap: Double) = edit(ctx, id) { it.cap = cap }
 

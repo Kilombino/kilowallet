@@ -111,6 +111,21 @@ class SeatsAndPerpetualTest {
         assertEquals(emptySet<ScriptType>() to emptySet<ScriptType>(), Perpetual.keysNeeded(listOf(r)))
     }
 
+    @Test fun anOnPerpetualWithoutARoundGoingShowsInProgress() {
+        val r = Remix("r", ScriptType.P2WPKH, cap = 2.0, rate = 2.0, minPeers = 2, maxPeers = 5, hours = 6, state = Remix.State.WAITING)
+        // Waiting for its next pool: its own card in IN PROGRESS.
+        assertTrue(Perpetual.pendingCard(r, null, seatDone = true))
+        // Turned on again with its last round already over (confirmed, not moved on from yet), or gone: its own card too.
+        r.state = Remix.State.SEATED; r.seat = "s"
+        assertTrue(Perpetual.pendingCard(r, seat(PoolSession.Phase.CONFIRMED), seatDone = true))
+        assertTrue(Perpetual.pendingCard(r, null, seatDone = true))
+        // In a round going: that round's card shows it.
+        assertTrue(!Perpetual.pendingCard(r, seat(PoolSession.Phase.OPEN), seatDone = false))
+        // Off: in HISTORY, not IN PROGRESS.
+        r.state = Remix.State.STOPPED; r.seat = null
+        assertTrue(!Perpetual.pendingCard(r, null, seatDone = true))
+    }
+
     @Test fun neverJoinsAPoolWhoseOtherSeatsAreOurs() {
         val f = Fake(); val r = fresh(f); f.outputValue = 100_000
         Remixer(f).step(r); f.now = r.nextAt

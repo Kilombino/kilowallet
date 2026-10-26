@@ -307,12 +307,15 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
         // Off, with its round over without a coin to go on with: let that round go, so it can be removed.
         runCatching { com.kilombino.pyblockwatch.coinjoin.Perpetual.settleStopped(ctx) }
     } }
-    val remixWaiting = remixes.filter { it.state == com.kilombino.pyblockwatch.coinjoin.Remix.State.WAITING }
+    // On, with no round card of its own going: waiting for its next pool, or about to move on from a round just over.
+    val remixWaiting = remixes.filter { r -> val s = r.seat?.let { CoinjoinHub.session(it) }
+        com.kilombino.pyblockwatch.coinjoin.Perpetual.pendingCard(r, s?.state, s?.done ?: true) }
     // A stopped one shows on its round's card while that round is listed; on a card of its own otherwise.
     val remixStopped = remixes.filter { it.state == com.kilombino.pyblockwatch.coinjoin.Remix.State.STOPPED &&
         (it.seat == null || CoinjoinHub.session(it.seat!!) == null) }
     // JOIN · IN PROGRESS · HISTORY: rounds going are shown first when there are any.
-    CoinjoinTabs(tab, active.size + remixWaiting.size, accent) { tab = it }
+    // Everything IN PROGRESS lists: rounds, perpetual coins between rounds, and perfect coins waiting to confirm.
+    CoinjoinTabs(tab, active.size + remixWaiting.size + waitingPerfect.size, accent) { tab = it }
     // A card opens by itself while its round waits on you; a tap opens or folds it.
     val unfolded = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
     @Composable fun card(st: PoolSession.State) = RoundCard(vm, st, rev, accent, activity,
@@ -1880,8 +1883,8 @@ private const val PERPETUAL_EXPLAIN = "When the round confirms, your mixed coin 
     "until its first round, that of its change addresses too."
 
 /** What a perpetual coin is doing, as one line. */
-private fun perpetualLine(r: com.kilombino.pyblockwatch.coinjoin.Remix): String = when (r.state) {
-    com.kilombino.pyblockwatch.coinjoin.Remix.State.SEATED -> "♻ Perpetual: in a round now"
+private fun perpetualLine(r: com.kilombino.pyblockwatch.coinjoin.Remix, standalone: Boolean = false): String = when (r.state) {
+    com.kilombino.pyblockwatch.coinjoin.Remix.State.SEATED -> if (standalone) "♻ Perpetual: looking for its next pool" else "♻ Perpetual: in a round now"
     com.kilombino.pyblockwatch.coinjoin.Remix.State.WAITING -> {
         val s = r.nextAt - System.currentTimeMillis() / 1000
         // Before its first round: its first pool ended with nobody, and the same pool opens again.
@@ -1915,7 +1918,7 @@ private fun PerpetualCard(vm: WalletViewModel, r: com.kilombino.pyblockwatch.coi
                 if (r.state == com.kilombino.pyblockwatch.coinjoin.Remix.State.WAITING) StillDot(accent)
             }
         }
-        Text(perpetualLine(r), style = MaterialTheme.typography.bodySmall, color = if (on) Good else TextFaint)
+        Text(perpetualLine(r, standalone = !embedded), style = MaterialTheme.typography.bodySmall, color = if (on) Good else TextFaint)
         if (r.rounds > 0) Text("Rounds so far: ${r.rounds} (${groupSats(r.startValue)} → ${groupSats(r.value)} sats)",
             style = MaterialTheme.typography.bodySmall, color = TextFaint)
         Text("Its pools' fee: ${fmtRate(r.cap)} sat/vB", style = MaterialTheme.typography.bodySmall, color = TextFaint)
