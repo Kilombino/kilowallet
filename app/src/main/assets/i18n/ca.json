@@ -730,7 +730,6 @@
 "Only native SegWit coins can join, and everyone gets native SegWit outputs back.": "Només s'hi poden unir monedes SegWit natiu, i tothom rep sortides SegWit natiu.",
 "Only people you give this password to can join. It is not announced anywhere.": "Només s'hi pot unir la gent a qui donis aquesta contrasenya. No s'anuncia enlloc.",
 "Only the price? Put the BTC widget on your home screen: price and Poolsats with their ": "Només el preu? Posa el widget de BTC a la pantalla d'inici: preu i Poolsats amb la seva ",
-"Only this same transaction is accepted, and every signature is checked here before anything is sent.": "Només s'accepta aquesta mateixa transacció, i cada signatura es comprova aquí abans d'enviar res.",
 "Only while the app is open (background checks are off). Your own rounds always notify.": "Només amb l'app oberta (les comprovacions en segon pla estan desactivades). Les teves pròpies rondes sempre avisen.",
 "Open a coinjoin pool": "Obre un pool de coinjoin",
 "Open for 1 to 72 hours.": "Obert d'1 a 72 hores.",
@@ -2389,5 +2388,12 @@
 "♻ Perpetual: opening its first pool again": "♻ Perpetu: tornant a obrir el seu primer pool",
 "▸ {0} coins": "▸ {0} monedes",
 "▾ {0} coins": "▾ {0} monedes",
-"{0} coins · {1} locked until ~{2}": "{0} monedes · {1} bloquejades fins a ~{2}"
+"{0} coins · {1} locked until ~{2}": "{0} monedes · {1} bloquejades fins a ~{2}",
+"3. Signed and checked": "3. Signada i comprovada",
+"Every signature is valid. Broadcast it from here, or copy the raw transaction to broadcast it from your own node.": "Totes les signatures són vàlides. Emet-la des d'aquí, o copia la transacció en cru per emetre-la des del teu propi node.",
+"BROADCAST": "EMETRE",
+"COPY RAW": "COPIA RAW",
+"Raw transaction copied": "Transacció en cru copiada",
+"Could not broadcast it.": "No s'ha pogut emetre.",
+"Only this same transaction is accepted, and every signature is checked here. Nothing is sent until you choose.": "Només s'accepta aquesta mateixa transacció, i cada signatura es comprova aquí. No s'envia res fins que tu ho triïs."
 }

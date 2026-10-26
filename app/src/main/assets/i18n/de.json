@@ -730,7 +730,6 @@
 "Only native SegWit coins can join, and everyone gets native SegWit outputs back.": "Nur native SegWit-Münzen können beitreten, und alle bekommen native SegWit-Ausgaben zurück.",
 "Only people you give this password to can join. It is not announced anywhere.": "Nur wem du dieses Passwort gibst, kann beitreten. Es wird nirgends angekündigt.",
 "Only the price? Put the BTC widget on your home screen: price and Poolsats with their ": "Nur der Preis? Leg das BTC-Widget auf deinen Startbildschirm: Preis und Poolsats mit ihrer ",
-"Only this same transaction is accepted, and every signature is checked here before anything is sent.": "Nur genau diese Transaktion wird akzeptiert, und jede Signatur wird hier geprüft, bevor etwas gesendet wird.",
 "Only while the app is open (background checks are off). Your own rounds always notify.": "Nur bei offener App (Hintergrundprüfungen sind aus). Deine eigenen Runden melden sich immer.",
 "Open a coinjoin pool": "Einen Coinjoin-Pool öffnen",
 "Open for 1 to 72 hours.": "Offen für 1 bis 72 Stunden.",
@@ -2389,5 +2388,12 @@
 "♻ Perpetual: opening its first pool again": "♻ Ewig: öffnet seinen ersten Pool wieder",
 "▸ {0} coins": "▸ {0} Münzen",
 "▾ {0} coins": "▾ {0} Münzen",
-"{0} coins · {1} locked until ~{2}": "{0} Münzen · {1} gesperrt bis ~{2}"
+"{0} coins · {1} locked until ~{2}": "{0} Münzen · {1} gesperrt bis ~{2}",
+"3. Signed and checked": "3. Signiert und geprüft",
+"Every signature is valid. Broadcast it from here, or copy the raw transaction to broadcast it from your own node.": "Alle Signaturen sind gültig. Sende sie von hier aus, oder kopiere die Rohtransaktion, um sie von deinem eigenen Node zu senden.",
+"BROADCAST": "SENDEN",
+"COPY RAW": "ROH KOPIEREN",
+"Raw transaction copied": "Rohtransaktion kopiert",
+"Could not broadcast it.": "Konnte nicht gesendet werden.",
+"Only this same transaction is accepted, and every signature is checked here. Nothing is sent until you choose.": "Nur genau diese Transaktion wird akzeptiert, und jede Signatur wird hier geprüft. Nichts wird gesendet, bis du es wählst."
 }

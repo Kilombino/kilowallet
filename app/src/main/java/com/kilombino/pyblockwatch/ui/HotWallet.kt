@@ -998,6 +998,27 @@ private fun PsbtExchange(vm: WalletViewModel, phase: SendPhase.AwaitingSignature
         onError = { scanning = false; vm.clearPsbtError(); vm.toast(it) },
         onDismiss = { scanning = false })
 
+    phase.signed?.let { signed ->
+        // Signed and checked: nothing is sent until the user says so.
+        Text("3. Signed and checked", color = accent, style = MaterialTheme.typography.titleSmall)
+        Text("Every signature is valid. Broadcast it from here, or copy the raw transaction to broadcast it from your own node.",
+            color = TextSoft, style = MaterialTheme.typography.bodySmall)
+        Text("txid ${signed.txid}", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+        state.psbtError?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall) }
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = { vm.clearPsbtError(); vm.broadcastSignedPsbt() },
+            colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
+            shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
+        ) { Text("BROADCAST", style = MaterialTheme.typography.titleMedium) }
+        TextButton(onClick = {
+            clipboard.setText(androidx.compose.ui.text.AnnotatedString(signed.rawHex))
+            vm.toast("Raw transaction copied")
+        }, modifier = Modifier.fillMaxWidth()) { Text("COPY RAW", color = accent) }
+        TextButton(onClick = { vm.clearPsbtError(); vm.resetSend() }, modifier = Modifier.fillMaxWidth()) {
+            Text("cancel", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+        }
+        return
+    }
     Text("1. Sign it elsewhere", color = accent, style = MaterialTheme.typography.titleSmall)
     Text("Take this PSBT to your signer: SeedSigner (BLAKE2b, scan the animated QR) or Bitcoin Knots (walletprocesspsbt). It must sign with the " +
         "BLAKE2b unified sighash (0x21): an old-style signature would also be valid on the spamchain, so it is refused.",
@@ -1011,7 +1032,7 @@ private fun PsbtExchange(vm: WalletViewModel, phase: SendPhase.AwaitingSignature
     }
     Spacer(Modifier.height(10.dp))
     Text("2. Bring the signed PSBT back", color = accent, style = MaterialTheme.typography.titleSmall)
-    Text("Only this same transaction is accepted, and every signature is checked here before anything is sent.",
+    Text("Only this same transaction is accepted, and every signature is checked here. Nothing is sent until you choose.",
         color = TextSoft, style = MaterialTheme.typography.bodySmall)
     state.psbtError?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall) }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

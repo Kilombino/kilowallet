@@ -730,7 +730,6 @@
 "Only native SegWit coins can join, and everyone gets native SegWit outputs back.": "Possono unirsi solo monete SegWit nativo, e tutti ricevono output SegWit nativo.",
 "Only people you give this password to can join. It is not announced anywhere.": "Possono unirsi solo le persone a cui dai questa password. Non viene annunciato da nessuna parte.",
 "Only the price? Put the BTC widget on your home screen: price and Poolsats with their ": "Solo il prezzo? Metti il widget BTC nella schermata Home: prezzo e Poolsats con la loro ",
-"Only this same transaction is accepted, and every signature is checked here before anything is sent.": "Viene accettata solo questa stessa transazione, e ogni firma viene verificata qui prima di inviare qualsiasi cosa.",
 "Only while the app is open (background checks are off). Your own rounds always notify.": "Solo con l'app aperta (i controlli in background sono disattivati). I tuoi round avvisano sempre.",
 "Open a coinjoin pool": "Apri un pool di coinjoin",
 "Open for 1 to 72 hours.": "Aperto da 1 a 72 ore.",
@@ -2389,5 +2388,12 @@
 "♻ Perpetual: opening its first pool again": "♻ Perpetuo: riapre il suo primo pool",
 "▸ {0} coins": "▸ {0} monete",
 "▾ {0} coins": "▾ {0} monete",
-"{0} coins · {1} locked until ~{2}": "{0} monete · {1} bloccate fino al ~{2}"
+"{0} coins · {1} locked until ~{2}": "{0} monete · {1} bloccate fino al ~{2}",
+"3. Signed and checked": "3. Firmata e verificata",
+"Every signature is valid. Broadcast it from here, or copy the raw transaction to broadcast it from your own node.": "Tutte le firme sono valide. Trasmettila da qui, o copia la transazione grezza per trasmetterla dal tuo nodo.",
+"BROADCAST": "TRASMETTI",
+"COPY RAW": "COPIA GREZZA",
+"Raw transaction copied": "Transazione grezza copiata",
+"Could not broadcast it.": "Impossibile trasmetterla.",
+"Only this same transaction is accepted, and every signature is checked here. Nothing is sent until you choose.": "Viene accettata solo questa stessa transazione, e ogni firma viene verificata qui. Non si invia nulla finché non lo scegli tu."
 }

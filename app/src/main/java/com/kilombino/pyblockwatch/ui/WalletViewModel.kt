@@ -120,7 +120,11 @@ sealed interface SendPhase {
     data object Preparing : SendPhase
     data class Review(val draft: SendDraft) : SendPhase
     /** Watch-only: the PSBT is out with the signer; only a signed copy of this exact one is taken back. */
-    data class AwaitingSignature(val draft: SendDraft, val psbt: ByteArray) : SendPhase {
+    data class AwaitingSignature(
+        val draft: SendDraft, val psbt: ByteArray,
+        /** The checked, signed transaction once the PSBT is back: copied raw or broadcast, as the user picks. */
+        val signed: com.kilombino.pyblockwatch.crypto.TxBuilder.Signed? = null,
+    ) : SendPhase {
         val base64: String get() = com.kilombino.pyblockwatch.crypto.Psbt.base64(psbt)
     }
     data object Broadcasting : SendPhase
@@ -2204,22 +2208,39 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
          .onFailure { e -> _state.update { it.copy(sendPhase = SendPhase.Failed(e.message ?: "Could not make the PSBT.")) } }
     }
 
-    /** Take the signed PSBT back ([text]: base64 or hex), check every signature and broadcast. */
+    /** Take the signed PSBT back ([text]: base64 or hex) and check every signature; nothing is sent yet. */
     fun importSignedPsbt(text: String) = importSignedPsbt { com.kilombino.pyblockwatch.crypto.Psbt.decodeText(text) }
     fun importSignedPsbtFile(bytes: ByteArray) = importSignedPsbt { com.kilombino.pyblockwatch.crypto.Psbt.decodeFile(bytes) }
 
     private fun importSignedPsbt(decode: () -> ByteArray) {
         val phase = _state.value.sendPhase as? SendPhase.AwaitingSignature ?: return
         val draft = phase.draft
-        _state.update { it.copy(sendPhase = SendPhase.Broadcasting) }
         viewModelScope.launch {
             runCatching {
                 val returned = runCatching { decode() }
                     .getOrElse { error("That is not a PSBT (base64 or hex).") }
-                val signed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                     val o = psbtOrigin(store.keyOrigin)
                     com.kilombino.pyblockwatch.crypto.Psbt.finish(phase.psbt, returned, psbtCoins(draft, o), draft.outputs)
                 }
+            }.onSuccess { signed ->
+                // Held until the user picks: copy it raw (to broadcast from their own node) or broadcast it here.
+                _state.update { it.copy(sendPhase = phase.copy(signed = signed), psbtError = null) }
+            }.onFailure { e ->
+                // Still waiting: the same PSBT can still be signed properly and brought back.
+                _state.update { it.copy(psbtError = e.message ?: "Could not use that PSBT.") }
+            }
+        }
+    }
+
+    /** Broadcast the signed transaction that came back in the PSBT. */
+    fun broadcastSignedPsbt() {
+        val phase = _state.value.sendPhase as? SendPhase.AwaitingSignature ?: return
+        val signed = phase.signed ?: return
+        val draft = phase.draft
+        _state.update { it.copy(sendPhase = SendPhase.Broadcasting) }
+        viewModelScope.launch {
+            runCatching {
                 val endpoint = store.endpoint(draft.chain)
                 val pin = store.pinnedFingerprint(endpoint)
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { scanner.broadcast(signed.rawHex, endpoint, pin) }
@@ -2227,8 +2248,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 _state.update { it.copy(sendPhase = SendPhase.Sent(txid)) }
                 refresh(draft.chain)
             }.onFailure { e ->
-                // Back to waiting: the same PSBT can still be signed properly and brought back.
-                _state.update { it.copy(sendPhase = phase, psbtError = e.message ?: "Could not use that PSBT.") }
+                // Back to the signed transaction: it can be broadcast again, or copied raw.
+                _state.update { it.copy(sendPhase = phase, psbtError = e.message ?: "Could not broadcast it.") }
             }
         }
     }

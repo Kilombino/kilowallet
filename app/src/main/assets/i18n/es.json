@@ -730,7 +730,6 @@
 "Only native SegWit coins can join, and everyone gets native SegWit outputs back.": "Solo pueden unirse monedas SegWit nativo, y todo el mundo recibe salidas SegWit nativo.",
 "Only people you give this password to can join. It is not announced anywhere.": "Solo puede unirse la gente a la que des esta contraseña. No se anuncia en ningún sitio.",
 "Only the price? Put the BTC widget on your home screen: price and Poolsats with their ": "¿Solo el precio? Pon el widget de BTC en tu pantalla de inicio: precio y Poolsats con su ",
-"Only this same transaction is accepted, and every signature is checked here before anything is sent.": "Solo se acepta esta misma transacción, y cada firma se comprueba aquí antes de enviar nada.",
 "Only while the app is open (background checks are off). Your own rounds always notify.": "Solo con la app abierta (las comprobaciones en segundo plano están desactivadas). Tus propias rondas siempre avisan.",
 "Open a coinjoin pool": "Abrir un pool de coinjoin",
 "Open for 1 to 72 hours.": "Abierto de 1 a 72 horas.",
@@ -2389,5 +2388,12 @@
 "♻ Perpetual: opening its first pool again": "♻ Perpetuo: volviendo a abrir su primer pool",
 "▸ {0} coins": "▸ {0} monedas",
 "▾ {0} coins": "▾ {0} monedas",
-"{0} coins · {1} locked until ~{2}": "{0} monedas · {1} bloqueadas hasta ~{2}"
+"{0} coins · {1} locked until ~{2}": "{0} monedas · {1} bloqueadas hasta ~{2}",
+"3. Signed and checked": "3. Firmada y comprobada",
+"Every signature is valid. Broadcast it from here, or copy the raw transaction to broadcast it from your own node.": "Todas las firmas son válidas. Emítela desde aquí, o copia la transacción en crudo para emitirla desde tu propio nodo.",
+"BROADCAST": "EMITIR",
+"COPY RAW": "COPIAR RAW",
+"Raw transaction copied": "Transacción en crudo copiada",
+"Could not broadcast it.": "No se pudo emitir.",
+"Only this same transaction is accepted, and every signature is checked here. Nothing is sent until you choose.": "Solo se acepta esta misma transacción, y cada firma se comprueba aquí. No se envía nada hasta que tú lo elijas."
 }

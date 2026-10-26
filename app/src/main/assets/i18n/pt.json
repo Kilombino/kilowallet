@@ -730,7 +730,6 @@
 "Only native SegWit coins can join, and everyone gets native SegWit outputs back.": "Só moedas SegWit nativo podem entrar, e todos recebem saídas SegWit nativo de volta.",
 "Only people you give this password to can join. It is not announced anywhere.": "Só as pessoas a quem você der esta senha podem entrar. Ela não é anunciada em lugar nenhum.",
 "Only the price? Put the BTC widget on your home screen: price and Poolsats with their ": "Só o preço? Coloque o widget de BTC na sua tela inicial: preço e Poolsats com sua ",
-"Only this same transaction is accepted, and every signature is checked here before anything is sent.": "Só esta mesma transação é aceita, e cada assinatura é verificada aqui antes de enviar qualquer coisa.",
 "Only while the app is open (background checks are off). Your own rounds always notify.": "Só com o app aberto (as verificações em segundo plano estão desativadas). Suas próprias rodadas sempre avisam.",
 "Open a coinjoin pool": "Abrir uma pool de coinjoin",
 "Open for 1 to 72 hours.": "Aberta de 1 a 72 horas.",
@@ -2389,5 +2388,12 @@
 "♻ Perpetual: opening its first pool again": "♻ Perpétuo: a voltar a abrir o primeiro pool",
 "▸ {0} coins": "▸ {0} moedas",
 "▾ {0} coins": "▾ {0} moedas",
-"{0} coins · {1} locked until ~{2}": "{0} moedas · {1} bloqueadas até ~{2}"
+"{0} coins · {1} locked until ~{2}": "{0} moedas · {1} bloqueadas até ~{2}",
+"3. Signed and checked": "3. Assinada e verificada",
+"Every signature is valid. Broadcast it from here, or copy the raw transaction to broadcast it from your own node.": "Todas as assinaturas são válidas. Transmite-a daqui, ou copia a transação em bruto para a transmitires a partir do teu próprio nó.",
+"BROADCAST": "TRANSMITIR",
+"COPY RAW": "COPIAR RAW",
+"Raw transaction copied": "Transação em bruto copiada",
+"Could not broadcast it.": "Não foi possível transmiti-la.",
+"Only this same transaction is accepted, and every signature is checked here. Nothing is sent until you choose.": "Só esta mesma transação é aceita, e cada assinatura é verificada aqui. Nada é enviado até que tu escolhas."
 }

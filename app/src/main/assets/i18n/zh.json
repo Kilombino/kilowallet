@@ -724,7 +724,6 @@
 "Only native SegWit coins can join, and everyone gets native SegWit outputs back.": "只有原生 SegWit 币可以加入，每个人收回的也都是原生 SegWit 输出。",
 "Only people you give this password to can join. It is not announced anywhere.": "只有拿到这个密码的人才能加入。它不会在任何地方公布。",
 "Only the price? Put the BTC widget on your home screen: price and Poolsats with their ": "只想看价格？把 BTC 小组件放到主屏幕：价格和 Poolsats 及其 ",
-"Only this same transaction is accepted, and every signature is checked here before anything is sent.": "只接受同一笔交易，并且在发送任何内容之前会在这里检查每个签名。",
 "Only while the app is open (background checks are off). Your own rounds always notify.": "仅在应用打开时（后台检查已关闭）。你自己的轮次总会通知。",
 "Open a coinjoin pool": "开一个混币池",
 "Open for 1 to 72 hours.": "开放 1 到 72 小时。",
@@ -2377,5 +2376,12 @@
 "♻ Perpetual: opening its first pool again": "♻ 永续：正在再次打开第一个池",
 "▸ {0} coins": "▸ {0} 枚币",
 "▾ {0} coins": "▾ {0} 枚币",
-"{0} coins · {1} locked until ~{2}": "{0} 枚币 · {1} 枚锁定至 ~{2}"
+"{0} coins · {1} locked until ~{2}": "{0} 枚币 · {1} 枚锁定至 ~{2}",
+"3. Signed and checked": "3. 已签名并已检查",
+"Every signature is valid. Broadcast it from here, or copy the raw transaction to broadcast it from your own node.": "所有签名均有效。可以从这里广播，或复制原始交易从你自己的节点广播。",
+"BROADCAST": "广播",
+"COPY RAW": "复制原始交易",
+"Raw transaction copied": "已复制原始交易",
+"Could not broadcast it.": "无法广播。",
+"Only this same transaction is accepted, and every signature is checked here. Nothing is sent until you choose.": "只接受同一笔交易，并且会在这里检查每个签名。在你选择之前不会发送任何内容。"
 }

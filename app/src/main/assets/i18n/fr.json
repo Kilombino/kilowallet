@@ -730,7 +730,6 @@
 "Only native SegWit coins can join, and everyone gets native SegWit outputs back.": "Seules les pièces SegWit natif peuvent rejoindre, et chacun récupère des sorties SegWit natif.",
 "Only people you give this password to can join. It is not announced anywhere.": "Seules les personnes à qui tu donnes ce mot de passe peuvent rejoindre. Il n'est annoncé nulle part.",
 "Only the price? Put the BTC widget on your home screen: price and Poolsats with their ": "Juste le prix ? Mets le widget BTC sur ton écran d'accueil : prix et Poolsats avec leur ",
-"Only this same transaction is accepted, and every signature is checked here before anything is sent.": "Seule cette même transaction est acceptée, et chaque signature est vérifiée ici avant tout envoi.",
 "Only while the app is open (background checks are off). Your own rounds always notify.": "Seulement quand l'app est ouverte (les vérifications en arrière-plan sont désactivées). Tes propres tours préviennent toujours.",
 "Open a coinjoin pool": "Ouvrir un pool de coinjoin",
 "Open for 1 to 72 hours.": "Ouvert de 1 à 72 heures.",
@@ -2389,5 +2388,12 @@
 "♻ Perpetual: opening its first pool again": "♻ Perpétuel : réouverture de son premier pool",
 "▸ {0} coins": "▸ {0} pièces",
 "▾ {0} coins": "▾ {0} pièces",
-"{0} coins · {1} locked until ~{2}": "{0} pièces · {1} bloquées jusqu’au ~{2}"
+"{0} coins · {1} locked until ~{2}": "{0} pièces · {1} bloquées jusqu’au ~{2}",
+"3. Signed and checked": "3. Signée et vérifiée",
+"Every signature is valid. Broadcast it from here, or copy the raw transaction to broadcast it from your own node.": "Toutes les signatures sont valides. Diffusez-la d'ici, ou copiez la transaction brute pour la diffuser depuis votre propre nœud.",
+"BROADCAST": "DIFFUSER",
+"COPY RAW": "COPIER BRUTE",
+"Raw transaction copied": "Transaction brute copiée",
+"Could not broadcast it.": "Impossible de la diffuser.",
+"Only this same transaction is accepted, and every signature is checked here. Nothing is sent until you choose.": "Seule cette même transaction est acceptée, et chaque signature est vérifiée ici. Rien n'est envoyé tant que vous ne l'avez pas choisi."
 }
