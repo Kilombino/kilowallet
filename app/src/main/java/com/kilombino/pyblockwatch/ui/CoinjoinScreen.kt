@@ -1448,7 +1448,7 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, tag:
                         TextButton(onClick = {
                             vm.resetSend(); onDone(true)
                             // The coin now waits for its pool in IN PROGRESS: that is where to look, not BTC.
-                            com.kilombino.pyblockwatch.data.OpenTab.flow.value = com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_ROUNDS
+                            com.kilombino.pyblockwatch.data.OpenTab.open(com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_ROUNDS)
                         }) { Text("CLOSE", color = accent) }
                     },
                     containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
