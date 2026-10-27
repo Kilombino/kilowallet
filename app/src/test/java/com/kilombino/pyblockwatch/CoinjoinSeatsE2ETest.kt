@@ -49,6 +49,7 @@ class CoinjoinSeatsE2ETest {
         @Volatile var mine: (() -> Set<String>)? = null
         override fun ownSeats(poolId: String): Set<String> = mine?.invoke() ?: emptySet()
         override fun coinUnspent(coin: CoinjoinTx.Coin): Boolean {
+            if (slow > 0) Thread.sleep(slow)
             val o = rpc("gettxout", coin.txid, coin.vout, true) as? JSONObject ?: return false
             return Math.round(o.getDouble("value") * 1e8) == coin.value &&
                 o.getJSONObject("scriptPubKey").getString("hex") == hex(coin.script)
@@ -63,6 +64,11 @@ class CoinjoinSeatsE2ETest {
             // As the app keeps it: the JSON must read back, and the last one is what a restart starts from.
             val j = state.toJson().toString(); PoolSession.State.parse(JSONObject(j)); saved?.put(state.key, j)
         }
+        /** Seconds this phone's clock is ahead (a vote's deadline reached at once). */
+        @Volatile var ahead = 0L
+        override fun now(): Long = System.currentTimeMillis() / 1000 + ahead
+        /** Milliseconds each coin check takes, as over a slow Tor circuit. */
+        @Volatile var slow = 0L
         /** Runs first on every event (a test can put the phone to sleep here). */
         @Volatile var hook: ((PoolSession.Event) -> Unit)? = null
         override fun event(e: PoolSession.Event) {
@@ -344,6 +350,46 @@ class CoinjoinSeatsE2ETest {
         waitFor("confirmed", 90) { listOf(a, a2, c).all { it.state.phase == PoolSession.Phase.CONFIRMED } }
         println("own seats as one person txid ${a.state.txid}")
         listOf(a, a2, b, c).forEach { it.stop() }
+    }
+
+    /**
+     * A vote whose last yes comes as its deadline runs out, on a creator whose coin checks are slow (Tor):
+     * the yes and the deadline both close the round, and before 1.3.9 each closing had a round id of its
+     * own. The members kept the first, the creator the last, nobody got a blind signature and the round
+     * timed out. Now the vote closes once and the round is mined. KILOJOIN_E2E_CLOSE=1.
+     */
+    @Test fun aLateYesClosesOnce() {
+        System.getenv("KILOJOIN_E2E_CLOSE") ?: return
+        val salt = setup()
+        val seed = (salt % 50_000).toInt() * 10 + 7
+        val ca = fund(seed, 150_000); val cb = fund(seed + 1, 140_000); val cc = fund(seed + 2, 130_000)
+        mine()
+        val np = PoolSession.newPool(100_000, 2.0, 5, 1, minPeers = 2, v3 = true)
+        val envA = Env("A")
+        val a = PoolSession(envA, PoolSession.newState(np.terms, true, np.secret, listOf(ca), listOf(key(seed)), listOf("a"),
+            listOf(script(50_000 + salt)), script(51_000 + salt), creatorSecret = np.creatorSecret, blindPriv = np.blindPriv)).also { it.autoKeys = listOf(key(seed)) }
+        a.start(); waitFor("A open") { a.state.phase == PoolSession.Phase.OPEN }
+        val seen = listed(np.terms.id)
+        val b = member("B", seen, cb, seed + 1, salt); b.start()
+        // C answers by hand, late.
+        val c = member("C", seen, cc, seed + 2, salt).also { it.autoKeys = null }; c.start()
+        waitFor("all in") { a.state.seats.size == 3 && b.state.seats.size == 3 && c.state.seats.size == 3 }
+        b.requestClose()
+        waitFor("vote open") { listOf(a, b, c).all { it.state.phase == PoolSession.Phase.VOTING } }
+        waitFor("A and B said yes") { a.state.accepts.size == 2 }
+        // The creator's coin checks now take long, its vote's deadline is over, and C's yes comes in.
+        envA.slow = 12_000; envA.ahead = Protocol.VOTE_SECONDS + 5
+        c.vote(true); c.autoKeys = listOf(key(seed + 2))
+        waitFor("A closing") { a.state.phase == PoolSession.Phase.CLOSING }
+        envA.slow = 0
+        // Every member in the round holds the creator's round id, and the round goes on to be signed.
+        waitFor("same round", 120) { listOf(b, c).filter { it.state.phase == PoolSession.Phase.CLOSING || it.state.phase == PoolSession.Phase.SIGNING }
+            .all { it.state.roundId == a.state.roundId } }
+        waitFor("broadcast", 300) { a.state.txid != null && b.state.txid != null }
+        mine()
+        waitFor("confirmed", 90) { listOf(a, b).all { it.state.phase == PoolSession.Phase.CONFIRMED } }
+        println("closed once txid ${a.state.txid} with ${a.state.round.size} seats")
+        listOf(a, b, c).forEach { it.stop() }
     }
 
     /**

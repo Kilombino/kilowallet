@@ -131,6 +131,10 @@ class PoolSession(private val env: Env, private val s: State) {
          * blind signatures (a phone asleep at closing). 0 for the first closing.
          */
         var closeSeq: Int = 0,
+        /** Creator: the vote its closing went out for. Another yes or the vote's deadline doesn't close it again. */
+        var closedVote: String? = null,
+        /** Member: when the closing we took was sent; only a later one from the creator replaces it (see "closing"). */
+        var closingAt: Long = 0,
     ) {
         val poolId: String get() = terms.id
         /** What this seat is kept under on the phone: the pool's id, or with [seatId] for another seat in it. */
@@ -166,7 +170,7 @@ class PoolSession(private val env: Env, private val s: State) {
             .put("reg_outputs", org.json.JSONArray(regOutputs.toList()))
             .put("pay_outputs", org.json.JSONArray(payOutputs))
             .put("seat_id", seatId).put("join_after", joinAfter).put("perp_id", perpId ?: "")
-            .put("close_seq", closeSeq)
+            .put("close_seq", closeSeq).put("closed_vote", closedVote ?: "").put("closing_at", closingAt)
 
         companion object {
             private fun JSONObject.str(k: String): String? = optString(k).ifEmpty { null }
@@ -221,6 +225,7 @@ class PoolSession(private val env: Env, private val s: State) {
                     o.optJSONArray("reg_outputs")?.let { a -> (0 until a.length()).map { a.getString(it) } }?.toMutableSet() ?: linkedSetOf(),
                     o.optJSONArray("pay_outputs")?.let { a -> (0 until a.length()).map { a.getString(it) } }?.toMutableList() ?: mutableListOf(),
                     o.optString("seat_id"), o.optLong("join_after"), o.str("perp_id"), o.optInt("close_seq"),
+                    o.str("closed_vote"), o.optLong("closing_at"),
                 )
             }
         }
@@ -616,6 +621,7 @@ class PoolSession(private val env: Env, private val s: State) {
         return gone.isNotEmpty() && dropSeats(gone, "coin spent")
     }
 
+    @Synchronized
     private fun callClosing(seats: List<Protocol.Seat>, why: String) {
         // Never a round of fewer people than the pool's minimum: this wallet's own seats are one person,
         // however many of them said yes (a coinjoin with itself mixes nothing).
@@ -624,9 +630,16 @@ class PoolSession(private val env: Env, private val s: State) {
             if (s.phase == Phase.VOTING) creatorChannel(JSONObject().put("type", "reopen").put("vote_id", s.voteId))
             return
         }
+        // One closing per vote. Until it comes back from the relay we are still voting, and the last
+        // yes and the vote's deadline (looked at every 15 s, with the coins checked over Tor in
+        // between) used to close it again, each time with a new round id: the others kept the first
+        // one, their requests for blind signatures no longer matched ours, and the round timed out.
+        if (s.voteId != null && s.closedVote == s.voteId) return
+        s.closedVote = s.voteId
         // Never a round with a coin that is already spent: it could not be broadcast.
         val spent = spentSeats(seats)
         if (spent.isNotEmpty()) {
+            s.closedVote = null
             lastSeatCheck = env.now()
             if (!dropSeats(spent, "coin spent at closing") && s.phase == Phase.VOTING)
                 creatorChannel(JSONObject().put("type", "reopen").put("vote_id", s.voteId))
@@ -635,8 +648,11 @@ class PoolSession(private val env: Env, private val s: State) {
         s.round = seats.toMutableList()
         // v3: a fresh round id; blind signatures and outputs count for this round only.
         if (terms.v3) { s.roundId = randomHex(8); s.blindSigs.clear(); s.blindedOf.clear(); s.regOutputs.clear(); save() }
-        creatorChannel(JSONObject().put("type", "closing").put("why", why).put("seats", Protocol.seatsJson(seats))
+        val sent = creatorChannel(JSONObject().put("type", "closing").put("why", why).put("seats", Protocol.seatsJson(seats))
             .put("deadline", env.now() + Protocol.OUTPUTS_SECONDS).also { o -> s.roundId?.let { if (terms.v3) o.put("round_id", it) } })
+        // Not taken by the relay: the next yes or look at the deadline tries again.
+        if (!sent) s.closedVote = null
+        save()
     }
 
     private fun creatorOnVote(tokenHash: String, voteId: String, accept: Boolean) {
@@ -721,7 +737,11 @@ class PoolSession(private val env: Env, private val s: State) {
                 // signatures; only a member still collecting outputs takes it, and only a newer one (replays).
                 val again = o.optInt("again", 0)
                 if (!fromCreator) return
-                if (again == 0 && s.phase !in setOf(Phase.OPEN, Phase.VOTING)) return
+                // A creator before 1.3.9 could close the same vote again with a new round id, and goes on
+                // with its latest: a later closing replaces ours while we wait for our blind signatures.
+                val replaces = v3 && !s.creator && again == 0 && s.phase == Phase.CLOSING && s.closeSeq == 0 &&
+                    s.outSigs.isEmpty() && at > s.closingAt && o.optString("round_id").let { it.isNotEmpty() && it != s.roundId }
+                if (again == 0 && s.phase !in setOf(Phase.OPEN, Phase.VOTING) && !replaces) return
                 if (again > 0 && (!v3 || s.creator || s.phase != Phase.CLOSING || again <= s.closeSeq)) return
                 val seats = Protocol.parseSeats(o.getJSONArray("seats"), terms.script)
                 // v5: a payment round needs its creator, whose payments are the round's other side.
@@ -759,7 +779,8 @@ class PoolSession(private val env: Env, private val s: State) {
                     s.closeSeq = again; s.outputs.clear(); s.handedIn.clear(); s.postedOutput = false
                     env.log("the round closed again without ${s.round.size - seats.size} seat(s) that never asked for their signature")
                 }
-                s.round = seats.toMutableList(); s.phase = Phase.CLOSING
+                if (replaces) env.log("the creator closed the round again: round ${s.roundId} -> ${o.optString("round_id")}")
+                s.round = seats.toMutableList(); s.phase = Phase.CLOSING; s.closingAt = at
                 s.phaseDeadline = o.optLong("deadline", at + Protocol.OUTPUTS_SECONDS)
                 save()
                 // The public listing follows the round: "closing" now, "done" once it is out.
