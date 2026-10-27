@@ -86,6 +86,9 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
                 PoolSession.Phase.ABORTED, PoolSession.Phase.REJECTED) } ||
             com.kilombino.pyblockwatch.coinjoin.PerfectCoin.hasWaiting(ctx)) 1 else 0)
     }
+    // A notification asked for one list (a new pool: POOLS; a round of ours: IN PROGRESS).
+    val askedList by com.kilombino.pyblockwatch.data.OpenTab.coinjoinList.collectAsState()
+    LaunchedEffect(askedList) { askedList?.let { tab = it; com.kilombino.pyblockwatch.data.OpenTab.coinjoinList.value = null } }
     // Test pools (from 1 000 sats) were for the betas; the release starts at 10 000.
     val testPools = false
     var joinPassword by remember { mutableStateOf("") }
@@ -1413,7 +1416,7 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, tag:
                 }
             }
             is SendPhase.Sent -> {
-                // What went out, and where the pool goes from here; CLOSE goes to the BTC tab.
+                // What went out, and where the pool goes from here; CLOSE goes to IN PROGRESS, where the coin waits.
                 val uri = LocalUriHandler.current
                 val copier = rememberCopier()
                 Text("Sent ✓", color = Good, style = MaterialTheme.typography.bodySmall)
@@ -1444,7 +1447,8 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, tag:
                     confirmButton = {
                         TextButton(onClick = {
                             vm.resetSend(); onDone(true)
-                            com.kilombino.pyblockwatch.data.OpenTab.flow.value = com.kilombino.pyblockwatch.data.OpenTab.BTC
+                            // The coin now waits for its pool in IN PROGRESS: that is where to look, not BTC.
+                            com.kilombino.pyblockwatch.data.OpenTab.flow.value = com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_ROUNDS
                         }) { Text("CLOSE", color = accent) }
                     },
                     containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
@@ -1932,7 +1936,9 @@ private fun PerpetualCard(vm: WalletViewModel, r: com.kilombino.pyblockwatch.coi
                 Text("SAVE", color = accent)
             }
         }
-        Row {
+        // Wraps: TURN ON AGAIN and the fee link fill a phone's width, and "remove" fell off its edge.
+        @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+        androidx.compose.foundation.layout.FlowRow {
             if (on) TextButton(onClick = { com.kilombino.pyblockwatch.coinjoin.Perpetual.turnOff(ctx, r.id) }) {
                 Text("TURN OFF", color = Bad, style = MaterialTheme.typography.bodySmall)
             } else if (canTurnOn) TextButton(onClick = {
