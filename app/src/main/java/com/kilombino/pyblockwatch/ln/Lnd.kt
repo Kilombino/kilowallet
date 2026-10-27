@@ -22,7 +22,8 @@ import kotlin.coroutines.resumeWithException
 object Lnd {
     /** Peers that serve the chain's compact block filters, tried in order. Ours first. */
     val DEFAULT_PEERS = listOf(
-        "nodoblake2b.airdns.org:11010",   // Kilombino's Knots node
+        "ln.kilombino.com:11010",         // Kilombino's Knots node (our name on AirVPN's current IP)
+        "nodoblake2b.airdns.org:11010",   // the same through AirDNS, which can lag behind an IP change
         "179.27.118.130:8343",            // PyBLOCK
         // PyBLOCK's 173.249.217.35:4142 (Knots 29.4.3rc1) answered every getheaders with no headers
         // on 18 Oct 2026, and neutrino kept it as its sync peer for good: left out until it serves them.

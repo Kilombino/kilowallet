@@ -134,7 +134,7 @@ private fun SignStep(jvm: JamViewModel, a: BondSpend.AwaitingSignature, accent: 
         style = MaterialTheme.typography.bodySmall, color = TextSoft)
     Text("2. SeedSigner then shows the signed transaction as a QR: scan it here.",
         style = MaterialTheme.typography.bodySmall, color = TextSoft)
-    Explain("SeedSigner must sign it with the XBT replay protection (0x21). A signature without it would also be " +
+    Explain("SeedSigner must sign it with the BTC replay protection (0x21). A signature without it would also be " +
         "valid on the SHA-256 chain, so Kilowallet refuses it and sends nothing.")
     (a.error ?: frameError)?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall) }
     Row {
@@ -162,7 +162,7 @@ private fun ReviewStep(jvm: JamViewModel, r: BondSpend.Review, accent: Color) {
         Text(street("Amount: ${groupSats(r.amount)} sats"), style = MaterialTheme.typography.bodySmall, color = TextMain)
         Text(street("Fee: ${groupSats(r.fee)} sats (${r.signed.vbytes} vB)"), style = MaterialTheme.typography.bodySmall, color = TextSoft)
         Text("Transaction ${r.signed.txid}", style = MaterialTheme.typography.bodySmall, color = TextFaint)
-        Text("Signed with the XBT replay protection (0x21): it cannot be replayed on the SHA-256 chain.",
+        Text("Signed with the BTC replay protection (0x21): it cannot be replayed on the SHA-256 chain.",
             style = MaterialTheme.typography.bodySmall, color = TextFaint)
     }
     r.error?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall) }

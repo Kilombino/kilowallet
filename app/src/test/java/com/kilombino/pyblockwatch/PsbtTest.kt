@@ -59,6 +59,23 @@ class PsbtTest {
         assertTrue(Psbt.Origin.parse(" ") == null)
     }
 
+    @Test fun anAccountKeyWithoutOriginGetsTheUsualPath() {
+        // BIP-84 test vector: the account key m/84'/0'/0' of "abandon … about".
+        val zpub = "zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs"
+        assertEquals(0x80000000L, com.kilombino.pyblockwatch.crypto.Bip32.childNumber(zpub))
+        val o = Psbt.Origin.guess(ScriptType.P2WPKH, 3, 0x80000005L)!!
+        assertTrue(o.fingerprint.contentEquals(ByteArray(4)))
+        assertEquals(listOf(0x80000054L, 0x80000000L, 0x80000005L), o.path)
+        assertEquals(listOf(0x80000056L, 0x80000000L, 0x80000000L), Psbt.Origin.guess(ScriptType.P2TR, 3, 0x80000000L)!!.path)
+        assertTrue(Psbt.Origin.guess(ScriptType.P2WPKH, 4, 0x80000000L) == null)
+        assertTrue(Psbt.Origin.guess(ScriptType.P2WPKH, 3, 5L) == null)
+        // The derivation goes into the PSBT, so a signer can find the coin.
+        val c = Psbt.Coin("%064x".format(9), 0, 50_000, ScriptType.P2WPKH, pub("84'/0'/5'/0/3"), o.child(0, 3))
+        val b = Psbt.create(listOf(c), outputs.take(1))
+        val hex = Hashes.run { b.toHex() }
+        assertTrue(hex.contains("2206" + Hashes.run { pub("84'/0'/5'/0/3").toHex() } + "1800000000" + "54000080" + "00000080" + "05000080" + "00000000" + "03000000"))
+    }
+
     @Test fun unsignedOrDifferentIsRefused() {
         val b = Psbt.create(coins, outputs, change)
         try { Psbt.finish(b, b, coins, outputs); fail() } catch (e: IllegalStateException) { assertTrue(e.message!!.contains("not signed")) }

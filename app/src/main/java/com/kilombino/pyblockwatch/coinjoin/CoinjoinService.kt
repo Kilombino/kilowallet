@@ -27,7 +27,7 @@ class CoinjoinService : Service() {
             startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         else startForeground(ID, n)
         // The cards first: a round that ended while the app was away still gets its last one.
-        runCatching { RoundNotifications.update(this, first()?.poolId) }
+        runCatching { RoundNotifications.update(this, first()?.key) }
         if (!CoinjoinHub.hasActive(this)) { stopSelf(); return START_NOT_STICKY }
         if (!started) {
             started = true; CoinjoinHub.startAll(this)
@@ -36,6 +36,8 @@ class CoinjoinService : Service() {
             Thread {
                 while (started) {
                     runCatching { if (PerfectCoin.hasWaiting(app)) PerfectCoin.check(app) }
+                    // Perpetual coins: the next pool for each one whose round ended.
+                    runCatching { if (Perpetual.hasLive(app)) Perpetual.check(app) }
                     runCatching { refresh(app) }
                     Thread.sleep(60_000)
                 }
@@ -70,7 +72,7 @@ class CoinjoinService : Service() {
 
         /** Redraw the round cards and the ongoing notification, or stop when no round needs us any more. */
         fun refresh(ctx: Context) {
-            runCatching { RoundNotifications.update(ctx, if (started) first()?.poolId else null) }
+            runCatching { RoundNotifications.update(ctx, if (started) first()?.key else null) }
             // Telegram alerts that did not get through yet go again (each after its own wait).
             if (CoinjoinAlerts.waiting(ctx) > 0) {
                 val app = ctx.applicationContext

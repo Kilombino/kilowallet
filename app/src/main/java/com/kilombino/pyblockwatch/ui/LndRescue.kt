@@ -74,7 +74,7 @@ fun LndRescuePanel(vm: WalletViewModel, accent: Color) {
     }
 
     Panel(accent = Warn) {
-        SectionLabel("rescue XBT from a pre-fork LND seed", Warn)
+        SectionLabel("rescue BTC from a pre-fork LND seed", Warn)
         Spacer(Modifier.height(6.dp))
         when (val p = phase) {
             is RescuePhase.Busy -> Row(verticalAlignment = Alignment.CenterVertically) {
@@ -153,7 +153,7 @@ fun LndRescuePanel(vm: WalletViewModel, accent: Color) {
                         "channel.backup to find the delayed one.", color = TextFaint, style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(value = dest, onValueChange = { dest = it.trim() },
-                    label = { Text("send to (XBT address)", style = MaterialTheme.typography.bodySmall) },
+                    label = { Text("send to (BTC address)", style = MaterialTheme.typography.bodySmall) },
                     textStyle = MaterialTheme.typography.bodySmall, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = feeRate, onValueChange = { feeRate = it.filter { c -> c.isDigit() || c == '.' } },
                     label = { Text("fee, sat/vB", style = MaterialTheme.typography.bodySmall) },
@@ -223,7 +223,7 @@ fun LndRescuePanel(vm: WalletViewModel, accent: Color) {
                     enabled = words.isNotBlank(),
                     colors = ButtonDefaults.buttonColors(containerColor = Warn, contentColor = Ink),
                     shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
-                ) { Text("FIND XBT", style = MaterialTheme.typography.titleMedium) }
+                ) { Text("FIND BTC", style = MaterialTheme.typography.titleMedium) }
             }
         }
     }

@@ -569,7 +569,7 @@ object Ark {
         val maxOne = biggest - 3 * RESERVE_SAT - MIN_OUTPUT_SAT
         if (maxOne >= MIN_OUTPUT_SAT) " The most you can pay from one coin is $maxOne sats: tick " +
             "Choose coins and pick that coin, or RENEW to join your coins into one."
-        else " To empty Ark, send to an XBT address (on-chain) instead."
+        else " To empty Ark, send to a BTC address (on-chain) instead."
     }.getOrDefault("")
 
     // ---------------------------------------------------------------- deposit (on-chain)
@@ -595,7 +595,7 @@ object Ark {
         val d = dest.trim()
         if (d.startsWith("ark1", ignoreCase = true) || d.startsWith("ln", ignoreCase = true)) {
             return@runCatching Estimate(0, 0, 0, false, "",
-                "From the deposit you can only send to an XBT address. Choose ARK to pay an Ark address or Lightning.")
+                "From the deposit you can only send to a BTC address. Choose ARK to pay an Ark address or Lightning.")
         }
         val b = balance()
         val available = b.onchainConfirmed
@@ -613,7 +613,7 @@ object Ark {
             else -> null
         }
         Estimate(amount, fee, amount + fee, false,
-            "Plain on-chain XBT from your deposit: only the network fee (about " +
+            "Plain on-chain BTC from your deposit: only the network fee (about " +
                 String.format(java.util.Locale.US, "%.1f", rate) + " sat/vB), no Ark reserves.", problem)
     }.getOrNull()
 
@@ -892,7 +892,7 @@ object Ark {
 
     fun claimExits(dest: String): String {
         call("POST", "/exits/claim/all", JSONObject().put("destination", dest.trim()), 120_000)
-        return "Claimed: the recovered XBT is on its way to the address."
+        return "Claimed: the recovered BTC is on its way to the address."
     }
 
     /** What arrives from a Lightning invoice of [sats] (receive fee + reserve deducted). */

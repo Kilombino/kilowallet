@@ -34,13 +34,14 @@ fun CoinjoinIntro(accent: Color, onAccept: () -> Unit, onDecline: () -> Unit, de
         Explain("A coinjoin puts your coin in one transaction with other people's. Everyone gets back an " +
             "output of exactly the same amount, so nobody watching the chain can tell whose is whose.")
         Spacer(Modifier.height(6.dp))
-        Explain("• Someone opens a pool (from ${"%,d".format(Protocol.MIN_AMOUNT).replace(',', ' ')} sats each to 1 BTC per output) and " +
-            "others join with one coin.\n" +
-            "• With enough people in, anyone asks to close and the rest accept.\n" +
-            "• Your wallet checks the transaction and you sign with your fingerprint. Nobody holds your " +
-            "coins: the relay only passes encrypted messages.\n" +
-            "• Each person pays their own share of the fee.\n" +
-            "• Signed so it is valid only on BTC, never on the spamchain.")
+        // One line at a time: each is in the translations on its own (as a whole, only the first was found).
+        Explain(listOf("• Someone opens a pool (from ${"%,d".format(Protocol.MIN_AMOUNT).replace(',', ' ')} sats each to 1 BTC per output) and " +
+            "others join with one coin.\n",
+            "• With enough people in, anyone asks to close and the rest accept.\n",
+            "• Your wallet checks the transaction and you sign with your fingerprint. Nobody holds your ",
+            "coins: the relay only passes encrypted messages.\n",
+            "• Each person pays their own share of the fee.\n",
+            "• Signed so it is valid only on BTC, never on the spamchain.").joinToString("") { com.kilombino.pyblockwatch.ui.i18n.I18n.tr(it) })
         Spacer(Modifier.height(6.dp))
         Explain("If you accept, the COINJOIN tab opens up and you will be notified of open pools — and " +
             "nothing else. You can turn the notifications off any time in settings.")

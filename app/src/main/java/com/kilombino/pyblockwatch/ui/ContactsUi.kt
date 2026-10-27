@@ -46,7 +46,7 @@ private fun ContactsDialog(accent: Color, fits: (Contacts.Kind) -> Boolean, onPi
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (usable.isEmpty()) Text(
-                    if (list.isEmpty()) "No contacts yet. After you pay an Ark address, an XBT address, a " +
+                    if (list.isEmpty()) "No contacts yet. After you pay an Ark address, a BTC address, a " +
                         "reusable Lightning offer or a user@domain, the wallet offers to save it with a name."
                     else "None of your contacts can be paid from here.",
                     style = MaterialTheme.typography.bodySmall)

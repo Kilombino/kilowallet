@@ -58,11 +58,11 @@ fun ArkEmergencyPanel(accent: androidx.compose.ui.graphics.Color, activity: andr
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("This takes ALL your Ark coins on-chain without the Ark server, using the recovery " +
                         "transactions each coin carries. Only do it if the server has disappeared or will " +
-                        "not let you renew. While the server works, a normal withdrawal (SEND to an XBT " +
+                        "not let you renew. While the server works, a normal withdrawal (SEND to a BTC " +
                         "address) is far cheaper and faster.", style = MaterialTheme.typography.bodySmall)
                     Text("It cannot be undone once the last transaction is broadcast. It takes about 144 " +
                         "blocks (~1 day) plus confirmations, and the wallet must stay running to push it " +
-                        "forward. Then you claim the XBT to an address of yours.",
+                        "forward. Then you claim the BTC to an address of yours.",
                         style = MaterialTheme.typography.bodySmall, color = Warn)
                     quote?.let { q ->
                         if (q.problem != null) Text(q.problem, style = MaterialTheme.typography.bodySmall, color = Bad)
@@ -131,7 +131,7 @@ fun ArkEmergencyPanel(accent: androidx.compose.ui.graphics.Color, activity: andr
             if (exits.any { it.type == "claimable" }) {
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(value = dest, onValueChange = { dest = it.trim() },
-                    label = { Text("your XBT address to receive it") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    label = { Text("your BTC address to receive it") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(6.dp))
                 Button(
                     enabled = dest.isNotBlank() && busy == null,

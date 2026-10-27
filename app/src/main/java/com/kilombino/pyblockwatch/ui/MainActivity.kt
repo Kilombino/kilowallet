@@ -59,6 +59,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -138,8 +139,26 @@ class MainActivity : FragmentActivity() {
                 // ARK and COINJOIN live in advanced mode: a notification about them switches to it.
                 val openTab by com.kilombino.pyblockwatch.data.OpenTab.flow.collectAsState()
                 LaunchedEffect(openTab) {
-                    if (state.uiMode == "simple" && (openTab == com.kilombino.pyblockwatch.data.OpenTab.ARK ||
-                            openTab == com.kilombino.pyblockwatch.data.OpenTab.COINJOIN)) vm.setUiMode("advanced")
+                    val ot = com.kilombino.pyblockwatch.data.OpenTab
+                    when (openTab) {
+                        // A coinjoin notification opens its list: POOLS for a new pool, IN PROGRESS for a round of ours, HISTORY once it is over.
+                        ot.COINJOIN_POOLS, ot.COINJOIN_ROUNDS, ot.COINJOIN_HISTORY -> {
+                            ot.coinjoinList.value = when (openTab) { ot.COINJOIN_POOLS -> 0; ot.COINJOIN_HISTORY -> 2; else -> 1 }
+                            ot.flow.value = ot.COINJOIN; return@LaunchedEffect
+                        }
+                        // A payment's notification opens BTC on the wallet it is about; the other wallet after
+                        // the fingerprint, as its button at the top asks.
+                        ot.BTC_HOT, ot.BTC_WATCH -> {
+                            val watch = openTab == ot.BTC_WATCH
+                            val showing = !state.jamView && (if (watch) !state.isHot else state.isHot)
+                            if (!showing && (if (watch) vm.hasWatchWallet() else state.hasSeed))
+                                Biometric.confirm(this@MainActivity, if (watch) "Open the watch-only wallet" else "Back to the hot wallet",
+                                    if (watch) "Unlock to see the watched wallet" else "Unlock to see and spend your hot wallet",
+                                    onSuccess = { if (watch) vm.viewAsWatchOnly() else vm.viewAsHot() }, onError = {})
+                            ot.flow.value = ot.BTC; return@LaunchedEffect
+                        }
+                    }
+                    if (state.uiMode == "simple" && (openTab == ot.ARK || openTab == ot.COINJOIN)) vm.setUiMode("advanced")
                 }
                 Box(Modifier.fillMaxSize().background(Ink)) {
                     // A newer release on GitHub: looked for every 5 minutes while the app is open
@@ -407,7 +426,7 @@ private fun OnboardingScreen(state: UiState, vm: WalletViewModel) {
         // The wallet's coin, big, above its name.
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { AppLogo(160) }
         Text("Kilowallet", style = MaterialTheme.typography.displayLarge, color = Purple)
-        Text("BITCOIN BLAKE2b (XBT) WALLET", style = MaterialTheme.typography.titleLarge, color = TextSoft)
+        Text("BITCOIN BLAKE2b (BTC) WALLET", style = MaterialTheme.typography.titleLarge, color = TextSoft)
         if (state.hasWallet) {
             Explain("Creating or importing a wallet here REPLACES the current one. Your coins are " +
                 "safe on-chain; make sure you still have this wallet's backup before switching.")
@@ -636,6 +655,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
         onRefresh = doRefresh,
         modifier = Modifier.fillMaxSize(),
     ) {
+    androidx.compose.runtime.CompositionLocalProvider(LocalScreenScroll provides scroll) {
     Column(
         Modifier.fillMaxSize().imePadding().verticalScroll(scroll).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -697,7 +717,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
         // How the look is going, right under the tabs and above the balance it explains.
         ScanStatus(cs, accent, onRetry = { vm.scan(chain) })
 
-        BalanceCard(chain, cs, accent, if (state.isHot && state.receiveTaproot && state.taprootXpub != null) ScriptType.P2TR else state.scriptType, state.nextRefreshAt, state.market, state.fiat, vm::setFiat)
+        BalanceCard(vm, chain, cs, accent, if (state.isHot && state.receiveTaproot && state.taprootXpub != null) ScriptType.P2TR else state.scriptType, state.nextRefreshAt, state.market, state.fiat, vm::setFiat)
 
         when {
             showSend -> SendSheet(vm, accent) { showSend = false }
@@ -762,6 +782,7 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
         Spacer(Modifier.height(30.dp))
     }
     }
+    }
 }
 
 /** BTC | LIGHTNING | COINJOIN | ARK, plus SPAMCOIN while the spamchain (opened from settings) is shown. */
@@ -800,13 +821,15 @@ private fun AdvancedTabs(chain: Chain, arkTab: Boolean, cjTab: Boolean, lnTab: B
 
 @Composable
 private fun BalanceCard(
-    chain: Chain, cs: ChainState, accent: Color, scriptType: ScriptType?, nextRefreshAt: Long,
+    vm: WalletViewModel, chain: Chain, cs: ChainState, accent: Color, scriptType: ScriptType?, nextRefreshAt: Long,
     market: com.kilombino.pyblockwatch.data.MarketData?, fiat: String, onFiat: (String) -> Unit,
 ) {
     // The countdown ticks here, only while this card is shown, instead of the whole screen
     // being redrawn every second.
     var secondsUntilRefresh by remember { mutableStateOf(0) }
-    LaunchedEffect(nextRefreshAt) {
+    // Not in the background either: nobody sees it there.
+    LaunchedEffect(nextRefreshAt, AppVisible.value) {
+        if (!AppVisible.value) return@LaunchedEffect
         while (true) {
             secondsUntilRefresh = ((nextRefreshAt - System.currentTimeMillis()) / 1000).toInt().coerceAtLeast(0)
             delay(1_000)
@@ -822,7 +845,7 @@ private fun BalanceCard(
                 Text(refreshCountdown(nextRefreshAt, secondsUntilRefresh), style = MaterialTheme.typography.bodySmall,
                      color = TextFaint)
                 Spacer(Modifier.width(8.dp))
-                PulseDot(Good, 7)
+                StillDot(Good, 7)
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -849,6 +872,7 @@ private fun BalanceCard(
             Text(street("unconfirmed: ${groupSats(cs.unconfirmed)} sats"),
                  style = MaterialTheme.typography.bodySmall, color = Warn)
         }
+        ImmatureBalanceNote(vm, chain, cs)
         Spacer(Modifier.height(10.dp))
         Text(
             "${cs.usedAddresses} used addresses · height ${cs.height}",
@@ -899,7 +923,7 @@ internal fun ScanStatus(cs: ChainState, accent: Color, onRetry: () -> Unit) {
 
                 is ScanPhase.Complete -> Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        PulseDot(if (cs.stale) Warn else Good); Spacer(Modifier.width(10.dp))
+                        StillDot(if (cs.stale) Warn else Good); Spacer(Modifier.width(10.dp))
                         Text(if (cs.stale) (if (cs.refreshing != null) "last known · checking every address again" else "last known · not checked yet")
                              else "scan complete", style = MaterialTheme.typography.bodyMedium, color = if (cs.stale) Warn else Good)
                     }
@@ -940,14 +964,20 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
     val held = rows.filter { it.total > 0 }.sortedWith(compareBy({ it.type?.ordinal ?: -1 }, { it.chainIndex }, { it.index }))
     if (held.isEmpty()) return
     // The coins in each address, with their height, for the confirmations.
-    var coins by remember { mutableStateOf<Map<String, List<Scanner.SpendableUtxo>>?>(null) }
+    // Kept per wallet and chain: the same list switching wallet must not carry the other's coins or folds.
+    val wallet = vm.state.value.xpub + "/" + vm.state.value.isHot + "/" + chain.name
+    var coins by remember(wallet) { mutableStateOf<Map<String, List<Scanner.SpendableUtxo>>?>(null) }
     // Looked up again when a coin confirms (its total stays the same but moves from unconfirmed
     // to confirmed) and on each new block, so the confirmations keep pace with the movements.
     LaunchedEffect(held.map { Triple(it.scriptHash, it.total, it.confirmed) }, tip) {
         coins = runCatching { vm.addressCoins(chain, held) }.getOrNull()
     }
     var open by remember { mutableStateOf<AddressRow?>(null) }
-    fun conf(u: Scanner.SpendableUtxo) = if (u.height <= 0 || tip <= 0) 0 else tip - u.height + 1
+    // Mined rewards still locked, marked on their coins (the balance card looks them up).
+    val allImmature by vm.immature.collectAsState()
+    val im = vm.immatureFor(chain, allImmature)
+    // A coin from a block newer than the tip known here is confirmed all the same: at least 1.
+    fun conf(u: Scanner.SpendableUtxo) = if (u.height <= 0 || tip <= 0) 0 else maxOf(1, tip - u.height + 1)
     fun confText(u: Scanner.SpendableUtxo) = conf(u).let { c -> if (c == 0) "in mempool · 0 conf" else "$c conf" + if (c >= 6) "  ✓" else "" }
     open?.let { row ->
         val cs = coins?.get(row.scriptHash).orEmpty()
@@ -963,6 +993,7 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
                         Text("🌀 mixed", style = MaterialTheme.typography.bodySmall, color = Good)
                     if ("${u.txid}:${u.vout}" in seatedHere)
                         Text("in a pool waiting for people: sending it leaves that pool", style = MaterialTheme.typography.bodySmall, color = Warn)
+                    im?.of(u)?.let { Text(immatureLine(im, it), style = MaterialTheme.typography.bodySmall, color = Warn) }
                 }
             })
     }
@@ -974,8 +1005,43 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
         // Mixed by a coinjoin, or seated in a pool still waiting: marked as in coin control.
         val seated = remember(coins) { vm.seatedInWaitingPools() }
         val btc = chain == com.kilombino.pyblockwatch.chain.Chain.BLAKE2B
+        // Addresses opened coin by coin (by script hash): all folded at first.
+        var unfolded by rememberSaveable(wallet) { mutableStateOf("") }
+        /**
+         * One coin of [row], in the same pattern as an address; [inner] when it is one of a folded address's
+         * coins, set in under it. A mined reward still locked is dimmer: it can't be spent yet.
+         */
+        @Composable fun coinRow(row: AddressRow, u: Scanner.SpendableUtxo, inner: Boolean = false) {
+            val lk = im?.of(u)
+            Row(Modifier.fillMaxWidth().clickable { open = row }.padding(start = if (inner) 16.dp else 0.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(shortAddress(row.address), style = MaterialTheme.typography.bodyMedium, color = if (lk != null) TextFaint else TextMain)
+                    Text("${row.path}  ·  ${if (row.chainIndex == 0) "receive" else "change"}",
+                        style = MaterialTheme.typography.bodySmall, color = TextFaint)
+                    if (btc && vm.isMixedCoin(u)) Text("🌀 mixed", style = MaterialTheme.typography.bodySmall, color = Good)
+                    if ("${u.txid}:${u.vout}" in seated) Text("in a pool waiting for people: sending it leaves that pool",
+                        style = MaterialTheme.typography.bodySmall, color = Warn)
+                    if (lk != null) Text(immatureLine(im!!, lk), style = MaterialTheme.typography.bodySmall, color = Warn)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(street("${groupSats(u.value)} sats"),
+                        style = MaterialTheme.typography.bodyMedium, color = if (lk != null) TextSoft else accent, fontWeight = FontWeight.Bold)
+                    Text(confText(u), style = MaterialTheme.typography.bodySmall, color = if (lk != null) TextFaint else Good)
+                }
+            }
+        }
         held.forEach { row ->
             val cs = coins?.get(row.scriptHash)
+            val many = (cs?.size ?: 0) > 1
+            // One coin, a mined reward still locked: that coin, with when it matures.
+            if (!many && cs.orEmpty().any { im?.of(it) != null }) {
+                cs!!.forEach { u -> coinRow(row, u) }
+                return@forEach
+            }
+            // Several coins (a pool's payout address gets one per block): one row, folded; the toggle
+            // opens it coin by coin, each in the same pattern as an address.
+            val isOpen = many && row.scriptHash in unfolded.split(',')
             Row(Modifier.fillMaxWidth().clickable { open = row }.padding(vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -990,6 +1056,18 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
                     if (mixed) Text("🌀 mixed", style = MaterialTheme.typography.bodySmall, color = Good)
                     if (inPool) Text("in a pool waiting for people: sending it leaves that pool",
                         style = MaterialTheme.typography.bodySmall, color = Warn)
+                    if (many) {
+                        val locked = cs!!.mapNotNull { im?.of(it) }
+                        val next = locked.minByOrNull { it.maturesAt }
+                        // Mined rewards still locked among them: how many, and when the next one can be spent.
+                        if (next != null) Text("${cs.size} coins · ${locked.size} locked until ~${approxDay(im!!, next.maturesAt)}",
+                            style = MaterialTheme.typography.bodySmall, color = Warn)
+                        Text((if (isOpen) "▾ " else "▸ ") + "${cs.size} coins", style = MaterialTheme.typography.bodySmall, color = accent,
+                            modifier = Modifier.clickable {
+                                val l = unfolded.split(',').filter { it.isNotEmpty() }
+                                unfolded = (if (isOpen) l - row.scriptHash else l + row.scriptHash).joinToString(",")
+                            }.padding(vertical = 2.dp))
+                    }
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(street("${groupSats(row.total)} sats"),
@@ -999,7 +1077,7 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
                         // The least-confirmed coin is the one that decides whether it can be spent.
                         cs.isNotEmpty() -> cs.minByOrNull { conf(it) }!!.let { u ->
                             val c = conf(u)
-                            Text(confText(u) + if (cs.size > 1) " (${cs.size} coins)" else "",
+                            Text(confText(u),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (c == 0) Warn else if (c >= 6) Good else TextSoft)
                         }
@@ -1007,6 +1085,7 @@ internal fun AddressList(rows: List<AddressRow>, accent: Color, vm: WalletViewMo
                     }
                 }
             }
+            if (isOpen) cs!!.sortedBy { it.height }.forEach { u -> coinRow(row, u, inner = true) }
         }
     }
 }
@@ -1203,7 +1282,7 @@ internal fun SettingsPanel(
             if (chain.allowsCustomNode) {
                 Text("Your own ${if (chain == Chain.BLAKE2B) "BTC" else "Spamcoin"} node",
                      style = MaterialTheme.typography.bodyMedium, color = TextMain)
-                Explain(if (chain == Chain.BLAKE2B) "One person, one node: put your own here. Leave empty to use " +
+                Explain(if (chain == Chain.BLAKE2B) "One person, one node: put your own here (a .onion address works too, through the app's Tor). Leave empty to use " +
                         "${chain.defaultHost}:${chain.defaultPort}, meant for emergencies."
                     else "Leave empty to use the public servers (companies and institutions, they see your addresses).")
                 Spacer(Modifier.height(6.dp))
@@ -1224,6 +1303,21 @@ internal fun SettingsPanel(
                 TextButton(onClick = {
                     vm.setCustomNode(chain, host.ifBlank { null }, port.toIntOrNull() ?: chain.defaultPort)
                 }) { Text("apply and rescan", color = accent, style = MaterialTheme.typography.bodySmall) }
+                // Every Electrum server through Tor (a .onion always goes through it).
+                val ctxTor = LocalContext.current
+                var viaTor by remember { mutableStateOf(com.kilombino.pyblockwatch.chain.ElectrumClient.throughTor) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Connect to the server through Tor", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                        Explain(if (!com.kilombino.pyblockwatch.chain.Tor.available)
+                            "Tor runs on ARM phones (arm64) only: on this one a .onion server can't be reached, and this stays off."
+                            else "The server (yours, the default one, and the spamchain's public ones) never sees this phone's address. " +
+                                "TLS and the pinned certificate stay as they are. Slower; if Tor doesn't start, nothing is sent without it.")
+                    }
+                    androidx.compose.material3.Switch(checked = viaTor, enabled = com.kilombino.pyblockwatch.chain.Tor.available, onCheckedChange = {
+                        viaTor = it; com.kilombino.pyblockwatch.chain.Tor.setElectrumThroughTor(ctxTor, it); vm.scan(chain)
+                    }, colors = switchColors(accent))
+                }
                 if (chain == Chain.BLAKE2B) { Spacer(Modifier.height(10.dp)); RpcNodePanel(vm, accent) }
             } else {
                 Explain(
@@ -1265,7 +1359,7 @@ internal fun SettingsPanel(
         Spacer(Modifier.height(10.dp))
         var rescueOpen by remember { mutableStateOf(false) }
         TextButton(onClick = { rescueOpen = !rescueOpen }) {
-            Text((if (rescueOpen) "▾" else "▸") + " Rescue XBT from a pre-fork Lightning (LND) seed",
+            Text((if (rescueOpen) "▾" else "▸") + " Rescue BTC from a pre-fork Lightning (LND) seed",
                  color = TextSoft, style = MaterialTheme.typography.bodySmall)
         }
         if (rescueOpen) LndRescuePanel(vm, accent)
@@ -1490,7 +1584,7 @@ internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, v
             speedUpLabel = if ((t.amount ?: 0) > 0) "⚡ SPEED UP (CPFP)" else "⚡ SPEED UP (RBF)",
             // Only a send of ours can be cancelled: a payment to us isn't ours to take back.
             onCancel = if (t.pending && isHot && (t.amount ?: 0) <= 0) ({ asking = null; bumping = t.txid to BumpMode.CANCEL }) else null,
-            onClose = { asking = null }, vm = vm, chain = chain)
+            onClose = { asking = null }, vm = vm, chain = chain, pending = t.pending)
     }
     Panel(accent = accent) {
         SectionLabel("movements · confirmations", accent)
@@ -1573,7 +1667,7 @@ private fun BumpDialog(vm: WalletViewModel, txid: String, accent: Color, explore
     if (sent != null) {
         // With the wallet and its chain, so an explorer already chosen opens straight away.
         TxDetailDialog(sent, accent, explorer, status = (if (cpfp) "speed-up sent ✓" else if (cancel) "cancellation sent ✓" else "replacement sent ✓") + " · in mempool",
-            onSpeedUp = null, onClose = onClose, vm = vm, chain = vm.state.collectAsState().value.selected)
+            onSpeedUp = null, onClose = onClose, vm = vm, chain = vm.state.collectAsState().value.selected, pending = true)
         return
     }
     val state by vm.state.collectAsState()
@@ -1674,6 +1768,8 @@ internal fun TxDetailDialog(
     /** "tx" for a transaction, "address" for one of the wallet's addresses (the explorer path). */
     kind: String = "tx",
     extra: (@Composable () -> Unit)? = null,
+    /** An unconfirmed transaction: offers copying it raw, to broadcast it again elsewhere. */
+    pending: Boolean = false,
 ) {
     // The first time, ask which explorer to use (and warn it is an outside site); once the user
     // keeps one, it opens straight away.
@@ -1702,6 +1798,29 @@ internal fun TxDetailDialog(
                         if (vm != null && vm.explorerChosen(chain)) runCatching { uri.openUri("$explorer/$kind/$txid") }
                         else confirmOpen = true
                     }) { Text("🔎 EXPLORER", color = accent) }
+                }
+                if (pending && kind == "tx" && vm != null) {
+                    val scope = rememberCoroutineScope()
+                    var raw by remember(txid) { mutableStateOf<String?>(null) }   // null idle, "" fetching, "!…" failed
+                    TextButton(enabled = raw != "", onClick = {
+                        raw = ""
+                        scope.launch {
+                            raw = runCatching { vm.rawTransaction(chain, txid) }
+                                .onSuccess { clipboard.setText(androidx.compose.ui.text.AnnotatedString(it)) }
+                                .fold({ it }, { e -> "!" + (e.message ?: e.javaClass.simpleName) })
+                        }
+                    }) {
+                        Text(when {
+                            raw == "" -> "COPYING…"
+                            raw?.startsWith("!") == false -> "RAW TX COPIED ✓"
+                            else -> "📋 COPY RAW TX"
+                        }, color = accent)
+                    }
+                    raw?.let { r ->
+                        if (r.startsWith("!")) Text("Couldn't get it: ${r.drop(1)}", style = MaterialTheme.typography.bodySmall, color = Warn)
+                        else if (r.isNotEmpty()) Text("Paste it into your node (sendrawtransaction) or any broadcast page to send it again.",
+                            style = MaterialTheme.typography.bodySmall, color = TextSoft)
+                    }
                 }
                 if (confirmOpen) {
                     Text("This opens an EXTERNAL block explorer: the site sees which ${if (kind == "address") "address" else "transaction"} you look up " +

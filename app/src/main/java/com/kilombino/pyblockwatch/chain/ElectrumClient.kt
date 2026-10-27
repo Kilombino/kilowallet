@@ -59,7 +59,29 @@ class ElectrumClient(
     companion object {
         private const val CONNECT_TIMEOUT_MS = 20_000
         private const val READ_TIMEOUT_MS = 60_000
+        /** Through Tor (an onion, or every server with [throughTor]): as long as the node's RPC over Tor waits, and more to read. */
+        private const val TOR_CONNECT_TIMEOUT_MS = 60_000
+        private const val TOR_READ_TIMEOUT_MS = 90_000
+
+        /** A SOCKS proxy into the app's Tor (started if needed); null when Tor can't run or didn't come up. Set by [Tor.install]. */
+        @Volatile var torProxy: (() -> java.net.Proxy?)? = null
+
+        /**
+         * "Connect to the server through Tor": every Electrum server (the user's, the default one and the
+         * spamchain's public ones) is reached through Tor, so it never sees this phone's address. TLS and
+         * the pin stay as they are. A .onion always goes through Tor, whatever this says.
+         */
+        @Volatile var throughTor: Boolean = false
+
+        /** Onion servers that answered in plain TCP (Fulcrum's 50001 behind an onion): tried that way first next time. */
+        private val plainOnions = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+        fun isOnion(host: String): Boolean = host.trim().lowercase().trimEnd('.').endsWith(".onion")
     }
+
+    /** Whether this connection goes through Tor. */
+    private val viaTor: Boolean get() = isOnion(endpoint.host) || throughTor
+    private val readTimeout: Int get() = if (viaTor) TOR_READ_TIMEOUT_MS else READ_TIMEOUT_MS
 
     private var socket: Socket? = null
     private var reader: BufferedReader? = null
@@ -121,6 +143,12 @@ class ElectrumClient(
         endpoint = target
         fingerprintChanged = false
         if (public) return connectPublic()
+        // An onion that answered in plain TCP before: that way first (TLS is tried again if it fails).
+        // So is Fulcrum's usual plain port (50001), the one most onions publish.
+        if (isOnion(target.host) && ("${target.host}:${target.port}" in plainOnions || target.port == 50001)) {
+            if (runCatching { connectPlain() }.isSuccess) return
+            close(); plainOnions.remove("${target.host}:${target.port}")
+        }
         val raw = connectRaw()
         val ctx = SSLContext.getInstance("TLS")
         val capture = object : X509TrustManager {
@@ -140,9 +168,11 @@ class ElectrumClient(
         ctx.init(null, arrayOf(capture), java.security.SecureRandom())
 
         val ssl = ctx.socketFactory.createSocket(raw, endpoint.host, endpoint.port, true) as SSLSocket
-        ssl.soTimeout = READ_TIMEOUT_MS
+        // A plain port behind an onion never answers a TLS hello: don't wait the whole read timeout for it.
+        ssl.soTimeout = if (isOnion(endpoint.host)) 30_000 else readTimeout
         try {
             ssl.startHandshake()
+            ssl.soTimeout = readTimeout
         } catch (e: Exception) {
             runCatching { ssl.close() }
             if (fingerprintChanged) throw CertificateChangedException(endpoint, serverFingerprint ?: "")
@@ -150,6 +180,9 @@ class ElectrumClient(
             // has no TLS at all: there, and only there, talk to it in the clear. Never for a
             // server we hold a pin for: that would be a downgrade around the pin.
             if (isLocal(endpoint.host) && pinnedFingerprint == null) return connectPlain()
+            // An onion is its own authentication and encryption (its address is its key): Fulcrum's plain
+            // port behind one (usually 50001) is fine. Never for any other host.
+            if (isOnion(endpoint.host)) return connectPlain()
             throw ElectrumException("Could not establish TLS with ${endpoint}: ${e.message}", e)
         }
         socket = ssl
@@ -159,14 +192,16 @@ class ElectrumClient(
         negotiate()
     }
 
-    /** Plain TCP, for a node on the local network only (see [isLocal]). */
+    /** Plain TCP, for a node on the local network or a .onion only (see [isLocal], [isOnion]). */
     private fun connectPlain() {
+        check(isLocal(endpoint.host) || isOnion(endpoint.host)) { "plain TCP only on your own network or to a .onion" }
         val raw = connectRaw()
         serverFingerprint = null
         socket = raw
         reader = BufferedReader(InputStreamReader(raw.inputStream, Charsets.UTF_8))
         writer = BufferedWriter(OutputStreamWriter(raw.outputStream, Charsets.UTF_8))
         negotiate()
+        if (isOnion(endpoint.host)) plainOnions.add("${endpoint.host}:${endpoint.port}")
     }
 
     /** A private-network address (192.168.x.x, 10.x, 172.16–31.x, localhost, *.local, fd00::/8). */
@@ -189,7 +224,7 @@ class ElectrumClient(
         val raw = connectRaw()
         val ssl = (javax.net.ssl.SSLSocketFactory.getDefault() as javax.net.ssl.SSLSocketFactory)
             .createSocket(raw, endpoint.host, endpoint.port, true) as SSLSocket
-        ssl.soTimeout = READ_TIMEOUT_MS
+        ssl.soTimeout = readTimeout
         try {
             ssl.startHandshake()
             if (!javax.net.ssl.HttpsURLConnection.getDefaultHostnameVerifier().verify(endpoint.host, ssl.session)) {
@@ -218,6 +253,7 @@ class ElectrumClient(
      * resolver's ordering.
      */
     private fun connectRaw(): Socket {
+        if (viaTor) return connectTor()
         val addresses = try {
             InetAddress.getAllByName(endpoint.host)
         } catch (e: Exception) {
@@ -238,6 +274,27 @@ class ElectrumClient(
             }
         }
         throw ElectrumException("Could not connect to $endpoint: ${last?.message}", last)
+    }
+
+    /**
+     * The TCP socket through Tor's SOCKS port, the name resolved by Tor (never here: a .onion has no
+     * DNS, and asking the local resolver for a clearnet name would tell it which server). Without Tor
+     * nothing is sent at all, never directly instead.
+     */
+    private fun connectTor(): Socket {
+        val proxy = torProxy?.invoke() ?: throw ElectrumException(
+            if (isOnion(endpoint.host)) "${endpoint.host} is a .onion: it needs Tor, and Tor is not running on this phone (or did not start)."
+            else "Connecting through Tor is on, but Tor is not running on this phone (or did not start): nothing was sent without it.")
+        val s = Socket(proxy)
+        try {
+            s.connect(InetSocketAddress.createUnresolved(endpoint.host, endpoint.port), TOR_CONNECT_TIMEOUT_MS)
+        } catch (e: Exception) {
+            runCatching { s.close() }
+            throw ElectrumException("Could not reach $endpoint through Tor: ${e.message}", e)
+        }
+        s.soTimeout = TOR_READ_TIMEOUT_MS
+        s.tcpNoDelay = true
+        return s
     }
 
     /** One JSON-RPC round trip. Requests are newline-delimited. */

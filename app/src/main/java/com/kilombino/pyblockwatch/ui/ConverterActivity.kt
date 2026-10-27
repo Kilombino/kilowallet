@@ -55,7 +55,7 @@ class ConverterActivity : ComponentActivity() {
 /** A box of the converter: XBT, sats, Poolcoins, or a fiat currency ([fiat] its code). */
 private data class Denom(val label: String, val decimals: Int, val fiat: String? = null) {
     companion object {
-        val XBT = Denom("XBT", 8); val SATS = Denom("sats", 0); val POOLCOINS = Denom("Poolcoins", 8)
+        val XBT = Denom("BTC", 8); val SATS = Denom("sats", 0); val POOLCOINS = Denom("Poolcoins", 8)
         /** EUR and USD always, and the currency chosen in the wallet when it is another one. */
         fun all(chosen: String): List<Denom> = listOf(XBT, SATS, POOLCOINS) +
             (listOf("EUR", "USD") + listOfNotNull(chosen.takeIf { it != "EUR" && it != "USD" }))
@@ -81,9 +81,9 @@ private fun Converter(onClose: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("XBT converter", style = MaterialTheme.typography.titleMedium, color = Purple,
+            Text("BTC converter", style = MaterialTheme.typography.titleMedium, color = Purple,
                  modifier = Modifier.weight(1f))
-            TextButton(onClick = onClose) { Text("close", color = TextSoft, style = MaterialTheme.typography.bodySmall) }
+            TextButton(onClick = onClose) { Text("✕", color = TextSoft, style = MaterialTheme.typography.titleLarge) }
         }
         val m = market
         if (m == null || m.xbtUsd == null) {
@@ -110,7 +110,7 @@ private fun Converter(onClose: () -> Unit) {
         m?.let {
             Spacer(Modifier.height(2.dp))
             val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(it.fetchedMs))
-            Text("1 XBT = $" + String.format(Locale.US, "%,.2f", it.xbtUsd ?: 0.0) +
+            Text("1 BTC = $" + String.format(Locale.US, "%,.2f", it.xbtUsd ?: 0.0) +
                 " · €" + String.format(Locale.US, "%,.2f", it.xbtEur ?: 0.0) +
                 (if (chosen != "USD" && chosen != "EUR") it.xbtIn(chosen)?.let { p -> " · " + com.kilombino.pyblockwatch.data.Fiat.format(p, chosen) } ?: "" else "") +
                 (it.xbtPoolsats?.let { p -> " · " + String.format(Locale.US, "%,d", p) + " Poolsats" } ?: ""),

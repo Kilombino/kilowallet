@@ -564,11 +564,11 @@ private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, L
         }) {
             Text(if (choose) "☑" else "☐", color = accent, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.width(8.dp))
-            Text("Choose coins" + if (!fromDeposit) " (Ark payments and withdrawals to an XBT address)" else "",
+            Text("Choose coins" + if (!fromDeposit) " (Ark payments and withdrawals to a BTC address)" else "",
                  style = MaterialTheme.typography.bodySmall, color = TextSoft)
         }
         if (choose) CoinPicker(coins, picked, accent) { id -> picked = if (id in picked) picked - id else picked + id; review = null }
-        if (fromDeposit) Text("Plain on-chain XBT to an XBT address. Only the network fee; no Ark reserves.",
+        if (fromDeposit) Text("Plain on-chain BTC to a BTC address. Only the network fee; no Ark reserves.",
                               style = MaterialTheme.typography.bodySmall, color = TextFaint)
         // The deposit pays its own network fee, at the rate chosen here. From Ark, a withdrawal to an
         // XBT address leaves in the server's next round, at the round's own fee.
@@ -577,7 +577,7 @@ private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, L
                               style = MaterialTheme.typography.bodySmall, color = TextFaint)
         Spacer(Modifier.height(6.dp))
         OutlinedTextField(value = dest, onValueChange = { dest = it.trim(); review = null },
-            label = { Text("Ark address, Lightning invoice or XBT address") }, modifier = Modifier.fillMaxWidth())
+            label = { Text("Ark address, Lightning invoice or BTC address") }, modifier = Modifier.fillMaxWidth())
         ContactName(dest, accent)
         Row {
             TextButton(onClick = { clip.getText()?.text?.let { dest = scannedDestination(it); review = null } }) { Text("PASTE", color = accent) }
@@ -591,7 +591,7 @@ private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, L
             }
         }
         OutlinedTextField(value = amount, onValueChange = { amount = it.filter(Char::isDigit); review = null },
-            label = { Text("sats (empty: the invoice's amount, or everything to an XBT address)") }, singleLine = true,
+            label = { Text("sats (empty: the invoice's amount, or everything to a BTC address)") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
         FiatAmountField(amount, { amount = it; review = null },
             market = LocalFiat.current.market, fiat = LocalFiat.current.code)
@@ -616,7 +616,7 @@ private fun ArkSendSheet(accent: Color, deposit: Long, onSend: (String, Long?, L
                                         else Ark.estimateArkCoins(dest, sats, picked.toList())
                                     choose && dest.startsWith("ln", true) ->
                                         Ark.Estimate(0, 0, 0, false, "", "Choosing coins works for Ark payments and " +
-                                            "withdrawals to an XBT address. Lightning payments pick their coins themselves.")
+                                            "withdrawals to a BTC address. Lightning payments pick their coins themselves.")
                                     choose && sats != null -> Ark.Estimate(0, 0, 0, false, "",
                                         "Chosen Ark coins leave whole: leave the amount empty.")
                                     choose -> Ark.estimateWithdrawCoins(dest, picked.toList())
@@ -745,7 +745,7 @@ private fun ArkBoardSheet(b: Ark.Balance?, accent: Color, onBoard: (Long?, Doubl
     Panel(accent = accent) {
         SectionLabel("Move into Ark", accent)
         Spacer(Modifier.height(6.dp))
-        Explain("Moves confirmed XBT from this wallet's deposit address into Ark. Minimum " +
+        Explain("Moves confirmed BTC from this wallet's deposit address into Ark. Minimum " +
             "${groupSats(Ark.MIN_BOARD_SAT)} sats; spendable after ${Ark.BOARD_CONFIRMATIONS} confirmations. Available: ${groupSats(available)} sats.")
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
             choose = !choose; picked = emptySet()
@@ -775,7 +775,7 @@ private fun ArkBoardSheet(b: Ark.Balance?, accent: Color, onBoard: (Long?, Doubl
             isError = rateText.isNotEmpty() && !rateOk,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
         if (rate != null && rate < 1.0 && rateOk) Text(
-            "Below 1 sat/vB most XBT pools do not mine it yet, so it can take a long time to confirm. " +
+            "Below 1 sat/vB most BTC pools do not mine it yet, so it can take a long time to confirm. " +
                 "The move only counts from its ${Ark.BOARD_CONFIRMATIONS}rd confirmation, and the new coin's " +
                 "30 days start when you send it: a long wait shortens them.",
             style = MaterialTheme.typography.bodySmall, color = Warn)

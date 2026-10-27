@@ -69,17 +69,41 @@ fun SectionLabel(text: String, color: Color = Purple) {
 @Composable
 fun PulseDot(color: Color, size: Int = 8) {
     val t = rememberInfiniteTransition(label = "pulse")
-    val a by t.animateFloat(
+    val a = t.animateFloat(
         initialValue = 0.35f, targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing), RepeatMode.Reverse),
         label = "alpha",
     )
-    Box(
-        Modifier
-            .size(size.dp)
-            .clip(RoundedCornerShape(50))
-            .background(color.copy(alpha = a)),
-    )
+    // The alpha is read while drawing, not while composing: each frame of the pulse only redraws
+    // the dot, instead of composing it again (it is on screen the whole time the wallet is open).
+    Box(Modifier.size(size.dp).drawBehind { drawCircle(color.copy(alpha = a.value)) })
+}
+
+/**
+ * The same dot, still: "all is well" with nothing going on (a finished scan, a coin waiting for
+ * its block). An idle screen must not animate: a dot breathing forever keeps the GPU drawing a
+ * frame every 16 ms for as long as the wallet is open.
+ */
+@Composable
+fun StillDot(color: Color, size: Int = 8) {
+    Box(Modifier.size(size.dp).drawBehind { drawCircle(color) })
+}
+
+/**
+ * Something being prepared: the breathing dot, what is being done and, under it, what it waits
+ * for now ([step], when known). Shown the moment a button is pressed, so the wait happens here
+ * and not on the button.
+ */
+@Composable
+fun WorkingLine(accent: Color, title: String, step: String? = null, detail: String? = null) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        PulseDot(accent); androidx.compose.foundation.layout.Spacer(Modifier.size(10.dp))
+        Column {
+            Text(title, color = accent, style = MaterialTheme.typography.bodyMedium)
+            detail?.let { Text(it, color = TextSoft, style = MaterialTheme.typography.bodySmall) }
+            step?.let { Text(it, color = TextFaint, style = MaterialTheme.typography.bodySmall) }
+        }
+    }
 }
 
 /**

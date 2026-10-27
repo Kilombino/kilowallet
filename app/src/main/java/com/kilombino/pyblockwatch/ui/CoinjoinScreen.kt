@@ -77,6 +77,8 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
     var loadingPools by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var joining by remember { mutableStateOf<Protocol.Terms?>(null) }
+    // Another seat in one of our pools: the seat it is for.
+    var extraFor by remember { mutableStateOf<PoolSession.State?>(null) }
     var creating by remember { mutableStateOf(false) }
     // 0 JOIN, 1 IN PROGRESS, 2 HISTORY: a round going opens on IN PROGRESS.
     var tab by androidx.compose.runtime.saveable.rememberSaveable {
@@ -84,6 +86,9 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
                 PoolSession.Phase.ABORTED, PoolSession.Phase.REJECTED) } ||
             com.kilombino.pyblockwatch.coinjoin.PerfectCoin.hasWaiting(ctx)) 1 else 0)
     }
+    // A notification asked for one list (a new pool: POOLS; a round of ours: IN PROGRESS).
+    val askedList by com.kilombino.pyblockwatch.data.OpenTab.coinjoinList.collectAsState()
+    LaunchedEffect(askedList) { askedList?.let { tab = it; com.kilombino.pyblockwatch.data.OpenTab.coinjoinList.value = null } }
     // Test pools (from 1 000 sats) were for the betas; the release starts at 10 000.
     val testPools = false
     var joinPassword by remember { mutableStateOf("") }
@@ -139,7 +144,7 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
     // stopped it) its rounds ask again. With "on its own" set, one fingerprint resumes them all.
     val asking = mine.filter { st ->
         st.phase in setOf(PoolSession.Phase.OPEN, PoolSession.Phase.VOTING, PoolSession.Phase.CLOSING, PoolSession.Phase.SIGNING) &&
-            !st.postedSig && !CoinjoinHub.isAuto(st.poolId)
+            !st.postedSig && !CoinjoinHub.isAuto(st.key)
     }
     if (CoinjoinHub.autoDefault(ctx) && asking.isNotEmpty()) Panel(accent = accent) {
         Text("${asking.size} round" + (if (asking.size == 1) " is" else "s are") + " waiting for you (joined before rounds kept their keys, or asking at each step).",
@@ -155,7 +160,7 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
                                     var i = 0
                                     asking.forEach { st ->
                                         val n = st.coinPaths.size
-                                        CoinjoinHub.startAuto(st.poolId, all.subList(i, i + n)); i += n
+                                        CoinjoinHub.startAuto(st.key, all.subList(i, i + n)); i += n
                                     }
                                 }
                             }.onSuccess { message = "All rounds run on their own again." }
@@ -198,17 +203,61 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
         CoinPicker(vm, accent, "Join · ${poolAmount(t)} sats${poolKind(t)}", t.amount, t.feeRate, t.script, t.maxInputs, t.outputs,
             exactFor = WalletViewModel.ExactFor(t.id, joinPassword.ifEmpty { null }, null, com.kilombino.pyblockwatch.coinjoin.PerfectCoin.agreed(t)),
             onCancel = { joining = null; joinPassword = "" },
-            onPicked = { u, dest ->
+            perpetualOk = t.outputs == 1,
+            onPicked = { u, dest, cap ->
                 if (t.private && joinPassword.isEmpty()) { message = "Type the pool's password first."; return@CoinPicker }
                 scope.launch {
                     val scripts = runCatching { destinationScripts(ctx, dest, t.script, t.outputs) }
                         .getOrElse { message = it.message ?: "could not find unused addresses"; return@launch }
-                    unlockAndPick(activity, vm, u, t.outputs, "Join coinjoin", "Unlock to prove you own the coins", scripts,
+                    unlockAndPick(activity, vm, u, t.outputs, "Join coinjoin", "Unlock to prove you own the coins", scripts, cap != null,
                         onPick = { pick ->
                             scope.launch {
-                                runCatching { withContext(Dispatchers.Default) { CoinjoinHub.join(ctx, t, pick, joinPassword, CoinjoinHub.autoDefault(ctx)) } }
-                                    .onSuccess { Destination.remember(ctx, t.id, dest); tab = 1 }.onFailure { message = it.message }
+                                runCatching { withContext(Dispatchers.Default) {
+                                    val perpId = cap?.let { com.kilombino.pyblockwatch.coinjoin.Perpetual.newId() }
+                                    CoinjoinHub.join(ctx, t, pick, joinPassword, CoinjoinHub.autoDefault(ctx), perpId = perpId)
+                                        .also { st -> beginPerpetual(ctx, st, pick, cap) }
+                                } }
+                                    .onSuccess { st -> Destination.remember(ctx, st.key, dest); tab = 1 }.onFailure { message = it.message }
                                 joining = null; joinPassword = ""
+                            }
+                        }, onError = { message = it })
+                }
+            })
+        return
+    }
+    // Another seat in a pool this phone is already in, with another coin of its own.
+    extraFor?.let { mineSt ->
+        val t = mineSt.terms
+        // A member of a private pool types its password again (only the creator keeps the pool's key).
+        val needsPassword = t.private && !mineSt.creator
+        Panel(accent = Warn) {
+            Text(ANOTHER_SEAT_NOTE, color = Warn, style = MaterialTheme.typography.bodySmall)
+            if (needsPassword) OutlinedTextField(value = joinPassword, onValueChange = { joinPassword = it },
+                label = { Text("pool password", style = MaterialTheme.typography.bodySmall) },
+                singleLine = true, textStyle = MaterialTheme.typography.bodyMedium, modifier = Modifier.fillMaxWidth())
+        }
+        CoinPicker(vm, accent, "Another seat · ${poolAmount(t)} sats${poolKind(t)}", t.amount, t.feeRate, t.script, t.maxInputs, t.outputs,
+            // A perfect coin made from here joins as another seat too, once it confirms (see PerfectCoin).
+            exactFor = WalletViewModel.ExactFor(t.id, joinPassword.ifEmpty { null }, null, com.kilombino.pyblockwatch.coinjoin.PerfectCoin.agreed(t),
+                extraSeat = true, passwordKey = mineSt.pwKey),
+            onCancel = { extraFor = null; joinPassword = "" },
+            // Not perpetual: two seats of one person remixing on their own would go to the next pools at the same
+            // moment, tied by their timing, as several outputs each would (why those pools are left out too).
+            perpetualOk = false,
+            onPicked = { u, dest, _ ->
+                if (needsPassword && joinPassword.isEmpty()) { message = "Type the pool's password first."; return@CoinPicker }
+                scope.launch {
+                    val scripts = runCatching { destinationScripts(ctx, dest, t.script, t.outputs) }
+                        .getOrElse { message = it.message ?: "could not find unused addresses"; return@launch }
+                    unlockAndPick(activity, vm, u, t.outputs, "Join coinjoin", "Unlock to prove you own the coins", scripts, false,
+                        onPick = { pick ->
+                            scope.launch {
+                                runCatching { withContext(Dispatchers.Default) {
+                                    CoinjoinHub.join(ctx, t, pick, joinPassword.ifEmpty { null }, CoinjoinHub.autoDefault(ctx),
+                                        passwordKey = mineSt.pwKey?.let { com.kilombino.pyblockwatch.crypto.Hashes.hexToBytes(it) })
+                                } }
+                                    .onSuccess { st -> Destination.remember(ctx, st.key, dest); tab = 1 }.onFailure { message = it.message }
+                                extraFor = null; joinPassword = ""
                             }
                         }, onError = { message = it })
                 }
@@ -223,7 +272,7 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
             creating = false; com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.pending.value = null
             // A payment goes back to SEND as it was typed, nothing lost.
             pay?.draft?.let { com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.backToSend.value = it }
-        }) { amount, rate, minPeers, peers, hours, password, maxInputs, outputs, u, dest ->
+        }) { amount, rate, minPeers, peers, hours, password, maxInputs, outputs, u, dest, cap ->
             scope.launch {
                 val type = if (u.first().type == ScriptType.P2TR) ScriptType.P2TR else ScriptType.P2WPKH
                 // A payment's outputs are the recipients' addresses as typed; nothing is derived for them.
@@ -231,13 +280,17 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
                     else runCatching { destinationScripts(ctx, dest, type, outputs) }
                     .getOrElse { message = it.message ?: "could not find unused addresses"; return@launch }
                 // A payment pool (v5): one output per payment, whatever the others' outputs are.
-                unlockAndPick(activity, vm, u, scripts?.size ?: outputs, "Open a coinjoin pool", "Unlock to put your coins in", scripts,
+                unlockAndPick(activity, vm, u, scripts?.size ?: outputs, "Open a coinjoin pool", "Unlock to put your coins in", scripts, cap != null,
                     onPick = { pick ->
                         scope.launch {
-                            runCatching { withContext(Dispatchers.Default) { CoinjoinHub.create(ctx, pick, amount, rate, peers, hours, minPeers, password,
-                                maxInputs, CoinjoinHub.autoDefault(ctx), outputs, pay?.payments.orEmpty()) } }
+                            runCatching { withContext(Dispatchers.Default) {
+                                val perpId = cap?.let { com.kilombino.pyblockwatch.coinjoin.Perpetual.newId() }
+                                CoinjoinHub.create(ctx, pick, amount, rate, peers, hours, minPeers, password,
+                                    maxInputs, CoinjoinHub.autoDefault(ctx), outputs, pay?.payments.orEmpty(), perpId = perpId)
+                                    .also { st -> beginPerpetual(ctx, st, pick, cap) }
+                            } }
                                 .onSuccess { st ->
-                                    Destination.remember(ctx, st.poolId, dest); creating = false; tab = 1; reloadPools()
+                                    Destination.remember(ctx, st.key, dest); creating = false; tab = 1; reloadPools()
                                     com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.pending.value = null
                                 }
                                 .onFailure { message = it.message }
@@ -250,25 +303,42 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
 
     val waitingPerfect by com.kilombino.pyblockwatch.coinjoin.PerfectCoin.waiting.collectAsState()
     LaunchedEffect(rev / 1_000_000) { com.kilombino.pyblockwatch.coinjoin.PerfectCoin.load(ctx) }
+    // Perpetual coins: between rounds on IN PROGRESS, stopped ones in HISTORY (their rounds have cards of their own).
+    val remixes by com.kilombino.pyblockwatch.coinjoin.Perpetual.list.collectAsState()
+    LaunchedEffect(rev / 500_000) { withContext(Dispatchers.IO) {
+        com.kilombino.pyblockwatch.coinjoin.Perpetual.load(ctx)
+        // Off, with its round over without a coin to go on with: let that round go, so it can be removed.
+        runCatching { com.kilombino.pyblockwatch.coinjoin.Perpetual.settleStopped(ctx) }
+    } }
+    // On, with no round card of its own going: waiting for its next pool, or about to move on from a round just over.
+    val remixWaiting = remixes.filter { r -> val s = r.seat?.let { CoinjoinHub.session(it) }
+        com.kilombino.pyblockwatch.coinjoin.Perpetual.pendingCard(r, s?.state, s?.done ?: true) }
+    // A stopped one shows on its round's card while that round is listed; on a card of its own otherwise.
+    val remixStopped = remixes.filter { it.state == com.kilombino.pyblockwatch.coinjoin.Remix.State.STOPPED &&
+        (it.seat == null || CoinjoinHub.session(it.seat!!) == null) }
     // JOIN · IN PROGRESS · HISTORY: rounds going are shown first when there are any.
-    CoinjoinTabs(tab, active.size, accent) { tab = it }
+    // Everything IN PROGRESS lists: rounds, perpetual coins between rounds, and perfect coins waiting to confirm.
+    CoinjoinTabs(tab, active.size + remixWaiting.size + waitingPerfect.size, accent) { tab = it }
     // A card opens by itself while its round waits on you; a tap opens or folds it.
     val unfolded = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
     @Composable fun card(st: PoolSession.State) = RoundCard(vm, st, rev, accent, activity,
-        open = unfolded[st.poolId] ?: needsMe(st), onToggle = { unfolded[st.poolId] = !(unfolded[st.poolId] ?: needsMe(st)) }) { message = it }
+        open = unfolded[st.key] ?: needsMe(st), onToggle = { unfolded[st.key] = !(unfolded[st.key] ?: needsMe(st)) },
+        onAnotherSeat = { extraFor = st; joinPassword = "" }) { message = it }
 
     if (tab == 1) {
         val perfect = waitingPerfect
-        if (active.isEmpty() && perfect.isEmpty()) Explain("No rounds going. Join a pool, or open your own, in JOIN.")
+        if (active.isEmpty() && perfect.isEmpty() && remixWaiting.isEmpty()) Explain("No rounds going. Join a pool, or open your own, in JOIN.")
         perfect.forEach { w -> PerfectCoinCard(w, accent, vm) }
+        remixWaiting.forEach { r -> PerpetualCard(vm, r, accent, activity, embedded = false) { message = it } }
         active.forEach { card(it) }
         return
     }
     if (tab == 2) {
+        remixStopped.forEach { r -> PerpetualCard(vm, r, accent, activity, embedded = false) { message = it } }
         if (finished.isEmpty()) Explain("Confirmed and cancelled rounds show here, for a week.")
         else {
             finished.forEach { card(it) }
-            TextButton(onClick = { finished.forEach { CoinjoinHub.remove(ctx, it.poolId) } }) {
+            TextButton(onClick = { finished.forEach { CoinjoinHub.remove(ctx, it.key) } }) {
                 Text("remove all", color = TextFaint, style = MaterialTheme.typography.bodySmall)
             }
         }
@@ -300,7 +370,7 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
         Panel(accent = accent) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text((if (t.private) "🔒 " else "") + "${poolAmount(t)} sats" + if (Protocol.isTest(t)) "  · TEST" else "",
+                    Text((if (t.private) "🔒 " else "") + "${poolAmount(t)} sats" + if (Protocol.isTest(t)) "  · TEST POOL" else "",
                         style = MaterialTheme.typography.titleMedium, color = TextMain)
                     Text(poolTypeLine(t), style = MaterialTheme.typography.bodySmall, color = accent)
                     Text("${t.peers}/${t.maxPeers} people (min ${t.minPeers}) · ${t.feeRate} sat/vB · closes in ${remaining(t.expiresAt)}",
@@ -389,9 +459,28 @@ private suspend fun destinationScripts(ctx: android.content.Context, dest: Desti
     if (dest == Destination.Kind.HOT) null
     else withContext(Dispatchers.IO) { Destination.scripts(ctx, dest, type, outputs) }
 
+/**
+ * A perpetual coinjoin from the round [st] just joined or opened with [pick], when [cap] (its fee cap) is
+ * set: its keys for the rounds to come are kept, and it goes on by itself once the round confirms.
+ */
+private fun beginPerpetual(ctx: android.content.Context, st: PoolSession.State, pick: CoinjoinHub.Pick, cap: Double?) {
+    if (cap == null || st.perpId == null) return
+    val branch = pick.perpBranch ?: error("the wallet's keys were not unlocked")
+    require(pick.mixIndex >= 0 && st.terms.outputs == 1) { "a perpetual coinjoin needs one output of this wallet" }
+    // Pools it opens later last as long as the one opened here did; joined, the usual 6 hours.
+    val hours = if (st.creator) ((st.terms.expiresAt - st.created + 1800) / 3600).toInt() else 6
+    // Its first pool kept as it is: if it ends without a round, the same pool opens again.
+    com.kilombino.pyblockwatch.coinjoin.Perpetual.start(ctx, st.key, pick.type, branch, pick.mixIndex, pick.mixScripts.first(), st.terms, cap, st.perpId, hours,
+        com.kilombino.pyblockwatch.coinjoin.FirstPool.of(st, hours), pick.perpChangeBranch)
+}
+
+/** Next to "ask to close" and "leave" while this phone has more than one seat in a pool, and before taking one. */
+private const val ANOTHER_SEAT_NOTE = "Another seat of yours counts as one more member: the others get less privacy than they see, " +
+    "and spending both results together later links them."
+
 private fun unlockAndPick(
     activity: FragmentActivity, vm: WalletViewModel, u: List<Scanner.SpendableUtxo>, outputs: Int, title: String, subtitle: String,
-    mixScripts: List<ByteArray>?, onPick: (CoinjoinHub.Pick) -> Unit, onError: (String) -> Unit,
+    mixScripts: List<ByteArray>?, perpetual: Boolean, onPick: (CoinjoinHub.Pick) -> Unit, onError: (String) -> Unit,
 ) {
     runCatching { vm.seedDecryptCipher() }.onSuccess { cipher ->
         Biometric.authenticate(activity, title, subtitle, cipher,
@@ -399,7 +488,7 @@ private fun unlockAndPick(
             // slow phone showed "app isn't responding" here.
             onSuccess = { authed ->
                 activity.lifecycleScope.launch {
-                    runCatching { withContext(Dispatchers.Default) { vm.coinjoinPick(authed, u, outputs, mixScripts) } }
+                    runCatching { withContext(Dispatchers.Default) { vm.coinjoinPick(authed, u, outputs, mixScripts, perpetual) } }
                         .onSuccess(onPick).onFailure { onError(it.message ?: "could not unlock") }
                 }
             },
@@ -424,7 +513,14 @@ private fun CoinPicker(
     feeOutputs: Int = outputs,
     /** Opening a payment pool (v5): our outputs are the payments themselves. */
     paymentPool: Boolean = false,
-    onPicked: (List<Scanner.SpendableUtxo>, Destination.Kind) -> Unit,
+    /** A pool of one output each: the perpetual coinjoin can be chosen (for the hot wallet's outputs). */
+    perpetualOk: Boolean = false,
+    /** No exact coin to prepare from here (another seat). */
+    noExactCoin: Boolean = false,
+    /** The perpetual coinjoin as already chosen on the sheet before (opening a pool by its amount). */
+    initialPerpetual: Boolean = false, initialCap: String? = null,
+    /** The coins, where the outputs go, and the perpetual coinjoin's fee cap (null: not perpetual). */
+    onPicked: (List<Scanner.SpendableUtxo>, Destination.Kind, Double?) -> Unit,
 ) {
     val tag = if (type == ScriptType.P2TR) ScriptType.P2TR else null
     val ctx = LocalContext.current
@@ -433,6 +529,8 @@ private fun CoinPicker(
     var dest by remember(type, payment) { mutableStateOf(if (payment) Destination.Kind.PAY else Destination.Kind.HOT) }
     val kind = if (type == ScriptType.P2TR) "Taproot (bc1p)" else "native SegWit (bc1q)"
     var coins by remember { mutableStateOf<List<Scanner.SpendableUtxo>?>(null) }
+    // The mixed ones, worked out once per list: not again for every coin on every redraw of the tab.
+    val mixedCoins = remember(coins) { vm.mixedOutpoints(coins.orEmpty()) }
     val chosen = remember { mutableStateListOf<Scanner.SpendableUtxo>() }
     var reload by remember { mutableStateOf(0) }
     var leftOut by remember { mutableStateOf(0) }
@@ -452,6 +550,10 @@ private fun CoinPicker(
     val exact = min
     var making by remember { mutableStateOf(false) }
     var offerPerfect by remember { mutableStateOf(false) }
+    var perpetual by remember { mutableStateOf(initialPerpetual) }
+    var capText by remember { mutableStateOf(initialCap ?: fmtRate(feeRate)) }
+    val cap = if (perpetualOk && perpetual && dest == Destination.Kind.HOT) capText.replace(',', '.').toDoubleOrNull() else null
+    val capBad = perpetualOk && perpetual && dest == Destination.Kind.HOT && (cap == null || cap < 1.0 || cap > 500.0)
     val total = chosen.sumOf { it.value }
     val change = if (chosen.isEmpty()) null else CoinjoinTx.changeOf(total, mixTotal, feeRate, chosen.size, type, feeOutputs)
     val fee = if (change == null) 0L else total - mixTotal - change
@@ -467,7 +569,7 @@ private fun CoinPicker(
             "which needs one confirmation before it can join.") },
         confirmButton = { TextButton(onClick = { offerPerfect = false; vm.resetSend(); making = true }) {
             Text("MAKE THE PERFECT COIN", color = accent) } },
-        dismissButton = { TextButton(onClick = { offerPerfect = false; onPicked(chosen.toList(), dest) }) {
+        dismissButton = { TextButton(onClick = { offerPerfect = false; onPicked(chosen.toList(), dest, cap) }) {
             Text("NOT NEEDED, CONTINUE", color = TextSoft) } },
         containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
     )
@@ -477,7 +579,14 @@ private fun CoinPicker(
         Spacer(Modifier.height(8.dp))
         if (dests.size > 1) DestinationChooser(dests, dest, !making, type, outputs, accent) { dest = it }
         if (making) {
-            ExactCoinPanel(vm, accent, exact, tag, exactFor, dest, outputs) { sent -> making = false; reload++; if (sent) onCancel() }
+            if (perpetualOk && perpetual && dest != Destination.Kind.HOT)
+                Text("A perpetual coinjoin only remixes outputs of this wallet: with another destination it is off.",
+                    color = Warn, style = MaterialTheme.typography.bodySmall)
+            // Before signing, what this coin's pool will do after: remix on its own, or not.
+            if (cap != null) Text("♻ Perpetual coinjoin: on · its pools at ${fmtRate(cap)} sat/vB. After this pool, the mixed coin remixes on its own.",
+                color = Good, style = MaterialTheme.typography.bodySmall)
+            // The perpetual choice goes with the perfect coin: its pool, once joined, remixes as chosen here.
+            ExactCoinPanel(vm, accent, exact, tag, exactFor.withPerpetual(cap), dest, outputs) { sent -> making = false; reload++; if (sent) onCancel() }
             return@Panel
         }
         if (paymentPool) Explain((if (maxInputs > 1)
@@ -530,7 +639,7 @@ private fun CoinPicker(
                         Row {
                             Text("${groupSats(u.value)} sats" + if (u.value == exact) "  ★ EXACT" else "",
                                 color = if (u.value == exact) Good else TextMain, style = MaterialTheme.typography.bodyMedium)
-                            if (vm.isMixedCoin(u)) Text(" · mixed", color = Warn, style = MaterialTheme.typography.bodyMedium)
+                            if ("${u.txid}:${u.vout}" in mixedCoins) Text(" · mixed", color = Warn, style = MaterialTheme.typography.bodyMedium)
                         }
                         Text(vm.coinAddress(u)?.let { shortAddress(it) } ?: "${u.txid.take(10)}…:${u.vout}",
                             color = TextFaint, style = MaterialTheme.typography.bodySmall)
@@ -548,7 +657,7 @@ private fun CoinPicker(
             }
         }
         // A seat's coins are tied together by the round itself: a mixed one with others undoes its mix.
-        val mixedChosen = chosen.count { vm.isMixedCoin(it) }
+        val mixedChosen = chosen.count { "${it.txid}:${it.vout}" in mixedCoins }
         if (mixedChosen > 0 && chosen.size > 1) Text(
             "A mixed coin in one seat with other coins ties them together: the round shows they are one person's. Remix mixed coins one at a time.",
             color = Warn, style = MaterialTheme.typography.bodySmall)
@@ -565,19 +674,24 @@ private fun CoinPicker(
             }, color = if (change == null) Warn else accent, style = MaterialTheme.typography.bodySmall)
         }
         // A payment has no exact coin to make (below), so no word about one.
-        if (list != null && !payment) Text(if (type == ScriptType.P2TR)
+        if (list != null && !payment && !noExactCoin) Text(if (type == ScriptType.P2TR)
             "Only Taproot (bc1p) coins can join this pool. Your native SegWit coins can still pay for a Taproot exact coin below."
         else "Only native SegWit (bc1q) coins can join this pool. Your Taproot coins can still pay for a native SegWit exact coin below.",
             color = TextFaint, style = MaterialTheme.typography.bodySmall)
-        if (!payment && list != null && list.none { it.value == exact }) TextButton(onClick = { vm.resetSend(); making = true }) {
+        if (perpetualOk && dest == Destination.Kind.HOT) PerpetualChoice(perpetual, capText, accent, { perpetual = it }, { capText = it })
+        // Ticked before (on the pool's form), then another destination picked here: say it is off.
+        else if (perpetualOk && perpetual) Text("A perpetual coinjoin only remixes outputs of this wallet: with another destination it is off.",
+            color = Warn, style = MaterialTheme.typography.bodySmall)
+        if (capBad) Text("Fee: 1 to 500 sat/vB.", color = Warn, style = MaterialTheme.typography.bodySmall)
+        if (!payment && !noExactCoin && list != null && list.none { it.value == exact }) TextButton(onClick = { vm.resetSend(); making = true }) {
             Text("＋ PREPARE AN EXACT COIN OF ${groupSats(exact)} SATS", color = accent, style = MaterialTheme.typography.bodySmall)
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onCancel, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = TextSoft),
                 shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text(if (payment) "BACK" else "CANCEL") }
-            Button(onClick = { if ((change ?: 0) > 0 && !payment) offerPerfect = true else onPicked(chosen.toList(), dest) },
-                enabled = change != null,
+            Button(onClick = { if ((change ?: 0) > 0 && !payment && !noExactCoin) offerPerfect = true else onPicked(chosen.toList(), dest, cap) },
+                enabled = change != null && !capBad,
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
                 shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) {
                 Text(if (chosen.size > 1) "USE THESE ${chosen.size} COINS" else "USE THIS COIN")
@@ -593,7 +707,7 @@ private fun CreatePool(
     pay: com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.Request?,
     onCancel: () -> Unit,
     onCreate: (amount: Long, rate: Double, minPeers: Int, maxPeers: Int, hours: Int, password: String, maxInputs: Int,
-               outputs: Int, coins: List<Scanner.SpendableUtxo>, dest: Destination.Kind) -> Unit,
+               outputs: Int, coins: List<Scanner.SpendableUtxo>, dest: Destination.Kind, perpetualCap: Double?) -> Unit,
 ) {
     val ctx = LocalContext.current
     // From your coins (the default): whole coins ticked first, and the amount worked out so they
@@ -626,6 +740,8 @@ private fun CreatePool(
     // The coins of the pool's type, for opening it from them.
     val tag = if (taproot) ScriptType.P2TR else null
     var coins by remember(taproot) { mutableStateOf<List<Scanner.SpendableUtxo>?>(null) }
+    // The mixed ones, worked out once per list: not again for every coin on every redraw of the tab.
+    val mixedCoins = remember(coins) { vm.mixedOutpoints(coins.orEmpty()) }
     val picked = remember(taproot) { mutableStateListOf<Scanner.SpendableUtxo>() }
     LaunchedEffect(taproot, fromCoins) { if (fromCoins) coins = runCatching { vm.coinjoinCoins(tag) }.getOrDefault(emptyList()) }
     val coinsTotal = picked.sumOf { it.value }
@@ -657,21 +773,29 @@ private fun CreatePool(
         outputs == null || outputs !in 1..Protocol.MAX_OUTPUTS -> "Mixed outputs per person: 1 to ${Protocol.MAX_OUTPUTS}."
         else -> null
     }
+    // Chosen here (by amount or from coins) and carried into the coin picker.
+    var perpetual by remember { mutableStateOf(false) }
+    var capText by remember { mutableStateOf("") }
     if (pickCoin && error == null) {
         val exactFor = WalletViewModel.ExactFor(null, null, org.json.JSONObject().put("amount", amount!!).put("feeRate", rate!!)
             .put("maxPeers", peers!!).put("hours", hours!!).put("minPeers", minPeers!!).put("password", password).put("maxInputs", maxInputs!!)
             .put("outputs", outputs!!))
         CoinPicker(vm, accent, if (pay != null) "Your coins for the payment" else "Your coins for the pool", amount, rate, type, maxInputs, outputs, exactFor,
             onCancel = { pickCoin = false }, initial = pay?.coins.orEmpty(), payment = pay != null,
-            feeOutputs = payV5?.size ?: outputs, paymentPool = payV5 != null) { u, dest ->
-            onCreate(amount, rate, minPeers!!, peers!!, hours!!, password, maxInputs, outputs, u, dest)
+            feeOutputs = payV5?.size ?: outputs, paymentPool = payV5 != null, perpetualOk = pay == null && outputs == 1,
+            initialPerpetual = perpetual, initialCap = capText.ifEmpty { rateText }) { u, dest, cap ->
+            onCreate(amount, rate, minPeers!!, peers!!, hours!!, password, maxInputs, outputs, u, dest, cap)
         }
         return
     }
     // From your coins, then where the outputs go (when there is more than this wallet).
     val dests = remember(type) { Destination.options(ctx, type) }
     var dest by remember(type) { mutableStateOf(Destination.Kind.HOT) }
-    fun open(d: Destination.Kind) = onCreate(amount!!, rate!!, minPeers!!, peers!!, hours!!, password, maxInputs!!, outputs!!, picked.toList(), d)
+    val perpetualOk = pay == null && outputs == 1
+    val cap = if (perpetualOk && perpetual) (capText.ifEmpty { rateText }).replace(',', '.').toDoubleOrNull() else null
+    val capBad = perpetualOk && perpetual && (cap == null || cap < 1.0 || cap > 500.0)
+    fun open(d: Destination.Kind) = onCreate(amount!!, rate!!, minPeers!!, peers!!, hours!!, password, maxInputs!!, outputs!!, picked.toList(), d,
+        if (d == Destination.Kind.HOT) cap else null)
     if (choosingDest && fromCoins && error == null) {
         Panel(accent = accent) {
             SectionLabel("Open a pool from your coins", accent)
@@ -680,6 +804,8 @@ private fun CreatePool(
                 color = Good, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(8.dp))
             DestinationChooser(dests, dest, true, type, outputs, accent) { dest = it }
+            if (cap != null && dest != Destination.Kind.HOT) Text("A perpetual coinjoin only remixes outputs of this wallet: with another destination it is off.",
+                color = Warn, style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { choosingDest = false }, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = TextSoft),
                     shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text("BACK") }
@@ -754,9 +880,12 @@ private fun CreatePool(
                 val sel = taproot == t
                 val can = !t || vm.taprootPools()
                 TextButton(onClick = { if (can) taproot = t }, enabled = can, modifier = Modifier.fillMaxWidth()) {
-                    Text((if (sel) "● " else "○ ") + label + if (!can) " — turn on Taproot in settings" else "",
-                        color = if (sel) accent else if (can) TextMain else TextFaint,
-                        style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth())
+                    // The mark apart from the words, so the words are found in the translations.
+                    val c = if (sel) accent else if (can) TextMain else TextFaint
+                    Text(if (sel) "●" else "○", color = c, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.width(6.dp))
+                    Text(label + if (!can) " — turn on Taproot in settings" else "",
+                        color = c, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
                 }
             }
             Text(if (taproot) "Only Taproot coins can join, and everyone gets Taproot outputs back."
@@ -800,7 +929,7 @@ private fun CreatePool(
                         Column(Modifier.weight(1f)) {
                             Row {
                                 Text("${groupSats(u.value)} sats", color = TextMain, style = MaterialTheme.typography.bodyMedium)
-                                if (vm.isMixedCoin(u)) Text(" · mixed", color = Warn, style = MaterialTheme.typography.bodyMedium)
+                                if ("${u.txid}:${u.vout}" in mixedCoins) Text(" · mixed", color = Warn, style = MaterialTheme.typography.bodyMedium)
                             }
                             Text(vm.coinAddress(u)?.let { shortAddress(it) } ?: "${u.txid.take(10)}…:${u.vout}",
                                 color = TextFaint, style = MaterialTheme.typography.bodySmall)
@@ -810,7 +939,7 @@ private fun CreatePool(
                 }
             }
             // A seat's coins are tied together by the round itself: a mixed one with others undoes its mix.
-            if (picked.count { vm.isMixedCoin(it) } > 0 && picked.size > 1) Text(
+            if (picked.count { "${it.txid}:${it.vout}" in mixedCoins } > 0 && picked.size > 1) Text(
                 "A mixed coin in one seat with other coins ties them together: the round shows they are one person's. Remix mixed coins one at a time.",
                 color = Warn, style = MaterialTheme.typography.bodySmall)
             if (picked.isNotEmpty() && amount != null && amount > 0 && rateOk && outputsOk) {
@@ -849,12 +978,17 @@ private fun CreatePool(
                 "also goes in without change and the rest goes to the miners.",
                 color = TextFaint, style = MaterialTheme.typography.bodySmall)
         }
+        if (perpetualOk) PerpetualChoice(perpetual, capText.ifEmpty { rateText }, accent, { perpetual = it }, { capText = it })
+        else if (pay == null && outputs != null && outputs > 1)
+            Text("♻ Perpetual coinjoin: only with one mixed output per person (several remixing at once would be linked by their timing).",
+                color = TextFaint, style = MaterialTheme.typography.bodySmall)
+        if (capBad) Text("Fee: 1 to 500 sat/vB.", color = Warn, style = MaterialTheme.typography.bodySmall)
         error?.let { Text(it, color = Warn, style = MaterialTheme.typography.bodySmall) }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onCancel, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = TextSoft),
                 shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text(if (pay != null) "BACK" else "CANCEL") }
-            if (fromCoins) Button(onClick = { if (dests.size > 1) choosingDest = true else open(Destination.Kind.HOT) }, enabled = error == null,
+            if (fromCoins) Button(onClick = { if (dests.size > 1) choosingDest = true else open(Destination.Kind.HOT) }, enabled = error == null && !capBad,
                 colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
                 shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text(if (dests.size > 1) "CONTINUE" else "OPEN THE POOL") }
             else Button(onClick = { pickCoin = true }, enabled = error == null,
@@ -879,7 +1013,7 @@ private fun MyPoolCard(
     val ctx = activity.applicationContext
     val scope = rememberCoroutineScope()
     val uri = LocalUriHandler.current
-    val session = CoinjoinHub.session(st.poolId)
+    val session = CoinjoinHub.session(st.key)
     val color = when (st.phase) {
         PoolSession.Phase.CONFIRMED -> Good
         PoolSession.Phase.ABORTED, PoolSession.Phase.REJECTED -> Bad
@@ -889,7 +1023,8 @@ private fun MyPoolCard(
     fun act(f: () -> Unit) = scope.launch { withContext(Dispatchers.IO) { runCatching(f) }.onFailure { onMessage(it.message ?: "failed") } }
     @Composable fun frame(content: @Composable () -> Unit) { if (embedded) Column { content() } else Panel(accent = color) { content() } }
     frame {
-        val people = if (st.round.isNotEmpty()) st.round.size else st.seats.size
+        // This phone's own seats count as one person.
+        val people = CoinjoinHub.people(st)
         if (!embedded) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("${poolAmount(st.terms)} sats" + if (st.terms.script == ScriptType.P2TR) " · Taproot" else "",
@@ -918,8 +1053,8 @@ private fun MyPoolCard(
             (if (st.seat.changeValue > 0) " + ${groupSats(st.seat.changeValue)} change · fee $fee" else " · fee $fee"),
             style = MaterialTheme.typography.bodySmall, color = TextFaint)
         // Only on this phone: where the mixed outputs go when it is not this wallet.
-        val goesTo = remember(st.poolId) { Destination.of(ctx, st.poolId) }
-        val which = remember(st.poolId) { Destination.whichOf(ctx, st.poolId) }
+        val goesTo = remember(st.key) { Destination.of(ctx, st.key) }
+        val which = remember(st.key) { Destination.whichOf(ctx, st.key) }
         if (goesTo != Destination.Kind.HOT) Text((if (goesTo == Destination.Kind.PAY) "the payments go to: " else "mixed outputs go to: ") +
             Destination.label(goesTo) + (which?.let { " · $it" } ?: ""),
             style = MaterialTheme.typography.bodySmall, color = accent)
@@ -927,13 +1062,13 @@ private fun MyPoolCard(
             Text("A payment: it goes out only when the pool closes. If the pool doesn't fill, nothing is paid; cancel it and send normally.",
                 style = MaterialTheme.typography.bodySmall, color = TextFaint)
         if (goesTo != Destination.Kind.HOT && st.mixScripts.isNotEmpty()) {
-            var show by remember(st.poolId) { mutableStateOf(false) }
+            var show by remember(st.key) { mutableStateOf(false) }
             TextButton(onClick = { show = !show }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
                 Text(if (show) "hide the addresses" else "show the addresses", color = accent, style = MaterialTheme.typography.labelSmall)
             }
-            if (show) AddressesShown(remember(st.poolId) { Destination.describe(ctx, goesTo, st.terms.script, st.mixScripts) })
+            if (show) AddressesShown(remember(st.key) { Destination.describe(ctx, goesTo, st.terms.script, st.mixScripts) })
         }
-        if (CoinjoinHub.isAuto(st.poolId) && st.phase in setOf(PoolSession.Phase.OPEN, PoolSession.Phase.VOTING,
+        if (CoinjoinHub.isAuto(st.key) && st.phase in setOf(PoolSession.Phase.OPEN, PoolSession.Phase.VOTING,
                 PoolSession.Phase.CLOSING, PoolSession.Phase.SIGNING)) {
             // The switch above says it all; here only a quiet mark.
             Text("on its own ✓", style = MaterialTheme.typography.labelSmall, color = Good)
@@ -943,7 +1078,7 @@ private fun MyPoolCard(
             TextButton(onClick = {
                 runCatching { vm.seedDecryptCipher() }.onSuccess { cipher ->
                     Biometric.authenticate(activity, "Run the round on its own", "Unlock once: the wallet accepts closing and signs after its checks", cipher,
-                        onSuccess = { authed -> act { CoinjoinHub.startAuto(st.poolId, vm.coinjoinKeys(authed, st.coinPaths)) } },
+                        onSuccess = { authed -> act { CoinjoinHub.startAuto(st.key, vm.coinjoinKeys(authed, st.coinPaths)) } },
                         onError = onMessage)
                 }.onFailure { onMessage(it.message ?: "could not unlock") }
             }) { Text("let it run on its own", color = accent, style = MaterialTheme.typography.bodySmall) }
@@ -957,22 +1092,36 @@ private fun MyPoolCard(
 
         when (st.phase) {
             PoolSession.Phase.JOINING -> {
-                Text("Waiting for the pool's creator to let you in. If nobody answers in " +
+                val wait = st.joinAfter - System.currentTimeMillis() / 1000
+                if (wait > 0) Text(if (st.creator) "Your pool opens in $wait s: a random wait, so it can't be tied to your last round by its timing."
+                    else "Joining in $wait s: a random wait, so your seats don't show up together.",
+                    color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                else Text("Waiting for the pool's creator to let you in. If nobody answers in " +
                     "${PoolSession.JOIN_TIMEOUT / 60} minutes the request is dropped.",
                     color = TextFaint, style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(6.dp))
                 btn("CANCEL", modifier = Modifier.fillMaxWidth()) { act { session?.leave() } }
             }
             PoolSession.Phase.OPEN, PoolSession.Phase.VOTING -> {
+                val manySeats = CoinjoinHub.seatsIn(st.poolId).size > 1
                 var confirmLeave by remember { mutableStateOf(false) }
                 if (confirmLeave) androidx.compose.material3.AlertDialog(
                     onDismissRequest = { confirmLeave = false },
-                    title = { Text(if (st.creator) "Cancel this pool?" else "Leave this pool?") },
-                    text = { Text(if (st.creator)
+                    title = { Text(if (st.creator) "Cancel this pool?" else if (manySeats) "Leave with this seat?" else "Leave this pool?") },
+                    text = { Text(if (st.creator && manySeats)
+                        "The round is cancelled for everyone in it, your other seats too, and they are told so. Nobody loses anything: no " +
+                            "transaction exists until all have signed, so every coin stays where it is."
+                        else if (st.creator)
                         "The round is cancelled for everyone in it, and they are told so. Nobody loses anything: no " +
                             "transaction exists until all have signed, so every coin stays where it is."
+                        else if (manySeats) "Only this seat leaves (its coin of ${groupSats(st.seat.inputValue)} sats is yours to spend again); your other seat stays in the pool."
                         else "Your seat is freed and your coin is yours to spend again. Nothing was signed, so nothing moves.") },
-                    confirmButton = { TextButton(onClick = { confirmLeave = false; act { session?.leave() } }) {
+                    confirmButton = { TextButton(onClick = {
+                        confirmLeave = false
+                        // Left or cancelled by hand: a perpetual coinjoin stops with it (it would open the pool again).
+                        st.perpId?.let { com.kilombino.pyblockwatch.coinjoin.Perpetual.turnOff(ctx, it) }
+                        act { session?.leave() }
+                    }) {
                         Text(if (st.creator) "CANCEL POOL" else "LEAVE", color = Bad) } },
                     dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("STAY", color = TextSoft) } },
                     containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
@@ -990,10 +1139,11 @@ private fun MyPoolCard(
                     dismissButton = { TextButton(onClick = { confirmClose = false }) { Text("NOT NOW", color = TextSoft) } },
                     containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
                 )
+                if (manySeats) Text(ANOTHER_SEAT_NOTE, color = Warn, style = MaterialTheme.typography.bodySmall)
                 if (st.phase == PoolSession.Phase.OPEN) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (people >= st.terms.minPeers) btn("ASK TO CLOSE NOW", true, Modifier.weight(1f)) { confirmClose = true }
-                        btn(if (st.creator) "CANCEL POOL" else "LEAVE", modifier = Modifier.weight(1f)) { confirmLeave = true }
+                        btn(if (st.creator) "CANCEL POOL" else if (manySeats) "LEAVE THIS SEAT" else "LEAVE", modifier = Modifier.weight(1f)) { confirmLeave = true }
                     }
                     if (people < st.terms.minPeers) Text("Closes once ${st.terms.minPeers} people are in.",
                         color = TextFaint, style = MaterialTheme.typography.bodySmall)
@@ -1005,7 +1155,7 @@ private fun MyPoolCard(
                             "out; if too few are left, the pool reopens without them.",
                             color = TextSoft, style = MaterialTheme.typography.bodySmall)
                         Spacer(Modifier.height(6.dp))
-                        btn(if (st.creator) "CANCEL POOL" else "LEAVE", modifier = Modifier.fillMaxWidth()) { confirmLeave = true }
+                        btn(if (st.creator) "CANCEL POOL" else if (manySeats) "LEAVE THIS SEAT" else "LEAVE", modifier = Modifier.fillMaxWidth()) { confirmLeave = true }
                     } else {
                         Text("Answer before $by.", color = TextSoft, style = MaterialTheme.typography.bodySmall)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1021,10 +1171,15 @@ private fun MyPoolCard(
                     color = TextSoft, style = MaterialTheme.typography.bodySmall)
                 else {
                     plan?.let {
-                        Explain("Checked: ${st.round.size} people (${it.coins.size} coins), ${it.outputs.count { o -> o.value == st.terms.amount }} identical outputs of " +
-                            "${groupSats(st.terms.amount)} sats, " + (if (st.terms.outputs > 1) "${st.terms.outputs} of them yours; " else "one of them yours; ") +
-                            (if (st.seat.changeValue > 0) "your change is right" else "no change (an exact coin)") +
-                            "; total fee ${groupSats(it.fee)} sats.")
+                        // Whole sentences (one per case), so each is found in the translations as it is.
+                        val ppl = st.round.size; val n = it.coins.size; val same = it.outputs.count { o -> o.value == st.terms.amount }
+                        val each = groupSats(st.terms.amount); val total = groupSats(it.fee); val mine = st.terms.outputs
+                        Explain(when {
+                            mine > 1 && st.seat.changeValue > 0 -> "Checked: $ppl people ($n coins), $same identical outputs of $each sats, $mine of them yours; your change is right; total fee $total sats."
+                            mine > 1 -> "Checked: $ppl people ($n coins), $same identical outputs of $each sats, $mine of them yours; no change (an exact coin); total fee $total sats."
+                            st.seat.changeValue > 0 -> "Checked: $ppl people ($n coins), $same identical outputs of $each sats, one of which is yours; your change is right; total fee $total sats."
+                            else -> "Checked: $ppl people ($n coins), $same identical outputs of $each sats, one of which is yours; no change (an exact coin); total fee $total sats."
+                        })
                         Spacer(Modifier.height(6.dp))
                     }
                     btn("SIGN", true, Modifier.fillMaxWidth()) {
@@ -1043,11 +1198,11 @@ private fun MyPoolCard(
                         Text("open in explorer", color = accent, style = MaterialTheme.typography.bodySmall)
                     }
                     if (st.phase == PoolSession.Phase.CONFIRMED)
-                        TextButton(onClick = { CoinjoinHub.remove(ctx, st.poolId) }) { Text("remove", color = TextFaint) }
+                        TextButton(onClick = { CoinjoinHub.remove(ctx, st.key) }) { Text("remove", color = TextFaint) }
                 }
             }
             PoolSession.Phase.ABORTED, PoolSession.Phase.REJECTED ->
-                TextButton(onClick = { CoinjoinHub.remove(ctx, st.poolId) }) { Text("remove", color = TextFaint) }
+                TextButton(onClick = { CoinjoinHub.remove(ctx, st.key) }) { Text("remove", color = TextFaint) }
             else -> {}
         }
     }
@@ -1144,6 +1299,11 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, tag:
     var asked by remember { mutableStateOf(false) }
     var rateText by remember { mutableStateOf("") }
     var started by remember { mutableStateOf(false) }
+    // The other wallet's unused addresses being looked up (before the payment is prepared).
+    var findingDest by remember { mutableStateOf(false) }
+    val step by vm.sendStep.collectAsState()
+    // The mixed ones, worked out once per list: not again for every coin on every redraw.
+    val mixedSources = remember(sources) { vm.mixedOutpoints(sources.orEmpty()) }
     LaunchedEffect(Unit) {
         val r = runCatching { vm.suggestedBtcFeeRate() }.getOrNull()
         suggested = r; asked = true
@@ -1177,14 +1337,14 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, tag:
                             Row {
                                 Text("${groupSats(u.value)} sats · ${vm.coinKind(u)}", color = if (sel) accent else TextMain,
                                     style = MaterialTheme.typography.bodySmall)
-                                if (vm.isMixedCoin(u)) Text(" · mixed", color = Warn, style = MaterialTheme.typography.bodySmall)
+                                if ("${u.txid}:${u.vout}" in mixedSources) Text(" · mixed", color = Warn, style = MaterialTheme.typography.bodySmall)
                             }
                             Text(vm.coinAddress(u)?.let { shortAddress(it) } ?: "", color = TextFaint, style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
                 // A mixed coin may pay for it, but not without saying what that costs.
-                val mixedPicked = picked.count { vm.isMixedCoin(it) }
+                val mixedPicked = picked.count { "${it.txid}:${it.vout}" in mixedSources }
                 if (mixedPicked > 0) Text(
                     if (picked.size > mixedPicked) "A mixed coin spent together with other coins ties them back together: the mix is undone for both."
                     else "The change of this payment comes back linked to the mixed coin. Better to use coins that were never mixed.",
@@ -1211,14 +1371,17 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, tag:
                 Button(onClick = { onDone(false) }, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = TextSoft),
                     shape = RoundedCornerShape(12.dp), modifier = Modifier.weight(1f)) { Text("CANCEL") }
                 Button(onClick = { rate?.let { r ->
+                    // The progress shows at once; everything that waits on the server happens behind it.
+                    destError = null; started = true
                     destScope.launch {
-                        destError = null
                         // The mixed outputs' addresses in another wallet are found now, before paying: the
                         // coin joins on its own later, when there may be no connection to ask.
+                        findingDest = dest != Destination.Kind.HOT
                         val scripts = runCatching { destinationScripts(activity.applicationContext, dest,
                             if (tag == ScriptType.P2TR) ScriptType.P2TR else ScriptType.P2WPKH, outputs) }
-                            .getOrElse { destError = it.message ?: "could not find unused addresses"; return@launch }
-                        vm.exactFor = exactFor.withDest(scripts); vm.prepareExactCoin(exact, r, tag, picked.toList()); started = true
+                            .getOrElse { destError = it.message ?: "could not find unused addresses"; findingDest = false; started = false; return@launch }
+                        findingDest = false
+                        vm.exactFor = exactFor.withDest(scripts); vm.prepareExactCoin(exact, r, tag, picked.toList())
                     }
                 } },
                     enabled = rate != null && sources != null && (picked.isEmpty() || picked.sumOf { it.value } >= exact),
@@ -1253,7 +1416,7 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, tag:
                 }
             }
             is SendPhase.Sent -> {
-                // What went out, and where the pool goes from here; CLOSE goes to the BTC tab.
+                // What went out, and where the pool goes from here; CLOSE goes to IN PROGRESS, where the coin waits.
                 val uri = LocalUriHandler.current
                 val copier = rememberCopier()
                 Text("Sent ✓", color = Good, style = MaterialTheme.typography.bodySmall)
@@ -1284,7 +1447,8 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, tag:
                     confirmButton = {
                         TextButton(onClick = {
                             vm.resetSend(); onDone(true)
-                            com.kilombino.pyblockwatch.data.OpenTab.flow.value = com.kilombino.pyblockwatch.data.OpenTab.BTC
+                            // The coin now waits for its pool in IN PROGRESS: that is where to look, not BTC.
+                            com.kilombino.pyblockwatch.data.OpenTab.flow.value = com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_ROUNDS
                         }) { Text("CLOSE", color = accent) }
                     },
                     containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
@@ -1292,9 +1456,12 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, tag:
             }
             is SendPhase.Failed -> {
                 Text(p.message, color = Bad, style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = { vm.resetSend(); onDone(false) }) { Text("close", color = TextSoft) }
+                TextButton(onClick = { vm.resetSend(); onDone(false) }) { Text("✕", color = TextSoft, style = MaterialTheme.typography.titleLarge) }
             }
-            else -> Text("preparing…", color = TextSoft, style = MaterialTheme.typography.bodySmall)
+            // Editing (the other wallet's addresses being found) or Preparing: the wait, said as it goes.
+            else -> WorkingLine(accent, "Preparing the payment to yourself…",
+                step = if (findingDest) "Finding unused addresses in the other wallet…" else step,
+                detail = "${groupSats(exact)} sats to a fresh address of yours.")
         }
     }
 }
@@ -1463,7 +1630,7 @@ private fun stepOf(st: PoolSession.State): Int = when (st.phase) {
 
 /** True while the round waits on this person (an answer or a signature by hand). */
 internal fun needsMe(st: PoolSession.State): Boolean {
-    if (CoinjoinHub.isAuto(st.poolId)) return false
+    if (CoinjoinHub.isAuto(st.key)) return false
     return when (st.phase) {
         PoolSession.Phase.VOTING -> st.voteBy != st.token?.let { Protocol.tokenHash(it) } && st.votedOn != st.voteId
         PoolSession.Phase.SIGNING -> !st.postedSig
@@ -1501,12 +1668,12 @@ private fun RoundSteps(step: Int, accent: Color) {
 @Composable
 private fun RoundCard(
     vm: WalletViewModel, st: PoolSession.State, rev: Long, accent: Color, activity: FragmentActivity,
-    open: Boolean, onToggle: () -> Unit, onMessage: (String) -> Unit,
+    open: Boolean, onToggle: () -> Unit, onAnotherSeat: () -> Unit, onMessage: (String) -> Unit,
 ) {
     if (rev < 0) return
     val step = stepOf(st)
     val over = step == 0
-    val people = if (st.round.isNotEmpty()) st.round.size else st.seats.size
+    val people = CoinjoinHub.people(st)
     val color = if (over) Bad else if (step == STEPS) Good else accent
     val status = when (st.phase) {
         PoolSession.Phase.JOINING -> "Asking to join"
@@ -1520,7 +1687,7 @@ private fun RoundCard(
         PoolSession.Phase.REJECTED -> "Refused"
     }
     // A payment through the pool: its outputs are the recipients', never this wallet's.
-    val pay = remember(st.poolId) { Destination.of(activity.applicationContext, st.poolId) == Destination.Kind.PAY }
+    val pay = remember(st.key) { Destination.of(activity.applicationContext, st.key) == Destination.Kind.PAY }
     val where = when (st.phase) {
         PoolSession.Phase.BROADCAST -> if (pay) "The payment left in the group transaction. Waiting for a block."
             else "Your coin left in the group transaction. Waiting for a block."
@@ -1547,7 +1714,9 @@ private fun RoundCard(
                     else -> 0L
                 }
                 var now by remember { mutableStateOf(System.currentTimeMillis() / 1000) }
-                if (deadline > 0) LaunchedEffect(deadline) {
+                // Ticks only while this card is on screen and the app is in front.
+                if (deadline > 0) LaunchedEffect(deadline, AppVisible.value) {
+                    if (!AppVisible.value) return@LaunchedEffect
                     while (true) { now = System.currentTimeMillis() / 1000; kotlinx.coroutines.delay(1_000) }
                 }
                 val left = deadline - now
@@ -1555,11 +1724,23 @@ private fun RoundCard(
                     if (open) "⌄" else "›",
                     style = MaterialTheme.typography.titleMedium, color = color)
             }
+            // More than one seat of this phone in the pool: which one this card is.
+            CoinjoinHub.seatLabel(st)?.let { Text("Your $it", style = MaterialTheme.typography.labelSmall, color = accent) }
             if (!over) RoundSteps(step, accent)
             Text(status, style = MaterialTheme.typography.bodyMedium, color = color)
             Spacer(Modifier.height(2.dp))
             Text(where, style = MaterialTheme.typography.bodySmall, color = TextSoft)
         }
+        // A perpetual coin's round: what it does after, and its switch.
+        st.perpId?.let { id -> com.kilombino.pyblockwatch.coinjoin.Perpetual.list.value.firstOrNull { it.id == id } }
+            ?.takeIf { it.seat == st.key }?.let { r -> PerpetualCard(vm, r, accent, activity, embedded = true, onMessage = onMessage) }
+        // Another seat in this pool, with another coin: on the first seat's card, while it takes people.
+        val mySeats = CoinjoinHub.seatsIn(st.poolId)
+        if (st.phase == PoolSession.Phase.OPEN && mySeats.firstOrNull()?.key == st.key && st.seats.size < st.terms.maxPeers &&
+            st.terms.expiresAt - System.currentTimeMillis() / 1000 > 300 && mySeats.size < st.terms.maxPeers)
+            TextButton(onClick = onAnotherSeat, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                Text("＋ JOIN WITH ANOTHER UTXO", color = accent, style = MaterialTheme.typography.labelMedium)
+            }
         if (open) {
             Spacer(Modifier.height(8.dp))
             MyPoolCard(vm, st, rev, accent, activity, embedded = true, onMessage = onMessage)
@@ -1597,12 +1778,16 @@ private fun PerfectCoinCard(w: com.kilombino.pyblockwatch.coinjoin.PerfectCoin.W
     Panel(accent = accent) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("${groupSats(w.value)} sats · perfect coin", style = MaterialTheme.typography.titleMedium, color = TextMain, modifier = Modifier.weight(1f))
-            PulseDot(accent)
+            StillDot(accent)
         }
         RoundSteps(0, accent)
         Text("Waiting for its first confirmation", style = MaterialTheme.typography.bodyMedium, color = accent)
-        Text(if (w.create != null) "Then your pool opens by itself and runs on its own." else "Then it joins the pool by itself and the round runs on its own.",
+        Text(if (w.create != null) "Then your pool opens by itself and runs on its own."
+            else if (w.extraSeat) "Then it joins the pool by itself as another seat of yours, after a random wait, and the round runs on its own."
+            else "Then it joins the pool by itself and the round runs on its own.",
             style = MaterialTheme.typography.bodySmall, color = TextSoft)
+        w.perpCap?.let { cap -> Text("♻ Perpetual coinjoin: after that round it keeps remixing (its pools at ${fmtRate(cap)} sat/vB).",
+            style = MaterialTheme.typography.bodySmall, color = Good) }
         Row {
             TextButton(onClick = { runCatching { uri.openUri("${vm.explorerFor(com.kilombino.pyblockwatch.chain.Chain.BLAKE2B)}/tx/${w.txid}") } }) {
                 Text("explorer", color = accent, style = MaterialTheme.typography.bodySmall)
@@ -1678,4 +1863,109 @@ private fun AddressesShown(list: List<Destination.Shown>) {
             }
         }
     }
+}
+
+/** The perpetual coinjoin's checkbox, with its fee cap, on the join and create sheets. */
+@Composable
+private fun PerpetualChoice(on: Boolean, capText: String, accent: Color, onOn: (Boolean) -> Unit, onCap: (String) -> Unit) {
+    Spacer(Modifier.height(6.dp))
+    Row(Modifier.fillMaxWidth().clickable { onOn(!on) }, verticalAlignment = Alignment.CenterVertically) {
+        Text(if (on) "☑" else "☐", color = if (on) accent else TextFaint, modifier = Modifier.width(26.dp))
+        Text("♻ Perpetual coinjoin", color = if (on) accent else TextMain, style = MaterialTheme.typography.bodyMedium)
+    }
+    Text(PERPETUAL_EXPLAIN, color = TextFaint, style = MaterialTheme.typography.bodySmall)
+    if (on) Text("Every pool it opens uses this pool's fee, ${capText} sat/vB, and it only joins pools at that same fee.",
+        color = accent, style = MaterialTheme.typography.bodySmall)
+    Spacer(Modifier.height(6.dp))
+}
+
+private const val PERPETUAL_EXPLAIN = "When the round confirms, your mixed coin joins another pool by itself (or opens one with the " +
+    "whole coin, no change), again and again; each round costs it its fee share. It stops when you turn it off or spend the coin, " +
+    "or when it falls below a pool's minimum. Its pools use the fee you chose for this one. Only the hot wallet's output remixes, never a change. " +
+    "If this pool ends without a round, the same pool opens again, with the same coins and addresses, until one happens. " +
+    "While it is on, the key of this wallet's receive addresses of this type stays on the phone, encrypted, so it can sign without you; " +
+    "until its first round, that of its change addresses too."
+
+/** What a perpetual coin is doing, as one line. */
+private fun perpetualLine(r: com.kilombino.pyblockwatch.coinjoin.Remix, standalone: Boolean = false): String = when (r.state) {
+    com.kilombino.pyblockwatch.coinjoin.Remix.State.SEATED -> if (standalone) "♻ Perpetual: looking for its next pool" else "♻ Perpetual: in a round now"
+    com.kilombino.pyblockwatch.coinjoin.Remix.State.WAITING -> {
+        val s = r.nextAt - System.currentTimeMillis() / 1000
+        // Before its first round: its first pool ended with nobody, and the same pool opens again.
+        if (r.txid == null) { if (s > 0) "♻ Perpetual: its first pool ended without a round; the same pool opens again in ${s} s"
+            else "♻ Perpetual: opening its first pool again" }
+        else if (s > 0) "♻ Perpetual: looking for its next pool in ${s} s" else "♻ Perpetual: looking for its next pool"
+    }
+    com.kilombino.pyblockwatch.coinjoin.Remix.State.STOPPED -> "♻ Perpetual: stopped (${r.reason})"
+}
+
+/**
+ * A perpetual coin: its rounds, what it cost, its fee cap and the switch. Shown on its round's card
+ * ([embedded]) and on a card of its own between rounds (or once it stopped).
+ */
+@Composable
+private fun PerpetualCard(vm: WalletViewModel, r: com.kilombino.pyblockwatch.coinjoin.Remix, accent: Color, activity: FragmentActivity,
+                          embedded: Boolean, onMessage: (String) -> Unit) {
+    val ctx = activity.applicationContext
+    val scope = rememberCoroutineScope()
+    val on = r.state != com.kilombino.pyblockwatch.coinjoin.Remix.State.STOPPED
+    var editing by remember(r.id) { mutableStateOf(false) }
+    var capText by remember(r.id) { mutableStateOf(fmtRate(r.cap)) }
+    // Off with its coin still there (turned off, fees over the cap…): it can go on again.
+    val canTurnOn = !on && r.reason != com.kilombino.pyblockwatch.coinjoin.Remix.MOVED &&
+        r.reason != com.kilombino.pyblockwatch.coinjoin.Remix.BELOW_MINIMUM && (r.txid != null || r.seat != null)
+    @Composable fun body() {
+        if (!embedded) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (r.txid != null) "${groupSats(r.value)} sats · perpetual coin" else "perpetual coin",
+                    style = MaterialTheme.typography.titleMedium, color = TextMain, modifier = Modifier.weight(1f))
+                if (r.state == com.kilombino.pyblockwatch.coinjoin.Remix.State.WAITING) StillDot(accent)
+            }
+        }
+        Text(perpetualLine(r, standalone = !embedded), style = MaterialTheme.typography.bodySmall, color = if (on) Good else TextFaint)
+        if (r.rounds > 0) Text("Rounds so far: ${r.rounds} (${groupSats(r.startValue)} → ${groupSats(r.value)} sats)",
+            style = MaterialTheme.typography.bodySmall, color = TextFaint)
+        Text("Its pools' fee: ${fmtRate(r.cap)} sat/vB", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+        if (editing) {
+            OutlinedTextField(value = capText, onValueChange = { capText = it.replace(',', '.').filter { c -> c.isDigit() || c == '.' } },
+                label = { Text("its pools' fee (sat/vB)", style = MaterialTheme.typography.bodySmall) }, singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+            val c = capText.toDoubleOrNull()?.takeIf { it in 1.0..500.0 }
+            TextButton(enabled = c != null, onClick = { c?.let { com.kilombino.pyblockwatch.coinjoin.Perpetual.setCap(ctx, r.id, it) }; editing = false }) {
+                Text("SAVE", color = accent)
+            }
+        }
+        // Wraps: TURN ON AGAIN and the fee link fill a phone's width, and "remove" fell off its edge.
+        @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+        androidx.compose.foundation.layout.FlowRow {
+            if (on) TextButton(onClick = { com.kilombino.pyblockwatch.coinjoin.Perpetual.turnOff(ctx, r.id) }) {
+                Text("TURN OFF", color = Bad, style = MaterialTheme.typography.bodySmall)
+            } else if (canTurnOn) TextButton(onClick = {
+                // On again: one fingerprint gives back the key its next rounds sign with.
+                runCatching { vm.seedDecryptCipher() }.onSuccess { cipher ->
+                    Biometric.authenticate(activity, "Perpetual coinjoin", "Unlock to let it go on by itself", cipher,
+                        onSuccess = { authed -> scope.launch {
+                            runCatching { withContext(Dispatchers.Default) { vm.perpetualBranches(authed, r.type).let { (b, c) -> com.kilombino.pyblockwatch.coinjoin.Perpetual.turnOn(ctx, r.id, b, c) } } }
+                                .onFailure { onMessage(it.message ?: "could not unlock") }
+                        } }, onError = onMessage)
+                }.onFailure { onMessage(it.message ?: "could not unlock") }
+            }) { Text("TURN ON AGAIN", color = accent, style = MaterialTheme.typography.bodySmall) }
+            if (!editing && (on || canTurnOn)) TextButton(onClick = { editing = true }) {
+                Text("change the fee of its next pools", color = accent, style = MaterialTheme.typography.bodySmall)
+            }
+            // Off and not in a live round (its round over, or gone): it can go. The round itself is untouched.
+            val seat = r.seat?.let { CoinjoinHub.session(it) }
+            if (com.kilombino.pyblockwatch.coinjoin.Perpetual.removable(r, seat?.state, seat?.done ?: true))
+                TextButton(onClick = { com.kilombino.pyblockwatch.coinjoin.Perpetual.forget(ctx, r.id) }) {
+                Text("remove", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        // Off but its coin still sits in a pool going on (IN PROGRESS): its key signs that seat, so it stays till then.
+        if (!on && !com.kilombino.pyblockwatch.coinjoin.Perpetual.removable(r, r.seat?.let { CoinjoinHub.session(it) }?.state,
+                r.seat?.let { CoinjoinHub.session(it) }?.done ?: true))
+            Text("Its coin is still seated in a pool in IN PROGRESS: it can be removed once that pool is over, or after leaving it.",
+                style = MaterialTheme.typography.bodySmall, color = TextFaint)
+    }
+    if (embedded) Column { body() } else Panel(accent = if (on) accent else TextFaint) { body() }
 }

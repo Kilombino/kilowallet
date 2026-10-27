@@ -151,7 +151,7 @@ fun ArkActivate(vm: WalletViewModel, accent: Color, onReady: (newWords: List<Str
      * first when they do not.
      */
     fun checkAgainstHot(words: List<String>, passphrase: String, go: (shared: Boolean) -> Unit) {
-        withHotWords(activity, vm, "Compare with your XBT wallet's words",
+        withHotWords(activity, vm, "Compare with your BTC wallet's words",
             onWords = { hot ->
                 when {
                     hot == null -> go(false)
@@ -185,7 +185,7 @@ fun ArkActivate(vm: WalletViewModel, accent: Color, onReady: (newWords: List<Str
         AlertDialog(
             onDismissRequest = { whichArk = null },
             title = { Text("Which Ark wallet?") },
-            text = { Text("These are your XBT wallet's words. An Ark wallet made with them in Kilowallet 1.1.4 or later has " +
+            text = { Text("These are your BTC wallet's words. An Ark wallet made with them in Kilowallet 1.1.4 or later has " +
                 "its own words made from them; one made before 1.1.4 used these same words. If you are not sure, try the " +
                 "newer kind first: restoring the other one later is always possible.") },
             confirmButton = { TextButton(onClick = { whichArk = null; go(true) }) { Text("1.1.4 OR LATER", color = accent) } },
@@ -198,7 +198,7 @@ fun ArkActivate(vm: WalletViewModel, accent: Color, onReady: (newWords: List<Str
         AlertDialog(
             onDismissRequest = { mismatch = null },
             title = { Text("Different words") },
-            text = { Text("These Ark words (or their passphrase) are not those of your XBT spending " +
+            text = { Text("These Ark words (or their passphrase) are not those of your BTC spending " +
                 "wallet. You will have two sets of words to keep safe. Continue?") },
             confirmButton = { TextButton(onClick = { mismatch = null; proceed() }) { Text("CONTINUE", color = accent) } },
             dismissButton = { TextButton(onClick = { mismatch = null }) { Text("CANCEL", color = TextSoft) } },
@@ -243,11 +243,11 @@ fun ArkActivate(vm: WalletViewModel, accent: Color, onReady: (newWords: List<Str
                  style = MaterialTheme.typography.bodySmall, color = TextSoft)
         }
         Spacer(Modifier.height(10.dp))
-        Explain(if (hot) "Ark gets its own words, made from your XBT spending wallet's words, so the words you " +
+        Explain(if (hot) "Ark gets its own words, made from your BTC spending wallet's words, so the words you " +
                     "wrote down back up both. You will be asked to unlock. Ark keeps its words so it can renew coins " +
                     "in the background, readable without the fingerprint on an unlocked phone; they open Ark only, " +
                     "never your on-chain coins."
-                else "Ark gets new words. Write them down when they appear. If you create an XBT " +
+                else "Ark gets new words. Write them down when they appear. If you create a BTC " +
                     "spending wallet later, it can use these same words.")
         Spacer(Modifier.height(12.dp))
         if (mode == "activate") {
@@ -358,7 +358,7 @@ fun ArkBackupPanel(fingerprint: String?, accent: Color, onMessage: (String) -> U
             onDismissRequest = { warnWords = false },
             title = { Text("Show recovery words?") },
             text = { Text("Anyone who sees these words can take your money" +
-                (if (shared) " — in Ark and in your XBT spending wallet, which uses the same words" else "") +
+                (if (shared) " — in Ark and in your BTC spending wallet, which uses the same words" else "") +
                 ". Make sure no one is looking and nothing is recording the screen. " +
                 "Never type them into a website or share them with anyone, including support.") },
             confirmButton = {
@@ -425,9 +425,9 @@ fun ArkBackupPanel(fingerprint: String?, accent: Color, onMessage: (String) -> U
         if (shared) {
             // An Ark made before 1.1.4 with the wallet's own words: they sit where Ark can read them
             // without the fingerprint (to renew coins), so the on-chain coins are reachable that way too.
-            Text("This Ark wallet uses your XBT wallet's own words (it was made before 1.1.4). Ark keeps them readable " +
+            Text("This Ark wallet uses your BTC wallet's own words (it was made before 1.1.4). Ark keeps them readable " +
                 "without the fingerprint to renew coins, so they also open your on-chain coins. To separate them, send your " +
-                "Ark coins to your XBT wallet; Ark wallets made from now on get their own words, made from yours.",
+                "Ark coins to your BTC wallet; Ark wallets made from now on get their own words, made from yours.",
                 style = MaterialTheme.typography.bodySmall, color = Warn)
             Spacer(Modifier.height(6.dp))
         }
@@ -443,7 +443,7 @@ fun ArkBackupPanel(fingerprint: String?, accent: Color, onMessage: (String) -> U
             "backup file is STILL needed: if the server ever disappears, only the file lets you withdraw " +
             "your coins on-chain (the emergency exit). Save it again after each movement or renewal; " +
             "Settings → \"Save a backup file\" includes it." +
-            (if (shared) " Your Ark and XBT spending wallets share the same words." else ""))
+            (if (shared) " Your Ark and BTC spending wallets share the same words." else ""))
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ArkSmallButton(if (shown == null) "RECOVERY WORDS" else "HIDE WORDS", accent, Modifier.weight(1f)) {
@@ -490,7 +490,7 @@ fun HotWordsPanel(vm: WalletViewModel, accent: Color) {
             onDismissRequest = { warn = false },
             title = { Text("Show recovery words?") },
             text = { Text("Anyone who sees these words can take your money" +
-                (if (shared) " — in your XBT wallet and in Ark, which uses the same words" else "") +
+                (if (shared) " — in your BTC wallet and in Ark, which uses the same words" else "") +
                 ". Make sure no one is looking and nothing is recording the screen. " +
                 "Never type them into a website or share them with anyone, including support.") },
             confirmButton = {

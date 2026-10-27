@@ -61,7 +61,9 @@ object Destination {
             !(ended && !st.postedOutput)
         }.flatMap { it.mixScripts }
         val perfect = PerfectCoin.waiting.value.flatMap { it.mixScripts }
-        return (seats + perfect).map { it.toList() }.toSet()
+        // A perpetual coin's first pool, waiting to open again with the same addresses.
+        val first = runCatching { Perpetual.reservedScripts(ctx) }.getOrDefault(emptyList())
+        return (seats + perfect + first).map { it.toList() }.toSet()
     }
 
     /**
@@ -127,6 +129,8 @@ object Destination {
     private fun pick(ctx: Context, kind: Kind, type: ScriptType, n: Int): Pair<Bip32.ExtendedPubKey, List<Int>> {
         require(kind != Kind.HOT) { "the hot wallet's addresses come from its own seed" }
         require(kind != Kind.PAY) { "a payment's addresses are the recipients' own" }
+        // The watch-only wallet's own scan stops after its gap limit (5–100): never go past it.
+        val gap = if (kind == Kind.WATCH) minOf(GAP, Store(ctx, Store.WATCH).gapLimit) else GAP
         val (account, from) = when (kind) {
             Kind.WATCH -> {
                 val w = Store(ctx, Store.WATCH)
@@ -150,7 +154,7 @@ object Destination {
             c.connect()
             val derive = { i: Int -> Address.scriptPubKey(Bip32.derivePath(account, 0, i).pubkey(), type) }
             return account to pickUnusedIndexes(n, from, held, derive,
-                hasHistory = { sp -> c.history(Address.electrumScriptHash(sp)).isNotEmpty() })
+                hasHistory = { sp -> c.history(Address.electrumScriptHash(sp)).isNotEmpty() }, gap = gap)
         } finally { c.close() }
     }
 
@@ -166,18 +170,18 @@ object Destination {
 
     /** As [pickUnused], the indexes of the addresses picked. */
     internal fun pickUnusedIndexes(n: Int, from: Int, held: Set<List<Byte>>, derive: (Int) -> ByteArray,
-                                   hasHistory: (ByteArray) -> Boolean): List<Int> {
+                                   hasHistory: (ByteArray) -> Boolean, gap: Int = GAP): List<Int> {
         var i = from
         var lastUsed = from - 1
         var empty = 0
-        while (empty < GAP) {
+        while (empty < gap) {
             if (hasHistory(derive(i))) { lastUsed = i; empty = 0 } else empty++
             i++
         }
         val out = mutableListOf<Int>()
         var j = lastUsed + 1
         while (out.size < n) {
-            require(j - lastUsed <= GAP) {
+            require(j - lastUsed <= gap) {
                 "That wallet has too many addresses waiting for rounds: finish or cancel some first, " +
                     "or its own scan would not see the next ones."
             }
@@ -188,6 +192,23 @@ object Destination {
     }
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("coinjoin_dest", Context.MODE_PRIVATE)
+
+    /**
+     * After [e], how long to wait before looking at the watch-only wallet a round's mixed outputs
+     * went to ([kind]), or null when there is nothing to look at: only a round to the watch-only
+     * wallet, once sent (a moment later, so the server has it in its mempool) and once confirmed.
+     * The hot wallet is the one the app refreshes on screen; a payment's outputs are the
+     * recipients'; Jam's wallet has its own look.
+     */
+    fun watchLookAfter(e: PoolSession.Event, kind: Kind): Long? = when {
+        kind != Kind.WATCH -> null
+        e is PoolSession.Event.Broadcast -> SENT_LOOK_DELAY_MS
+        e is PoolSession.Event.Confirmed -> 0L
+        else -> null
+    }
+
+    /** How long after a round is sent its outputs are looked for in the watch-only wallet. */
+    const val SENT_LOOK_DELAY_MS = 20_000L
 
     /**
      * Which wallet of that kind it is, as the card shows it: the watch-only wallet's name, else the

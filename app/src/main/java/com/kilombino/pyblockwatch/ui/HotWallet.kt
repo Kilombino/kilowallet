@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -534,12 +537,28 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
         )
     }
 
+    // On REVIEW and on the PSBT's export the screen goes back up to this sheet's top: what to check
+    // (or the QR to show) is there, and the screen stayed at the bottom where the button was.
+    val screen = LocalScreenScroll.current
+    var topY by remember { mutableStateOf(0f) }
+    val margin = with(androidx.compose.ui.platform.LocalDensity.current) { 48.dp.toPx() }
+    val step = state.sendPhase.let { it is SendPhase.Review || it is SendPhase.AwaitingSignature }
+    LaunchedEffect(state.sendPhase::class) {
+        // Once the new step is laid out: the sheet's top a little under the screen's top.
+        if (step && screen != null) { kotlinx.coroutines.delay(150); runCatching { screen.animateScrollBy(topY - margin) } }
+    }
+    // Back to edit from the review: coin control as it was, its coins read again (the ticked ones kept).
+    val editing = state.sendPhase is SendPhase.Editing || state.sendPhase is SendPhase.Failed
+    LaunchedEffect(editing, coinControl, state.utxos == null) {
+        if (editing && coinControl && state.utxos == null && !state.utxosLoading) vm.loadUtxos()
+    }
+    Spacer(Modifier.height(1.dp).onGloballyPositioned { topY = it.positionInRoot().y })
     Panel(accent = accent) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SectionLabel("send", accent)
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { vm.resetSend(); onClose() }) {
-                Text("close", color = TextSoft, style = MaterialTheme.typography.bodySmall)
+                Text("✕", color = TextSoft, style = MaterialTheme.typography.titleLarge)
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -558,7 +577,7 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                 var details by remember(phase.txid) { mutableStateOf(false) }
                 val sentChain = vm.state.collectAsState().value.selected
                 if (details) TxDetailDialog(phase.txid, accent, vm.explorerFor(sentChain),
-                    status = "just sent · in the mempool", onSpeedUp = null, onClose = { details = false }, vm = vm, chain = sentChain)
+                    status = "just sent · in the mempool", onSpeedUp = null, onClose = { details = false }, vm = vm, chain = sentChain, pending = true)
                 Text(phase.txid, color = TextSoft, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
                     modifier = Modifier.clickable { details = true })
                 val clip = androidx.compose.ui.platform.LocalClipboardManager.current
@@ -644,7 +663,7 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                     OutlinedTextField(value = origin, onValueChange = { origin = it },
                         label = { Text("key origin (optional), e.g. [d34db33f/84'/0'/0']", style = MaterialTheme.typography.bodySmall) },
                         textStyle = MaterialTheme.typography.bodySmall, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    Text("Some signers need it to find their key; Bitcoin Knots does not.",
+                    Text("Signers need it to find their key. Left empty, the usual path for this address type is used and SeedSigner fills in the fingerprint.",
                         color = TextFaint, style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(6.dp))
                     Button(onClick = { vm.exportPsbt(origin) }, enabled = canSign,
@@ -678,11 +697,9 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
             is SendPhase.AwaitingSignature -> PsbtExchange(vm, phase, accent)
 
             SendPhase.Preparing, SendPhase.Broadcasting -> {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    PulseDot(accent); Spacer(Modifier.width(10.dp))
-                    Text(if (phase is SendPhase.Broadcasting) "signing & broadcasting…" else "choosing coins…",
-                         color = accent, style = MaterialTheme.typography.bodyMedium)
-                }
+                val step by vm.sendStep.collectAsState()
+                WorkingLine(accent, if (phase is SendPhase.Broadcasting) "signing & broadcasting…" else "choosing coins…",
+                    step = if (phase is SendPhase.Preparing) step else null)
             }
 
             else -> { // Editing or Failed
@@ -751,6 +768,8 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                         amount = vm.maxSendable(feeRate.toDoubleOrNull() ?: 1.0, sel).toString()
                     }) { Text("MAX", color = accent, style = MaterialTheme.typography.bodyMedium) }
                 }
+                // Mined rewards still locked count in the balance but not in MAX.
+                ImmatureSendNote(vm, state.selected)
 
                 // More recipients, all paid by this one transaction.
                 if (multi) {
@@ -816,6 +835,7 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                                  style = MaterialTheme.typography.bodySmall)
                         }
                         val seatedOutpoints = remember(utxos) { vm.seatedInWaitingPools() }
+                        val perpetualCoins = remember(utxos) { vm.perpetualOutpoints() }
                         utxos.forEach { u ->
                             val key = "${u.txid}:${u.vout}"
                             val sel = key in selectedOutpoints
@@ -841,6 +861,8 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                                     if (mixed || inPool) Text(listOfNotNull(if (mixed) "🌀 mixed" else null,
                                             if (inPool) "in a pool waiting for people: sending it leaves that pool" else null).joinToString(" · "),
                                         color = if (inPool) Warn else Good, style = MaterialTheme.typography.bodySmall)
+                                    if (key in perpetualCoins) Text("♻ perpetual coinjoin: sending it stops it",
+                                        color = Warn, style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         }
@@ -848,6 +870,12 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                             val selSum = utxos.filter { "${it.txid}:${it.vout}" in selectedOutpoints }.sumOf { it.value }
                             Text("selected: ${groupSats(selSum)} sats", color = accent,
                                  style = MaterialTheme.typography.bodySmall)
+                            // Two outputs of one coinjoin round spent together: the spend shows they were one person's.
+                            val sameRound = state.selected == com.kilombino.pyblockwatch.chain.Chain.BLAKE2B &&
+                                utxos.filter { "${it.txid}:${it.vout}" in selectedOutpoints && vm.isMixedCoin(it) }
+                                    .groupBy { it.txid }.values.any { it.size > 1 }
+                            if (sameRound) Text("Two or more of these coins came out of the same coinjoin round: spending them together links them, " +
+                                "and shows they were one person's.", color = Warn, style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -963,22 +991,48 @@ private fun PsbtExchange(vm: WalletViewModel, phase: SendPhase.AwaitingSignature
             .onSuccess { vm.clearPsbtError(); vm.importSignedPsbtFile(it) }
     }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> if (ok) scanning = true }
-    if (scanning) QrScannerDialog(onResult = { scanning = false; vm.clearPsbtError(); vm.importSignedPsbt(it) }, onDismiss = { scanning = false })
+    // The signed PSBT back: SeedSigner's animated QR, or a single QR of base64 or hex.
+    if (scanning) SignedPsbtScanner(
+        onPsbt = { scanning = false; vm.clearPsbtError(); vm.importSignedPsbtFile(it) },
+        onText = { scanning = false; vm.clearPsbtError(); vm.importSignedPsbt(it) },
+        onError = { scanning = false; vm.clearPsbtError(); vm.toast(it) },
+        onDismiss = { scanning = false })
 
+    phase.signed?.let { signed ->
+        // Signed and checked: nothing is sent until the user says so.
+        Text("3. Signed and checked", color = accent, style = MaterialTheme.typography.titleSmall)
+        Text("Every signature is valid. Broadcast it from here, or copy the raw transaction to broadcast it from your own node.",
+            color = TextSoft, style = MaterialTheme.typography.bodySmall)
+        Text("txid ${signed.txid}", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+        state.psbtError?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall) }
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = { vm.clearPsbtError(); vm.broadcastSignedPsbt() },
+            colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
+            shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
+        ) { Text("BROADCAST", style = MaterialTheme.typography.titleMedium) }
+        TextButton(onClick = {
+            clipboard.setText(androidx.compose.ui.text.AnnotatedString(signed.rawHex))
+            vm.toast("Raw transaction copied")
+        }, modifier = Modifier.fillMaxWidth()) { Text("COPY RAW", color = accent) }
+        TextButton(onClick = { vm.clearPsbtError(); vm.resetSend() }, modifier = Modifier.fillMaxWidth()) {
+            Text("cancel", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+        }
+        return
+    }
     Text("1. Sign it elsewhere", color = accent, style = MaterialTheme.typography.titleSmall)
-    Text("Take this PSBT to your signer, for example Bitcoin Knots (walletprocesspsbt). It must sign with the " +
+    Text("Take this PSBT to your signer: SeedSigner (BLAKE2b, scan the animated QR) or Bitcoin Knots (walletprocesspsbt). It must sign with the " +
         "BLAKE2b unified sighash (0x21): an old-style signature would also be valid on the spamchain, so it is refused.",
         color = TextSoft, style = MaterialTheme.typography.bodySmall)
     Spacer(Modifier.height(8.dp))
-    if (b64.length <= 2500) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { QrImage(b64, 260) }
-    else Text("Too big for one QR: copy it or save it as a file.", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+    // As SeedSigner reads it (ur:crypto-psbt, animated): one huge still QR was too dense for its camera.
+    AnimatedPsbtQr(phase.psbt, 300, paused = scanning, accent = accent)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         TextButton(onClick = { clipboard.setText(androidx.compose.ui.text.AnnotatedString(b64)) }) { Text("COPY", color = accent) }
         TextButton(onClick = { save.launch("kilowallet-${phase.draft.amount}.psbt") }) { Text("SAVE FILE", color = accent) }
     }
     Spacer(Modifier.height(10.dp))
     Text("2. Bring the signed PSBT back", color = accent, style = MaterialTheme.typography.titleSmall)
-    Text("Only this same transaction is accepted, and every signature is checked here before anything is sent.",
+    Text("Only this same transaction is accepted, and every signature is checked here. Nothing is sent until you choose.",
         color = TextSoft, style = MaterialTheme.typography.bodySmall)
     state.psbtError?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall) }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1003,11 +1057,14 @@ fun QrImage(text: String, sizeDp: Int) {
         val size = 512
         val matrix = com.google.zxing.qrcode.QRCodeWriter()
             .encode(text, com.google.zxing.BarcodeFormat.QR_CODE, size, size)
-        val b = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
-        for (x in 0 until size) for (y in 0 until size) {
-            b.setPixel(x, y, if (matrix.get(x, y)) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+        // All the pixels in one call: one setPixel each (262 144 calls into the bitmap) took the
+        // main thread tens of milliseconds per QR, every frame of an animated one.
+        val px = IntArray(size * size)
+        for (y in 0 until size) for (x in 0 until size) {
+            px[y * size + x] = if (matrix.get(x, y)) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
         }
-        b
+        android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+            .apply { setPixels(px, 0, size, 0, 0, size, size) }
     }
     androidx.compose.foundation.Image(
         bitmap = bmp.asImageBitmap(),
@@ -1048,7 +1105,7 @@ fun ReceiveSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
             SectionLabel("receive", accent)
             Spacer(Modifier.weight(1f))
             TextButton(onClick = onClose) {
-                Text("close", color = TextSoft, style = MaterialTheme.typography.bodySmall)
+                Text("✕", color = TextSoft, style = MaterialTheme.typography.titleLarge)
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -1159,7 +1216,7 @@ fun SweepSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
             SectionLabel("sweep a private key", accent)
             Spacer(Modifier.weight(1f))
             TextButton(onClick = onClose) {
-                Text("close", color = TextSoft, style = MaterialTheme.typography.bodySmall)
+                Text("✕", color = TextSoft, style = MaterialTheme.typography.titleLarge)
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -1257,3 +1314,6 @@ fun SweepSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
         }
     }
 }
+
+/** The scroll of the screen a sheet is in (advanced and simple mode), to bring a sheet's top into view. */
+val LocalScreenScroll = androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.foundation.ScrollState?> { null }

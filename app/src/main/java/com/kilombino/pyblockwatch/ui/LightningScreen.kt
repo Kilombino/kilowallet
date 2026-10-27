@@ -575,12 +575,12 @@ private fun OpenSheet(accent: Color, onchain: Long, onTx: (String) -> Unit, onDo
                 scope.launch {
                     runCatching {
                         withContext(Dispatchers.IO) {
-                            val (pk, host) = if (custom) node.substringBefore('@') to node.substringAfter('@', "")
-                                             else Lightning.KILOMBINO_NODE to Lightning.KILOMBINO_HOST
+                            val (pk, hosts) = if (custom) node.substringBefore('@') to listOf(node.substringAfter('@', "")).filter { it.isNotEmpty() }
+                                              else Lightning.KILOMBINO_NODE to Lightning.KILOMBINO_HOSTS
                             require(pk.length == 66) { "The node must be pubkey@host:port" }
-                            if (host.isNotEmpty()) {
+                            if (hosts.isNotEmpty()) {
                                 var last: Throwable? = null; var ok = false
-                                for (t in Lnd.resolved(listOf(host))) { val r = runCatching { Lnd.connect(pk, t) }; if (r.isSuccess) { ok = true; break }; last = r.exceptionOrNull() }
+                                for (t in Lnd.resolved(hosts)) { val r = runCatching { Lnd.connect(pk, t) }; if (r.isSuccess) { ok = true; break }; last = r.exceptionOrNull() }
                                 if (!ok) throw last ?: IllegalStateException("could not reach the node")
                             }
                             val rate = (fee.toLongOrNull() ?: 1).coerceAtLeast(1)

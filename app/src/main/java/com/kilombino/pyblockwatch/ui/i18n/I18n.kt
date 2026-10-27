@@ -98,6 +98,12 @@ object I18n {
                 val pattern = parts.joinToString("(.+?)") { Regex.escape(it) }
                 val frag = en.last().isWhitespace() || en.last() in "(≈:—-"
                 templates += Template(parts.first(), "^$pattern" + if (frag) "" else "$", out, frag)
+                // "EXACT COIN · 12 345 SATS": a section label upper-cases a template's text too.
+                if (en.any { it.isLowerCase() }) {
+                    val up = parts.map { it.uppercase() }
+                    templates += Template(up.first(), "^" + up.joinToString("(.+?)") { Regex.escape(it) } + if (frag) "" else "$",
+                        out.uppercase(), frag)
+                }
             } else {
                 exact[en] = out
                 // "BEFORE YOU TURN IT ON": the code upper-cases a mixed-case string.
@@ -139,6 +145,9 @@ object I18n {
         for (tp in t.templates) {
             if (!s.startsWith(tp.head)) continue
             val m = tp.regex.find(s) ?: continue
+            // A template that starts with its value ("{0} outputs each (v4)") must not swallow the
+            // pieces before it in a line joined with " · ": those are translated one by one below.
+            if (tp.head.isEmpty() && " · " in m.groupValues[1]) continue
             var out = tp.out
             // The placeholders' values, translated themselves when they are words ("Taproot", "OPEN"…).
             m.groupValues.drop(1).forEachIndexed { i, v -> out = out.replace("{$i}", translate(t, v, depth + 1)) }
