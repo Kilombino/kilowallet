@@ -83,10 +83,20 @@ object Tor {
         return null
     }
 
-    /** Hook Tor into the node connections: started the first time a .onion is used. */
+    /** Setting: every Electrum server through Tor ([ElectrumClient.throughTor]), as on Android 1.3.3+. */
+    const val ELECTRUM_TOR = "electrum_through_tor"
+
+    fun setElectrumThroughTor(ctx: Context, on: Boolean) {
+        ctx.applicationContext.getSharedPreferences("pyblockwatch", Context.MODE_PRIVATE).edit().putBoolean(ELECTRUM_TOR, on).apply()
+        ElectrumClient.throughTor = on
+    }
+
+    /** Hook Tor into the node and Electrum connections: started the first time a .onion is used. */
     fun install(ctx: Context) {
         val app = ctx.applicationContext
         available = java.io.File(app.applicationInfo.nativeLibraryDir, "libtor.so").exists()
         NodeRpcBackend.torProxy = { if (available) { start(app); proxy() } else null }
+        ElectrumClient.torProxy = { if (available) { start(app); proxy() } else null }
+        ElectrumClient.throughTor = app.getSharedPreferences("pyblockwatch", Context.MODE_PRIVATE).getBoolean(ELECTRUM_TOR, false)
     }
 }
