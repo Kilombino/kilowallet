@@ -2396,5 +2396,7 @@
 "Raw transaction copied": "Transacció en cru copiada",
 "Could not broadcast it.": "No s'ha pogut emetre.",
 "Only this same transaction is accepted, and every signature is checked here. Nothing is sent until you choose.": "Només s'accepta aquesta mateixa transacció, i cada signatura es comprova aquí. No s'envia res fins que tu ho triïs.",
-"Its coin is still seated in a pool in IN PROGRESS: it can be removed once that pool is over, or after leaving it.": "La seva moneda encara seu en un pool d'EN CURS: es podrà treure quan aquest pool acabi, o després de sortir-ne."
+"Its coin is still seated in a pool in IN PROGRESS: it can be removed once that pool is over, or after leaving it.": "La seva moneda encara seu en un pool d'EN CURS: es podrà treure quan aquest pool acabi, o després de sortir-ne.",
+"⛶ FULL SCREEN": "⛶ PANTALLA COMPLETA",
+"tap to close": "toca per tancar"
 }

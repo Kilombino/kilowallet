@@ -1025,7 +1025,7 @@ private fun PsbtExchange(vm: WalletViewModel, phase: SendPhase.AwaitingSignature
         color = TextSoft, style = MaterialTheme.typography.bodySmall)
     Spacer(Modifier.height(8.dp))
     // As SeedSigner reads it (ur:crypto-psbt, animated): one huge still QR was too dense for its camera.
-    AnimatedPsbtQr(phase.psbt, 300, paused = scanning)
+    AnimatedPsbtQr(phase.psbt, 300, paused = scanning, accent = accent)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         TextButton(onClick = { clipboard.setText(androidx.compose.ui.text.AnnotatedString(b64)) }) { Text("COPY", color = accent) }
         TextButton(onClick = { save.launch("kilowallet-${phase.draft.amount}.psbt") }) { Text("SAVE FILE", color = accent) }

@@ -2396,5 +2396,7 @@
 "Raw transaction copied": "Transaction brute copiée",
 "Could not broadcast it.": "Impossible de la diffuser.",
 "Only this same transaction is accepted, and every signature is checked here. Nothing is sent until you choose.": "Seule cette même transaction est acceptée, et chaque signature est vérifiée ici. Rien n'est envoyé tant que vous ne l'avez pas choisi.",
-"Its coin is still seated in a pool in IN PROGRESS: it can be removed once that pool is over, or after leaving it.": "Sa pièce est encore assise dans un pool EN COURS : elle pourra être retirée quand ce pool sera terminé, ou après l'avoir quitté."
+"Its coin is still seated in a pool in IN PROGRESS: it can be removed once that pool is over, or after leaving it.": "Sa pièce est encore assise dans un pool EN COURS : elle pourra être retirée quand ce pool sera terminé, ou après l'avoir quitté.",
+"⛶ FULL SCREEN": "⛶ PLEIN ÉCRAN",
+"tap to close": "touchez pour fermer"
 }

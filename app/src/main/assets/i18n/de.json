@@ -2396,5 +2396,7 @@
 "Raw transaction copied": "Rohtransaktion kopiert",
 "Could not broadcast it.": "Konnte nicht gesendet werden.",
 "Only this same transaction is accepted, and every signature is checked here. Nothing is sent until you choose.": "Nur genau diese Transaktion wird akzeptiert, und jede Signatur wird hier geprüft. Nichts wird gesendet, bis du es wählst.",
-"Its coin is still seated in a pool in IN PROGRESS: it can be removed once that pool is over, or after leaving it.": "Ihre Münze sitzt noch in einem Pool unter LAUFEND: Sie kann entfernt werden, sobald dieser Pool vorbei ist, oder nachdem du ihn verlassen hast."
+"Its coin is still seated in a pool in IN PROGRESS: it can be removed once that pool is over, or after leaving it.": "Ihre Münze sitzt noch in einem Pool unter LAUFEND: Sie kann entfernt werden, sobald dieser Pool vorbei ist, oder nachdem du ihn verlassen hast.",
+"⛶ FULL SCREEN": "⛶ VOLLBILD",
+"tap to close": "zum Schließen tippen"
 }

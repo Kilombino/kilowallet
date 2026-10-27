@@ -1,7 +1,9 @@
 package com.kilombino.pyblockwatch.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
@@ -19,18 +21,41 @@ import com.kilombino.pyblockwatch.crypto.Ur
 /**
  * A PSBT as SeedSigner reads it: an animated QR of `ur:crypto-psbt` fountain parts (one about every
  * quarter second, 100-byte fragments), as the bond spend shows it; a PSBT small enough is one still
- * frame. [paused] stops the animation (while the camera is open).
+ * frame. [paused] stops the animation (while the camera is open). FULL SCREEN shows it over the whole
+ * screen at full brightness.
  */
 @Composable
-fun AnimatedPsbtQr(psbt: ByteArray, sizeDp: Int = 300, paused: Boolean = false) {
+fun AnimatedPsbtQr(psbt: ByteArray, sizeDp: Int = 300, paused: Boolean = false, accent: Color = Color.Unspecified) {
     val encoder = remember(psbt.contentHashCode()) { Ur.psbtEncoder(psbt, 100) }
     var part by remember(psbt.contentHashCode()) { mutableStateOf(encoder.nextPart()) }
     LaunchedEffect(encoder, paused) {
         if (encoder.isSinglePart || paused) return@LaunchedEffect
         while (true) { kotlinx.coroutines.delay(250); part = encoder.nextPart() }
     }
+    var full by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxWidth().background(Color.White).padding(10.dp), contentAlignment = Alignment.Center) {
         QrImage(part, sizeDp)
+    }
+    androidx.compose.material3.TextButton(onClick = { full = true }) {
+        com.kilombino.pyblockwatch.ui.i18n.Text("⛶ FULL SCREEN", color = accent)
+    }
+    // The whole screen, white, at full brightness: a signer's camera reads it far better than a small QR on a dim phone.
+    if (full) androidx.compose.ui.window.Dialog(onDismissRequest = { full = false },
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        val window = (androidx.compose.ui.platform.LocalView.current.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window
+        androidx.compose.runtime.DisposableEffect(window) {
+            window?.let { w ->
+                w.attributes = w.attributes.apply { screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL }
+                w.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+            onDispose {}
+        }
+        val side = androidx.compose.ui.platform.LocalConfiguration.current.let { minOf(it.screenWidthDp, it.screenHeightDp) } - 16
+        Box(Modifier.fillMaxSize().background(Color.White).clickable { full = false }, contentAlignment = Alignment.Center) {
+            QrImage(part, side)
+            com.kilombino.pyblockwatch.ui.i18n.Text("tap to close", color = Color.Gray, style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(24.dp))
+        }
     }
 }
 
