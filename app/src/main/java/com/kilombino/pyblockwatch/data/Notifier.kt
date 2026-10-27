@@ -29,7 +29,13 @@ class Notifier(private val context: Context, private val titlePrefix: String = "
         )
     }
 
-    private fun tabFor(chain: Chain) = if (chain == Chain.BLAKE2B) OpenTab.BTC else OpenTab.SPAMCOIN
+    /** Tapped, a payment's notification opens the wallet it is about (the other one after the fingerprint). */
+    private fun tabFor(chain: Chain) = when {
+        chain != Chain.BLAKE2B -> OpenTab.SPAMCOIN
+        titlePrefix == WatchService.WATCH_PREFIX -> OpenTab.BTC_WATCH
+        titlePrefix == WatchService.HOT_PREFIX -> OpenTab.BTC_HOT
+        else -> OpenTab.BTC
+    }
 
     /**
      * Post one alert. [id] is stable per (chain, event, txid) so re-evaluating the same

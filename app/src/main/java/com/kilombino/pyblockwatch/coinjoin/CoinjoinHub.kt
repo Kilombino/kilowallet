@@ -361,7 +361,7 @@ object CoinjoinHub {
         val open = fetchPools().filter { !Protocol.isTest(it) && !it.private && it.id !in ours }
         open.maxOfOrNull { it.createdAt }?.let { prefs(ctx).edit().putLong(KEY_LAST_POOL_SEEN, it).apply() }
         open.firstOrNull { firstNotice(ctx, it.id) }?.let { t -> notify(ctx, t.id.hashCode(), "Coinjoin pool open now",
-            "${amountOf(t)} sats${kind(t)} · ${t.peers}/${t.maxPeers} people · ${t.feeRate} sat/vB") }
+            "${amountOf(t)} sats${kind(t)} · ${t.peers}/${t.maxPeers} people · ${t.feeRate} sat/vB", com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_POOLS) }
     }
 
     /**
@@ -393,7 +393,7 @@ object CoinjoinHub {
         }
         pools.maxOfOrNull { it.createdAt }?.let { p.edit().putLong(KEY_LAST_POOL_SEEN, it).apply() }
         for (t in pools.asSequence().filter { firstNotice(ctx, it.id) }.take(3)) notify(ctx, t.id.hashCode(), "New coinjoin pool" + if (Protocol.isTest(t)) " (test)" else "",
-            "${amountOf(t)} sats${kind(t)} · ${t.peers}/${t.maxPeers} people · ${t.feeRate} sat/vB")
+            "${amountOf(t)} sats${kind(t)} · ${t.peers}/${t.maxPeers} people · ${t.feeRate} sat/vB", com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_POOLS)
     }
 
     // ------------------------------------------------------------------------------- environment
@@ -474,7 +474,7 @@ object CoinjoinHub {
         when (e) {
             is PoolSession.Event.Changed -> return
             is PoolSession.Event.Welcomed -> notify(ctx, seatNote, "Coinjoin: you are in", "$pool · waiting for more people")
-            is PoolSession.Event.Rejected -> notify(ctx, seatNote, "Coinjoin: join refused", e.reason)
+            is PoolSession.Event.Rejected -> notify(ctx, seatNote, "Coinjoin: join refused", e.reason, com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_HISTORY)
             is PoolSession.Event.Joined -> if (leads(st)) notify(ctx, id, "Coinjoin: someone joined", "$pool · ${e.peers}/${st.terms.maxPeers} people")
             // Each seat answers for itself: one waiting on the user is told so, under its own notification.
             is PoolSession.Event.CloseRequested -> if (!e.byMe && !isAuto(st.key))
@@ -493,8 +493,8 @@ object CoinjoinHub {
             is PoolSession.Event.SignNeeded -> notify(ctx, seatNote, "Coinjoin: sign now",
                 "$pool · the transaction is ready. Open the app and sign within ${Protocol.SIGN_SECONDS / 60} min.")
             is PoolSession.Event.Broadcast -> if (leads(st)) notify(ctx, id, "Coinjoin sent", "$pool · ${e.txid.take(16)}…")
-            is PoolSession.Event.Confirmed -> if (leads(st)) notify(ctx, id, "Coinjoin confirmed ✅", "$pool · ${e.txid.take(16)}…")
-            is PoolSession.Event.Aborted -> notify(ctx, seatNote, "Coinjoin cancelled", "$pool · ${e.reason}. Your coin did not move.")
+            is PoolSession.Event.Confirmed -> if (leads(st)) notify(ctx, id, "Coinjoin confirmed ✅", "$pool · ${e.txid.take(16)}…", com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_HISTORY)
+            is PoolSession.Event.Aborted -> notify(ctx, seatNote, "Coinjoin cancelled", "$pool · ${e.reason}. Your coin did not move.", com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_HISTORY)
             is PoolSession.Event.ExpiringSoon -> if (leads(st)) notify(ctx, id, "Coinjoin: under an hour left",
                 "$pool · ${e.peers}/${st.terms.maxPeers} people, enough to mix. It expires in ${e.minutes} min: open the app and tap ASK TO CLOSE NOW.")
         }
@@ -533,19 +533,21 @@ object CoinjoinHub {
             .createNotificationChannel(NotificationChannel(CHANNEL, "Coinjoin", NotificationManager.IMPORTANCE_HIGH))
     }
 
-    fun openApp(ctx: Context): PendingIntent =
-        com.kilombino.pyblockwatch.data.OpenTab.pending(ctx, com.kilombino.pyblockwatch.data.OpenTab.COINJOIN)
+    /** The coinjoin tab, on the list a notification is about ([OpenTab.COINJOIN_ROUNDS] by default: IN PROGRESS). */
+    fun openApp(ctx: Context, list: String = com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_ROUNDS): PendingIntent =
+        com.kilombino.pyblockwatch.data.OpenTab.pending(ctx, list)
 
     /** An alert from outside a round (the perfect coin). */
-    fun notifyPublic(ctx: Context, title: String, text: String) = notify(ctx, 4300 + (title.hashCode() and 0xff), title, text)
+    fun notifyPublic(ctx: Context, title: String, text: String, list: String = com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_ROUNDS) =
+        notify(ctx, 4300 + (title.hashCode() and 0xff), title, text, list)
 
-    private fun notify(ctx: Context, id: Int, title: String, text: String) {
+    private fun notify(ctx: Context, id: Int, title: String, text: String, list: String = com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_ROUNDS) {
         ensureChannel(ctx)
         val n = Notification.Builder(ctx, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle(com.kilombino.pyblockwatch.ui.i18n.I18n.tr(title)).setContentText(com.kilombino.pyblockwatch.ui.i18n.I18n.tr(text))
             .setStyle(Notification.BigTextStyle().bigText(com.kilombino.pyblockwatch.ui.i18n.I18n.tr(text)))
-            .setAutoCancel(true).setContentIntent(openApp(ctx)).build()
+            .setAutoCancel(true).setContentIntent(openApp(ctx, list)).build()
         (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(id, n)
     }
 

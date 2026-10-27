@@ -208,9 +208,10 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
      */
     private var store = Store(app, migrateWallets(app))
     private val scanner = Scanner()
-    /** Notifications of the wallet on screen; the watch-only one says so in the title. */
+    /** Notifications of the wallet on screen; each says which wallet in the title. */
     private val notifier: Notifier get() =
-        Notifier(getApplication(), if (store.activeWallet == Store.WATCH) "Watch-only · " else "")
+        Notifier(getApplication(), if (store.activeWallet == Store.WATCH) com.kilombino.pyblockwatch.data.WatchService.WATCH_PREFIX
+            else com.kilombino.pyblockwatch.data.WatchService.HOT_PREFIX)
     private val seedVault = com.kilombino.pyblockwatch.data.SeedVault(app)
     private val jobs = mutableMapOf<Chain, Job>()
     /** One refresh per chain at a time: on a slow server they would pile up every 30 s. */

@@ -139,8 +139,26 @@ class MainActivity : FragmentActivity() {
                 // ARK and COINJOIN live in advanced mode: a notification about them switches to it.
                 val openTab by com.kilombino.pyblockwatch.data.OpenTab.flow.collectAsState()
                 LaunchedEffect(openTab) {
-                    if (state.uiMode == "simple" && (openTab == com.kilombino.pyblockwatch.data.OpenTab.ARK ||
-                            openTab == com.kilombino.pyblockwatch.data.OpenTab.COINJOIN)) vm.setUiMode("advanced")
+                    val ot = com.kilombino.pyblockwatch.data.OpenTab
+                    when (openTab) {
+                        // A coinjoin notification opens its list: POOLS for a new pool, IN PROGRESS for a round of ours, HISTORY once it is over.
+                        ot.COINJOIN_POOLS, ot.COINJOIN_ROUNDS, ot.COINJOIN_HISTORY -> {
+                            ot.coinjoinList.value = when (openTab) { ot.COINJOIN_POOLS -> 0; ot.COINJOIN_HISTORY -> 2; else -> 1 }
+                            ot.flow.value = ot.COINJOIN; return@LaunchedEffect
+                        }
+                        // A payment's notification opens BTC on the wallet it is about; the other wallet after
+                        // the fingerprint, as its button at the top asks.
+                        ot.BTC_HOT, ot.BTC_WATCH -> {
+                            val watch = openTab == ot.BTC_WATCH
+                            val showing = !state.jamView && (if (watch) !state.isHot else state.isHot)
+                            if (!showing && (if (watch) vm.hasWatchWallet() else state.hasSeed))
+                                Biometric.confirm(this@MainActivity, if (watch) "Open the watch-only wallet" else "Back to the hot wallet",
+                                    if (watch) "Unlock to see the watched wallet" else "Unlock to see and spend your hot wallet",
+                                    onSuccess = { if (watch) vm.viewAsWatchOnly() else vm.viewAsHot() }, onError = {})
+                            ot.flow.value = ot.BTC; return@LaunchedEffect
+                        }
+                    }
+                    if (state.uiMode == "simple" && (openTab == ot.ARK || openTab == ot.COINJOIN)) vm.setUiMode("advanced")
                 }
                 Box(Modifier.fillMaxSize().background(Ink)) {
                     // A newer release on GitHub: looked for every 5 minutes while the app is open

@@ -172,6 +172,8 @@ class WatchService : Service() {
         const val JAM_PREFIX = "JoinMarket · "
         /** The watch-only wallet's notifications say so in their title. */
         const val WATCH_PREFIX = "Watch-only · "
+        /** And the hot wallet's, so the two are never mistaken. */
+        const val HOT_PREFIX = "Hot wallet · "
 
         /**
          * One look at [wallet] (the hot one or the watch-only one) on [chain]: the addresses it
@@ -182,7 +184,7 @@ class WatchService : Service() {
             val store = Store(ctx)
             val ws = Store(ctx, wallet)
             val xpub = ws.xpub ?: return
-            val notifier = Notifier(ctx, if (wallet == Store.WATCH) WATCH_PREFIX else "")
+            val notifier = Notifier(ctx, if (wallet == Store.WATCH) WATCH_PREFIX else HOT_PREFIX)
             // A hot wallet's Taproot account is watched too: its coins count in the balance.
             val taproot = ws.taprootXpub.takeIf { wallet == Store.HOT }
             val rows = deriveKnownAddresses(xpub, chain, ws) +

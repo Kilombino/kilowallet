@@ -183,7 +183,7 @@ object PerfectCoin {
                 Bip32Priv.ExtendedPrivKey(b, c.toByteArray().let { x -> if (x.size > 32) x.copyOfRange(x.size - 32, x.size) else ByteArray(32 - x.size) + x }, 4)
             }
             cancel(app, w.txid)
-            if (k == null) { CoinjoinHub.notifyPublic(app, "Perfect coin ready", "${w.value} sats confirmed. Join a pool with it in COINJOIN."); continue }
+            if (k == null) { CoinjoinHub.notifyPublic(app, "Perfect coin ready", "${w.value} sats confirmed. Join a pool with it in COINJOIN.", com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_POOLS); continue }
             runCatching {
                 val node = Bip32Priv.ExtendedPrivKey(k, ByteArray(32), 5)
                 val pick = CoinjoinHub.Pick(listOf(CoinjoinHub.PickCoin(w.txid, w.vout, w.value, node, w.path)), w.type, w.mixScripts, w.changeScript)
@@ -205,7 +205,7 @@ object PerfectCoin {
                     w.mixScripts.first(), st.terms, w.perpCap!!, perpId, c?.optInt("hours", 6) ?: 6,
                     FirstPool.of(st, c?.optInt("hours", 6) ?: 6))
             }.onSuccess { CoinjoinHub.notifyPublic(app, "Perfect coin in", "Confirmed: " + (if (w.create != null) "your pool is open" else "asked to join the pool") + ", on its own.") }
-             .onFailure { CoinjoinHub.notifyPublic(app, "Perfect coin ready", "Confirmed, but ${it.message}. Join a pool with it in COINJOIN.") }
+             .onFailure { CoinjoinHub.notifyPublic(app, "Perfect coin ready", "Confirmed, but ${it.message}. Join a pool with it in COINJOIN.", com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_POOLS) }
         }
     }
 }
