@@ -80,6 +80,30 @@ object CoinjoinHub {
         runCatching { MixedCoins.keep(ctx) }
     }
 
+    private const val KEY_OWN_TXIDS = "own_txids"
+    private val plannedTxids = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /**
+     * The transactions of this phone's coinjoins: sent, or signed and about to be (a member's wallet can
+     * see it in the mempool before the round tells it so). The wallets' balance watch counts them in
+     * silence: the round's own notifications say it was sent, and where it was received.
+     */
+    fun ownTxids(ctx: Context): Set<String> {
+        val kept = prefs(ctx).getStringSet(KEY_OWN_TXIDS, emptySet())!!
+        val live = synchronized(this) { sessions.values.map { it.state } }.mapNotNull { it.txid ?: plannedTxids[it.key] }
+        return kept + live
+    }
+
+    /** Notes [st]'s transaction (the one signed, or the one sent) among this phone's own, for good. */
+    private fun keepTxid(ctx: Context, st: PoolSession.State) {
+        val txid = st.txid ?: if (st.phase == PoolSession.Phase.SIGNING) plannedTxids[st.key]
+            ?: session(st.key)?.plannedTxid()?.also { plannedTxids[st.key] = it } else null
+        txid ?: return
+        val p = prefs(ctx)
+        val kept = p.getStringSet(KEY_OWN_TXIDS, emptySet())!!
+        if (txid !in kept) p.edit().putStringSet(KEY_OWN_TXIDS, (kept.toList() + txid).takeLast(200).toSet()).apply()
+    }
+
     /** Whether this user wants to see (and be told about) test pools under 10 000 sats. */
     fun testPools(@Suppress("UNUSED_PARAMETER") ctx: Context): Boolean = false // betas only
     fun setTestPools(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean(KEY_TEST_POOLS, on).apply()
@@ -457,6 +481,8 @@ object CoinjoinHub {
     }
 
     private fun onEvent(ctx: Context, st: PoolSession.State, e: PoolSession.Event) {
+        if (st.phase in setOf(PoolSession.Phase.SIGNING, PoolSession.Phase.BROADCAST, PoolSession.Phase.CONFIRMED))
+            runCatching { keepTxid(ctx, st) }
         alert(ctx, st, e)
         if (e is PoolSession.Event.Broadcast || e is PoolSession.Event.Confirmed) runCatching { MixedCoins.keep(ctx) }
         // Mixed outputs going to the watch-only wallet: that wallet is looked at now, so what
@@ -466,22 +492,24 @@ object CoinjoinHub {
         // A perpetual coin goes on as soon as its round ends, not at the next minute.
         if (st.perpId != null && (e is PoolSession.Event.Confirmed || e is PoolSession.Event.Aborted || e is PoolSession.Event.Rejected))
             Thread { runCatching { Perpetual.check(ctx) } }.apply { isDaemon = true }.start()
-        // What happens to the pool shares one notification, whichever seat of ours saw it: two seats
-        // in a pool don't say each thing twice. What happens to a seat alone has the seat's own.
+        // A round is one notification that follows it (you are in → someone joined → closing → sent → received),
+        // whichever seat of ours saw each step: two seats in a pool don't say each thing twice. Only a seat
+        // that ends while another of ours goes on (refused, cancelled) has a notification of its own.
+        // Steps that ask nothing of the user update it without a sound.
         val id = ("cj" + st.poolId).hashCode()
-        val seatNote = ("cj" + st.key).hashCode()
+        val own = if (othersLive(st).isEmpty()) id else ("cj" + st.key).hashCode()
         val pool = "${amountOf(st.terms)} sats pool"
         when (e) {
             is PoolSession.Event.Changed -> return
-            is PoolSession.Event.Welcomed -> notify(ctx, seatNote, "Coinjoin: you are in", "$pool · waiting for more people")
-            is PoolSession.Event.Rejected -> notify(ctx, seatNote, "Coinjoin: join refused", e.reason, com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_HISTORY)
-            is PoolSession.Event.Joined -> if (leads(st)) notify(ctx, id, "Coinjoin: someone joined", "$pool · ${e.peers}/${st.terms.maxPeers} people")
-            // Each seat answers for itself: one waiting on the user is told so, under its own notification.
+            is PoolSession.Event.Welcomed -> notify(ctx, id, "Coinjoin: you are in", "$pool · waiting for more people")
+            is PoolSession.Event.Rejected -> notify(ctx, own, "Coinjoin: join refused", e.reason, com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_HISTORY)
+            is PoolSession.Event.Joined -> if (leads(st)) notify(ctx, id, "Coinjoin: someone joined", "$pool · ${e.peers}/${st.terms.maxPeers} people", quiet = true)
+            // Each seat answers for itself: one waiting on the user is told so.
             is PoolSession.Event.CloseRequested -> if (!e.byMe && !isAuto(st.key))
-                notify(ctx, seatNote, "Coinjoin: close now?", "$pool · ${e.peers} people. Open the app to accept or refuse.")
-            is PoolSession.Event.CloseRefused -> if (leads(st)) notify(ctx, id, "Coinjoin: stays open", "$pool · someone said no")
-            is PoolSession.Event.Closing -> if (leads(st)) notify(ctx, id, "Coinjoin: closing", "$pool · ${e.peers} people, collecting outputs")
-            is PoolSession.Event.DidAlone -> notify(ctx, seatNote, when (e.what) {
+                notify(ctx, id, "Coinjoin: close now?", "$pool · ${e.peers} people. Open the app to accept or refuse.")
+            is PoolSession.Event.CloseRefused -> if (leads(st)) notify(ctx, id, "Coinjoin: stays open", "$pool · someone said no", quiet = true)
+            is PoolSession.Event.Closing -> if (leads(st)) notify(ctx, id, "Coinjoin: closing", "$pool · ${e.peers} people, collecting outputs", quiet = true)
+            is PoolSession.Event.DidAlone -> if (leads(st)) notify(ctx, id, when (e.what) {
                 PoolSession.Alone.ACCEPTED -> "Coinjoin: closing"
                 PoolSession.Alone.ASKED_TO_CLOSE -> "Coinjoin: asking to close"
                 PoolSession.Alone.SIGNED -> "Coinjoin: signed on its own"
@@ -489,16 +517,53 @@ object CoinjoinHub {
                 PoolSession.Alone.ACCEPTED -> "$pool · accepted on its own"
                 PoolSession.Alone.ASKED_TO_CLOSE -> "$pool · enough people and under an hour left: asked on its own"
                 PoolSession.Alone.SIGNED -> "$pool · your output and change checked out"
-            })
-            is PoolSession.Event.SignNeeded -> notify(ctx, seatNote, "Coinjoin: sign now",
+            }, quiet = true)
+            is PoolSession.Event.SignNeeded -> notify(ctx, id, "Coinjoin: sign now",
                 "$pool · the transaction is ready. Open the app and sign within ${Protocol.SIGN_SECONDS / 60} min.")
-            is PoolSession.Event.Broadcast -> if (leads(st)) notify(ctx, id, "Coinjoin sent", "$pool · ${e.txid.take(16)}…")
-            is PoolSession.Event.Confirmed -> if (leads(st)) notify(ctx, id, "Coinjoin confirmed ✅", "$pool · ${e.txid.take(16)}…", com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_HISTORY)
-            is PoolSession.Event.Aborted -> notify(ctx, seatNote, "Coinjoin cancelled", "$pool · ${e.reason}. Your coin did not move.", com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_HISTORY)
+            // Two notes for the whole round, in place of the wallets' own (which stay quiet for it): sent,
+            // with what it cost; then received, in the wallet it went to.
+            is PoolSession.Event.Broadcast -> roundNote(ctx, st, e.txid, id, confirmed = false)
+            is PoolSession.Event.Confirmed -> roundNote(ctx, st, e.txid, id, confirmed = true)
+            is PoolSession.Event.Aborted -> notify(ctx, own, "Coinjoin cancelled", "$pool · ${e.reason}. Your coin did not move.", com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_HISTORY)
             is PoolSession.Event.ExpiringSoon -> if (leads(st)) notify(ctx, id, "Coinjoin: under an hour left",
                 "$pool · ${e.peers}/${st.terms.maxPeers} people, enough to mix. It expires in ${e.minutes} min: open the app and tap ASK TO CLOSE NOW.")
         }
         CoinjoinService.refresh(ctx)
+    }
+
+    /** Rounds already told sent ("s:" + txid) or received ("c:" + txid) in this process. */
+    private val told = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    /** Where [st]'s outputs went, as its notifications say it. */
+    private fun walletOf(ctx: Context, st: PoolSession.State): String = when (Destination.of(ctx, st.key)) {
+        Destination.Kind.HOT -> "Hot wallet"
+        Destination.Kind.WATCH -> "Watch-only" + (Destination.whichOf(ctx, st.key)?.let { " · $it" } ?: "")
+        Destination.Kind.JAM -> "JoinMarket · Apricot"
+        Destination.Kind.PAY -> "the recipients"
+    }
+
+    /**
+     * The round [txid] of [st]'s pool went out ([confirmed] false: 0 conf) or got its first block. One
+     * note for all of this phone's seats in it: what they got, where, and (sent) the fees they paid.
+     */
+    private fun roundNote(ctx: Context, st: PoolSession.State, txid: String, id: Int, confirmed: Boolean) {
+        if (!told.add((if (confirmed) "c:" else "s:") + txid)) return
+        val seats = synchronized(this) { sessions.values.map { it.state } }
+            // Its other seats may not have taken the transaction yet: the ones signing or sent in it count too.
+            .filter { it.poolId == st.poolId && (it.txid ?: txid) == txid && it.phase in setOf(PoolSession.Phase.SIGNING,
+                PoolSession.Phase.BROADCAST, PoolSession.Phase.CONFIRMED) }.ifEmpty { listOf(st) }
+        val pay = seats.any { Destination.of(ctx, it.key) == Destination.Kind.PAY }
+        val got = seats.sumOf { it.terms.mixTotal }
+        val fee = seats.sumOf { it.seat.inputValue - it.terms.mixTotal - it.seat.changeValue }
+        val where = seats.map { walletOf(ctx, it) }.distinct().joinToString(" + ")
+        val list = com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_HISTORY
+        if (pay) {
+            val n = seats.sumOf { it.terms.payments.size }
+            if (confirmed) notify(ctx, id, "Coinjoin payment confirmed ✅", "${sats(got)} sats to $n recipient(s) · 1 conf", list)
+            else notify(ctx, id, "Coinjoin payment sent", "${sats(got)} sats to $n recipient(s) · 0 conf · fee −${sats(fee)} sats", list)
+        } else if (confirmed) notify(ctx, id, "Coinjoin received in $where ✅", "+${sats(got)} sats · 1 conf", list)
+        else notify(ctx, id, "Coinjoin sent to $where", "${sats(got)} sats · 0 conf · fee −${sats(fee)} sats",
+            com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_ROUNDS)
     }
 
     /** Telegram alerts (optional): the steps only this app can see, for the user's own pools. */
@@ -541,10 +606,12 @@ object CoinjoinHub {
     fun notifyPublic(ctx: Context, title: String, text: String, list: String = com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_ROUNDS) =
         notify(ctx, 4300 + (title.hashCode() and 0xff), title, text, list)
 
-    private fun notify(ctx: Context, id: Int, title: String, text: String, list: String = com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_ROUNDS) {
+    /** [quiet]: a step that asks nothing of the user updates the round's notification without a sound. */
+    private fun notify(ctx: Context, id: Int, title: String, text: String, list: String = com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_ROUNDS,
+                       quiet: Boolean = false) {
         ensureChannel(ctx)
         val n = Notification.Builder(ctx, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setSmallIcon(android.R.drawable.stat_notify_sync).setOnlyAlertOnce(quiet)
             .setContentTitle(com.kilombino.pyblockwatch.ui.i18n.I18n.tr(title)).setContentText(com.kilombino.pyblockwatch.ui.i18n.I18n.tr(text))
             .setStyle(Notification.BigTextStyle().bigText(com.kilombino.pyblockwatch.ui.i18n.I18n.tr(text)))
             .setAutoCancel(true).setContentIntent(openApp(ctx, list)).build()

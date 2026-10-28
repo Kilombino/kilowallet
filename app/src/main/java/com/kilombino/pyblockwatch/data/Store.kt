@@ -182,6 +182,16 @@ class Store(context: Context, private val profile: String = HOT) {
     }
 
     /**
+     * This phone's coinjoins this wallet already counted in its baseline without a notification of
+     * its own (the round's notifications tell about them). Kept so one confirmed between two looks
+     * is told apart from another payment that arrived meanwhile.
+     */
+    fun coinjoinsSeen(chain: Chain): Set<String> = prefs.getStringSet(k(keyCjSeen(chain)), emptySet())!!
+    fun setCoinjoinsSeen(chain: Chain, txids: Set<String>) {
+        prefs.edit().putStringSet(k(keyCjSeen(chain)), txids.toList().takeLast(100).toSet()).apply()
+    }
+
+    /**
      * Which home screen to show: "simple" (balance, Send, Receive, fiat) or "advanced"
      * (everything else). Null until the user has chosen once.
      */
@@ -361,6 +371,7 @@ class Store(context: Context, private val profile: String = HOT) {
             Chain.entries.forEach {
                 remove(k(keyTotal(it))); remove(k(keyConf(it))); remove(k(keyUnconf(it)))
                 remove(k(keyNotConf(it))); remove(k(keyNotUnconf(it))); remove(k(keyPending(it)))
+                remove(k(keyCjSeen(it)))
             }
         }.apply()
     }
@@ -411,6 +422,7 @@ class Store(context: Context, private val profile: String = HOT) {
         private fun keyNotConf(c: Chain) = "notconf_${c.id}"
         private fun keyNotUnconf(c: Chain) = "notunconf_${c.id}"
         private fun keyPending(c: Chain) = "pending_${c.id}"
+        private fun keyCjSeen(c: Chain) = "cj_seen_${c.id}"
         private fun keyPin(e: NodeEndpoint) = "pin_${e.host}_${e.port}"
     }
 }

@@ -559,9 +559,15 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
     val chain = state.selected
     val cs = state.current
     // Tabs: BTC (the BLAKE2b chain) and ARK; the spamchain opens from settings.
-    var arkTab by remember { mutableStateOf(false) }
-    var cjTab by remember { mutableStateOf(false) }
-    var lnTab by remember { mutableStateOf(false) }
+    // Where it was left, if the screen is built again (see OpenTab.shown).
+    var arkTab by remember { mutableStateOf(com.kilombino.pyblockwatch.data.OpenTab.shown == com.kilombino.pyblockwatch.data.OpenTab.ARK) }
+    var cjTab by remember { mutableStateOf(com.kilombino.pyblockwatch.data.OpenTab.shown == com.kilombino.pyblockwatch.data.OpenTab.COINJOIN) }
+    var lnTab by remember { mutableStateOf(com.kilombino.pyblockwatch.data.OpenTab.shown == com.kilombino.pyblockwatch.data.OpenTab.LIGHTNING) }
+    androidx.compose.runtime.SideEffect {
+        com.kilombino.pyblockwatch.data.OpenTab.shown = with(com.kilombino.pyblockwatch.data.OpenTab) {
+            when { arkTab -> ARK; cjTab -> COINJOIN; lnTab -> LIGHTNING; else -> BTC }
+        }
+    }
     var arkPull by remember { mutableStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
     val openTab by com.kilombino.pyblockwatch.data.OpenTab.flow.collectAsState()

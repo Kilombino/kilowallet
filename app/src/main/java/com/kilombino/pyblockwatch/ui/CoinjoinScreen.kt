@@ -82,10 +82,11 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
     var creating by remember { mutableStateOf(false) }
     // 0 JOIN, 1 IN PROGRESS, 2 HISTORY: a round going opens on IN PROGRESS.
     var tab by androidx.compose.runtime.saveable.rememberSaveable {
-        mutableStateOf(if (CoinjoinHub.states.value.any { it.phase !in setOf(PoolSession.Phase.CONFIRMED,
+        mutableStateOf(com.kilombino.pyblockwatch.data.OpenTab.shownCoinjoinList ?: if (CoinjoinHub.states.value.any { it.phase !in setOf(PoolSession.Phase.CONFIRMED,
                 PoolSession.Phase.ABORTED, PoolSession.Phase.REJECTED) } ||
             com.kilombino.pyblockwatch.coinjoin.PerfectCoin.hasWaiting(ctx)) 1 else 0)
     }
+    androidx.compose.runtime.SideEffect { com.kilombino.pyblockwatch.data.OpenTab.shownCoinjoinList = tab }
     // A notification asked for one list (a new pool: POOLS; a round of ours: IN PROGRESS).
     val askedList by com.kilombino.pyblockwatch.data.OpenTab.coinjoinList.collectAsState()
     LaunchedEffect(askedList) { askedList?.let { tab = it; com.kilombino.pyblockwatch.data.OpenTab.coinjoinList.value = null } }
@@ -217,7 +218,8 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
                                     CoinjoinHub.join(ctx, t, pick, joinPassword, CoinjoinHub.autoDefault(ctx), perpId = perpId)
                                         .also { st -> beginPerpetual(ctx, st, pick, cap) }
                                 } }
-                                    .onSuccess { st -> Destination.remember(ctx, st.key, dest); tab = 1 }.onFailure { message = it.message }
+                                    .onSuccess { st -> Destination.remember(ctx, st.key, dest); tab = 1
+                                        com.kilombino.pyblockwatch.data.OpenTab.open(com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_ROUNDS) }.onFailure { message = it.message }
                                 joining = null; joinPassword = ""
                             }
                         }, onError = { message = it })
@@ -256,7 +258,8 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
                                     CoinjoinHub.join(ctx, t, pick, joinPassword.ifEmpty { null }, CoinjoinHub.autoDefault(ctx),
                                         passwordKey = mineSt.pwKey?.let { com.kilombino.pyblockwatch.crypto.Hashes.hexToBytes(it) })
                                 } }
-                                    .onSuccess { st -> Destination.remember(ctx, st.key, dest); tab = 1 }.onFailure { message = it.message }
+                                    .onSuccess { st -> Destination.remember(ctx, st.key, dest); tab = 1
+                                        com.kilombino.pyblockwatch.data.OpenTab.open(com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_ROUNDS) }.onFailure { message = it.message }
                                 extraFor = null; joinPassword = ""
                             }
                         }, onError = { message = it })
@@ -291,6 +294,7 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
                             } }
                                 .onSuccess { st ->
                                     Destination.remember(ctx, st.key, dest); creating = false; tab = 1; reloadPools()
+                                    com.kilombino.pyblockwatch.data.OpenTab.open(com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_ROUNDS)
                                     com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.pending.value = null
                                 }
                                 .onFailure { message = it.message }
@@ -1061,7 +1065,7 @@ private fun MyPoolCard(
         if (goesTo == Destination.Kind.PAY && st.phase in setOf(PoolSession.Phase.JOINING, PoolSession.Phase.OPEN, PoolSession.Phase.VOTING))
             Text("A payment: it goes out only when the pool closes. If the pool doesn't fill, nothing is paid; cancel it and send normally.",
                 style = MaterialTheme.typography.bodySmall, color = TextFaint)
-        if (goesTo != Destination.Kind.HOT && st.mixScripts.isNotEmpty()) {
+        if (st.mixScripts.isNotEmpty()) {
             var show by remember(st.key) { mutableStateOf(false) }
             TextButton(onClick = { show = !show }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
                 Text(if (show) "hide the addresses" else "show the addresses", color = accent, style = MaterialTheme.typography.labelSmall)
@@ -1638,6 +1642,29 @@ internal fun needsMe(st: PoolSession.State): Boolean {
     }
 }
 
+/**
+ * When a round went out and ended, as HISTORY shows it: "Sent 28 Oct 2026, 10:42 · confirmed 10:51"
+ * (the day again only when it changed). Null while it goes on, and for rounds saved without the times.
+ */
+private fun timesOf(st: PoolSession.State): String? {
+    val loc = java.util.Locale(com.kilombino.pyblockwatch.ui.i18n.I18n.lang.value)
+    fun day(at: Long) = java.text.SimpleDateFormat("d MMM yyyy, HH:mm", loc).format(java.util.Date(at * 1000))
+    fun sameDay(a: Long, b: Long) = java.text.SimpleDateFormat("yyyyMMdd", loc).let { f -> f.format(java.util.Date(a * 1000)) == f.format(java.util.Date(b * 1000)) }
+    val sent = st.sentAt; val ended = st.endedAt
+    return when (st.phase) {
+        PoolSession.Phase.BROADCAST -> if (sent > 0) "📅 Sent ${day(sent)}" else null
+        PoolSession.Phase.CONFIRMED -> when {
+            sent > 0 && ended > 0 -> "📅 Sent ${day(sent)} · confirmed ${if (sameDay(sent, ended)) hhmm(ended) else day(ended)}"
+            sent > 0 -> "📅 Sent ${day(sent)}"
+            ended > 0 -> "📅 Confirmed ${day(ended)}"
+            else -> null
+        }
+        PoolSession.Phase.ABORTED -> if (ended > 0) "📅 Cancelled ${day(ended)}" else null
+        PoolSession.Phase.REJECTED -> if (ended > 0) "📅 Refused ${day(ended)}" else null
+        else -> null
+    }
+}
+
 private fun hhmm(at: Long): String =
     java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(at * 1000))
 
@@ -1730,6 +1757,20 @@ private fun RoundCard(
             Text(status, style = MaterialTheme.typography.bodyMedium, color = color)
             Spacer(Modifier.height(2.dp))
             Text(where, style = MaterialTheme.typography.bodySmall, color = TextSoft)
+            // HISTORY (and a round sent): when it went out and ended, and which wallet and address it went to.
+            timesOf(st)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = TextFaint) }
+            if (st.phase == PoolSession.Phase.BROADCAST || st.phase == PoolSession.Phase.CONFIRMED) {
+                val ctx = activity.applicationContext
+                val goesTo = remember(st.key) { Destination.of(ctx, st.key) }
+                val which = remember(st.key) { Destination.whichOf(ctx, st.key) }
+                // Found by deriving the wallet's addresses (up to a thousand per branch): away from the screen.
+                val shown by androidx.compose.runtime.produceState<List<Destination.Shown>?>(null, st.key) {
+                    value = withContext(Dispatchers.IO) { runCatching { Destination.describe(ctx, goesTo, st.terms.script, st.mixScripts) }.getOrNull() }
+                }
+                Text("→ " + Destination.label(goesTo) + (which?.let { " · $it" } ?: "") +
+                    (shown?.let { l -> " · " + l.joinToString(", ") { shortAddress(it.address) } } ?: ""),
+                    style = MaterialTheme.typography.bodySmall, color = accent)
+            }
         }
         // A perpetual coin's round: what it does after, and its switch.
         st.perpId?.let { id -> com.kilombino.pyblockwatch.coinjoin.Perpetual.list.value.firstOrNull { it.id == id } }

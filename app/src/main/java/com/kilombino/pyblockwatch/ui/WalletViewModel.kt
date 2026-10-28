@@ -389,7 +389,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 val unconf = rows.sumOf { it.unconfirmed }
                 ws.setLastBalance(chain, conf, unconf)
                 if (ws.notificationsEnabled) {
-                    BalanceWatch.evaluate(ws, nf, chain, conf, unconf, doneTxs)
+                    BalanceWatch.evaluate(ws, nf, chain, conf, unconf, doneTxs,
+                        runCatching { com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.ownTxids(getApplication()) }.getOrDefault(emptySet()))
                 }
                 updateIf(xpub, chain) {
                     it.copy(rows = rows, transactions = doneTxs, height = tip, phase = ScanPhase.Complete, stale = false)

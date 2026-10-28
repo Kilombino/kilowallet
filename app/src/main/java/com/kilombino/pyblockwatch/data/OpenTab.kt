@@ -33,6 +33,12 @@ object OpenTab {
     val flow = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     /** The coinjoin list asked for (0 POOLS, 1 IN PROGRESS, 2 HISTORY), until the coinjoin screen shows it. */
     val coinjoinList = kotlinx.coroutines.flow.MutableStateFlow<Int?>(null)
+    /**
+     * The tab and coinjoin list on screen, kept outside the screens: the wallet screen is built again
+     * when it comes back (after the fingerprint for a coinjoin, for one) and used to start over on BTC.
+     */
+    @Volatile var shown: String = BTC
+    @Volatile var shownCoinjoinList: Int? = null
     /** The wallet a payment's notification is about ([Store.HOT] or [Store.WATCH]), until the app has switched to it. */
     val wallet = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 

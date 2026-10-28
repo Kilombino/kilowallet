@@ -525,14 +525,27 @@ class Scanner(
         private val spvCache = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 
         /**
-         * Coinbase maturity on the BLAKE2b chain: the `long_coinbase_maturity` flag day makes
-         * rewards mined in blocks 973 440–979 919 wait 6 480 confirmations; any other, 100.
+         * Coinbase maturity on the BLAKE2b chain, as Knots 29.4.3 relays a spend of it (knots#468):
+         * rewards mined in blocks 973 440–979 918 keep their 6 480 confirmations; from 979 919, while
+         * the median time past of the block before is under 2027-09-01 00:00 UTC (RDTS expiry), each
+         * waits 25 920 (about 180 days, counted from its own block); any other, 100.
          */
-        const val LONG_MATURITY = 6480
+        const val HISTORICAL_MATURITY = 6480
+        const val LONG_MATURITY = 25920
+        const val LONG_START = 979_919
 
         /** Depth after which a spent address is left out of quick looks. */
         const val SETTLED = 6
-        fun maturityFor(height: Int): Int = if (height in 973_440..979_919) LONG_MATURITY else 100
+        /**
+         * The rewards mined after the expiry date need only 100 again, but which block that is is only
+         * known from the chain's times: until then every reward from [LONG_START] counts as covered, the
+         * same as the node does for a block it does not know.
+         */
+        fun maturityFor(height: Int): Int = when {
+            height >= LONG_START -> LONG_MATURITY
+            height >= 973_440 -> HISTORICAL_MATURITY
+            else -> 100
+        }
 
         /** A mined reward: one input, spending nothing (all-zero txid, index 0xffffffff). */
         fun isCoinbase(tx: TxParse.Tx): Boolean = tx.inputs.size == 1 && tx.inputs[0].txid.all { it == '0' } && tx.inputs[0].vout == -1
