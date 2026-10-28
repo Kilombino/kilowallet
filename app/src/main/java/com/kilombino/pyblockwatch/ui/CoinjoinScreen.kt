@@ -1385,7 +1385,7 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, tag:
                             if (tag == ScriptType.P2TR) ScriptType.P2TR else ScriptType.P2WPKH, outputs) }
                             .getOrElse { destError = it.message ?: "could not find unused addresses"; findingDest = false; started = false; return@launch }
                         findingDest = false
-                        vm.exactFor = exactFor.withDest(scripts); vm.prepareExactCoin(exact, r, tag, picked.toList())
+                        vm.exactFor = exactFor.withDest(scripts, Destination.note(activity.applicationContext, dest)); vm.prepareExactCoin(exact, r, tag, picked.toList())
                     }
                 } },
                     enabled = rate != null && sources != null && (picked.isEmpty() || picked.sumOf { it.value } >= exact),
@@ -1759,12 +1759,14 @@ private fun RoundCard(
             Text(where, style = MaterialTheme.typography.bodySmall, color = TextSoft)
             // HISTORY (and a round sent): when it went out and ended, and which wallet and address it went to.
             timesOf(st)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = TextFaint) }
-            if (st.phase == PoolSession.Phase.BROADCAST || st.phase == PoolSession.Phase.CONFIRMED) {
+            // Where the outputs go (or went), from joining on: IN PROGRESS and HISTORY alike.
+            if (st.phase != PoolSession.Phase.ABORTED && st.phase != PoolSession.Phase.REJECTED) {
                 val ctx = activity.applicationContext
-                val goesTo = remember(st.key) { Destination.of(ctx, st.key) }
-                val which = remember(st.key) { Destination.whichOf(ctx, st.key) }
+                // Read again on every change: a round's note can be found after the card is drawn (see CoinjoinHub.load).
+                val goesTo = remember(st.key, rev) { Destination.of(ctx, st.key) }
+                val which = remember(st.key, rev) { Destination.whichOf(ctx, st.key) }
                 // Found by deriving the wallet's addresses (up to a thousand per branch): away from the screen.
-                val shown by androidx.compose.runtime.produceState<List<Destination.Shown>?>(null, st.key) {
+                val shown by androidx.compose.runtime.produceState<List<Destination.Shown>?>(null, st.key, goesTo) {
                     value = withContext(Dispatchers.IO) { runCatching { Destination.describe(ctx, goesTo, st.terms.script, st.mixScripts) }.getOrNull() }
                 }
                 Text("→ " + Destination.label(goesTo) + (which?.let { " · $it" } ?: "") +
@@ -1827,6 +1829,21 @@ private fun PerfectCoinCard(w: com.kilombino.pyblockwatch.coinjoin.PerfectCoin.W
             else if (w.extraSeat) "Then it joins the pool by itself as another seat of yours, after a random wait, and the round runs on its own."
             else "Then it joins the pool by itself and the round runs on its own.",
             style = MaterialTheme.typography.bodySmall, color = TextSoft)
+        // Where its round's outputs will go.
+        // A coin prepared before 1.4.1 has no note: its addresses are looked for in the other wallets.
+        val noted = remember(w.dest) { w.dest?.substringBefore('|')?.let { n -> Destination.Kind.entries.firstOrNull { it.name == n } } }
+        val found by androidx.compose.runtime.produceState<Pair<Destination.Kind, List<Destination.Shown>?>?>(null, w.txid) {
+            value = withContext(Dispatchers.IO) { runCatching {
+                val k = noted ?: Destination.guess(ctx, w.type, w.mixScripts) ?: Destination.Kind.HOT
+                k to runCatching { Destination.describe(ctx, k, w.type, w.mixScripts) }.getOrNull()
+            }.getOrNull() }
+        }
+        val kind = found?.first ?: noted ?: Destination.Kind.HOT
+        val shown = found?.second
+        val which = w.dest?.substringAfter('|', "")?.ifEmpty { null } ?: Destination.which(ctx, kind)
+        Text("→ " + Destination.label(kind) + (which?.let { " · $it" } ?: "") +
+            (shown?.let { l -> " · " + l.joinToString(", ") { shortAddress(it.address) } } ?: ""),
+            style = MaterialTheme.typography.bodySmall, color = accent)
         w.perpCap?.let { cap -> Text("♻ Perpetual coinjoin: after that round it keeps remixing (its pools at ${fmtRate(cap)} sat/vB).",
             style = MaterialTheme.typography.bodySmall, color = Good) }
         Row {

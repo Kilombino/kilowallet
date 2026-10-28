@@ -78,6 +78,16 @@ object CoinjoinHub {
         _version.value++
         // Rounds are dropped after a week: their mixed outputs are kept for good first.
         runCatching { MixedCoins.keep(ctx) }
+        // Rounds a perfect coin joined on its own before 1.4.1 have no note of where their outputs go:
+        // found once from the wallets' addresses (away from the caller), and noted ("HOT|" when none has them).
+        val unnoted = sessions.values.map { it.state }.filter { !Destination.noted(ctx, it.key) && it.mixScripts.isNotEmpty() }
+        if (unnoted.isNotEmpty()) Thread {
+            for (st in unnoted) runCatching {
+                val kind = Destination.guess(ctx, st.terms.script, st.mixScripts)
+                Destination.rememberNote(ctx, st.key, kind?.let { Destination.note(ctx, it) } ?: "HOT|")
+            }
+            _version.value++
+        }.apply { isDaemon = true }.start()
     }
 
     private const val KEY_OWN_TXIDS = "own_txids"

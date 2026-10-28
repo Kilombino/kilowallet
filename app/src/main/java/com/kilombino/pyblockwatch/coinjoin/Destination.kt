@@ -223,7 +223,32 @@ object Destination {
 
     /** Notes on this phone (only) where a pool's mixed outputs go, for its card. The hot wallet is not noted. */
     fun remember(ctx: Context, poolId: String, kind: Kind) {
-        if (kind != Kind.HOT) prefs(ctx).edit().putString(poolId, kind.name + "|" + (which(ctx, kind) ?: "")).apply()
+        note(ctx, kind)?.let { rememberNote(ctx, poolId, it) }
+    }
+
+    /** [kind] as a round's note keeps it ("WATCH|its name"), or null for the hot wallet. */
+    fun note(ctx: Context, kind: Kind): String? = if (kind == Kind.HOT) null else kind.name + "|" + (which(ctx, kind) ?: "")
+
+    /** A note made earlier ([note]), for a round that starts later (a perfect coin joining on its own). */
+    fun rememberNote(ctx: Context, poolId: String, note: String) {
+        prefs(ctx).edit().putString(poolId, note).apply()
+    }
+
+    /** Whether [poolId] has a note at all (a round with none goes to the hot wallet, or was never noted). */
+    fun noted(ctx: Context, poolId: String): Boolean = prefs(ctx).contains(poolId)
+
+    /**
+     * A round without a note whose mixed outputs are not the hot wallet's: rounds a perfect coin joined on its
+     * own before 1.4.1 were never noted. Found by deriving the watch-only wallet's addresses, then Jam's; null when
+     * neither has them (the hot wallet's, or a wallet no longer here).
+     */
+    fun guess(ctx: Context, type: ScriptType, scripts: List<ByteArray>): Kind? {
+        if (scripts.isEmpty()) return null
+        for (kind in listOf(Kind.WATCH, Kind.JAM)) {
+            if (accountOf(ctx, kind, type) == null) continue
+            if (describe(ctx, kind, type, scripts).all { it.path != "?" }) return kind
+        }
+        return null
     }
 
     /** Where [poolId]'s mixed outputs go: [Kind.HOT] unless noted otherwise. */

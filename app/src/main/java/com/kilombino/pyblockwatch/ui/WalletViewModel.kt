@@ -2523,9 +2523,11 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                    /** A creator's own private pool: the pool's key from its password (hex), in place of the password. */
                    val passwordKey: String? = null,
                    /** The perpetual coinjoin chosen with it: its fee cap; null when not perpetual. */
-                   val perpCap: Double? = null) {
-        fun withDest(scripts: List<ByteArray>?) = ExactFor(poolId, poolPassword, create, terms, scripts, extraSeat, passwordKey, perpCap)
-        fun withPerpetual(cap: Double?) = ExactFor(poolId, poolPassword, create, terms, destScripts, extraSeat, passwordKey, cap)
+                   val perpCap: Double? = null,
+                   /** That destination as the round's card notes it ([Destination.note]); null for this wallet. */
+                   val destNote: String? = null) {
+        fun withDest(scripts: List<ByteArray>?, note: String? = null) = ExactFor(poolId, poolPassword, create, terms, scripts, extraSeat, passwordKey, perpCap, note)
+        fun withPerpetual(cap: Double?) = ExactFor(poolId, poolPassword, create, terms, destScripts, extraSeat, passwordKey, cap, destNote)
     }
     @Volatile var exactFor: ExactFor? = null
     /** The perfect coin in the review: its address index, account and amount. */
@@ -2616,7 +2618,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 "m/${Scanner.purposeFor(type)}'/0'/0'/0/$index", script, mixes, changeScriptPubKey(changeIndex, tag),
                 f.poolId, f.poolPassword, f.create, terms = f.terms, extraSeat = f.extraSeat, passwordKey = f.passwordKey,
                 // Perpetual only with one mixed output of this wallet, whose key the branch gives.
-                perpCap = f.perpCap?.takeIf { branch != null && hotMix >= 0 && outputs == 1 }, mixIndex = hotMix), key,
+                perpCap = f.perpCap?.takeIf { branch != null && hotMix >= 0 && outputs == 1 }, mixIndex = hotMix, dest = f.destNote), key,
             branch?.takeIf { f.perpCap != null && hotMix >= 0 && outputs == 1 })
     }
 
