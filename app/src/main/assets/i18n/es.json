@@ -864,7 +864,6 @@
 "Sats (blank = all ticked: ": "Sats (vacío = todas las marcadas: ",
 "Save a backup file after creating it: the file brings this same offer back on a new ": "Guarda un archivo de copia después de crearla: el archivo recupera esta misma oferta en un teléfono ",
 "Save as a contact?": "¿Guardar como contacto?",
-"Saved: close and reopen the app to use it.": "Guardado: cierra y vuelve a abrir la app para usarlo.",
 "Schnorr self-check failed": "falló la autocomprobación Schnorr",
 "SegWit inputs need a compressed public key": "las entradas SegWit necesitan una clave pública comprimida",
 "Send and Receive, nothing else in the way": "Enviar y Recibir, sin nada más por medio",
@@ -2425,5 +2424,7 @@
 "There is a new update": "Hay una nueva actualización",
 "Kilowallet {0}": "Kilowallet {0}",
 "READ": "LEER",
-"UPDATE": "ACTUALIZAR"
+"UPDATE": "ACTUALIZAR",
+"Saved and in use.": "Guardado y en uso.",
+"Saved: it takes effect when the node next starts.": "Guardado: se aplicará cuando el nodo vuelva a arrancar."
 }

@@ -3,6 +3,8 @@ set -e
 cd /mnt/datos2/lnd-mobile21
 export ANDROID_HOME=$HOME/Android/Sdk ANDROID_NDK_HOME=$HOME/Android/Sdk/ndk/27.1.12297006
 export GOMAXPROCS=3 GOTOOLCHAIN=local PATH=$HOME/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.3.linux-amd64/bin:$PATH
+# Neutrino that advertises NODE_BLAKE2B (Knots 29.4.3 serves headers past the fork only to such peers).
+GOFLAGS=-mod=mod go mod edit -replace github.com/lightninglabs/neutrino=github.com/Kilombino/neutrino-blake2b@v0.17.1-blake2b.1.1
 ls mobile/*_generated.go >/dev/null 2>&1 || (cd lnrpc && COMPILE_MOBILE=1 SUBSERVER_PREFIX=1 nice ./gen_protos_docker.sh)
 echo "== gomobile"; go install golang.org/x/mobile/cmd/gomobile@latest && go install golang.org/x/mobile/cmd/gobind@latest
 export PATH=$HOME/go/bin:$PATH

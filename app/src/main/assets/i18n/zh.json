@@ -858,7 +858,6 @@
 "Sats (blank = all ticked: ": "Sats（留空 = 所有勾选的： ",
 "Save a backup file after creating it: the file brings this same offer back on a new ": "创建后请保存一个备份文件：在新手机上用该文件可以恢复同一个 ",
 "Save as a contact?": "保存为联系人？",
-"Saved: close and reopen the app to use it.": "已保存：关闭并重新打开应用即可使用。",
 "Schnorr self-check failed": "Schnorr 自检失败",
 "SegWit inputs need a compressed public key": "SegWit 输入需要压缩公钥",
 "Send and Receive, nothing else in the way": "发送和接收，别无其他干扰",
@@ -2413,5 +2412,7 @@
 "There is a new update": "有新的更新",
 "Kilowallet {0}": "Kilowallet {0}",
 "READ": "阅读",
-"UPDATE": "更新"
+"UPDATE": "更新",
+"Saved and in use.": "已保存并生效。",
+"Saved: it takes effect when the node next starts.": "已保存：节点下次启动时生效。"
 }

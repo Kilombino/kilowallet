@@ -864,7 +864,6 @@
 "Sats (blank = all ticked: ": "Sats (buit = totes les marcades: ",
 "Save a backup file after creating it: the file brings this same offer back on a new ": "Desa un fitxer de còpia després de crear-la: el fitxer recupera aquesta mateixa oferta en un telèfon ",
 "Save as a contact?": "Vols desar-lo com a contacte?",
-"Saved: close and reopen the app to use it.": "Desat: tanca i torna a obrir l'app per fer-lo servir.",
 "Schnorr self-check failed": "ha fallat l'autocomprovació Schnorr",
 "SegWit inputs need a compressed public key": "les entrades SegWit necessiten una clau pública comprimida",
 "Send and Receive, nothing else in the way": "Enviar i Rebre, sense res més pel mig",
@@ -2425,5 +2424,7 @@
 "There is a new update": "Hi ha una nova actualització",
 "Kilowallet {0}": "Kilowallet {0}",
 "READ": "LLEGEIX",
-"UPDATE": "ACTUALITZA"
+"UPDATE": "ACTUALITZA",
+"Saved and in use.": "Desat i en ús.",
+"Saved: it takes effect when the node next starts.": "Desat: s'aplicarà quan el node torni a arrencar."
 }
