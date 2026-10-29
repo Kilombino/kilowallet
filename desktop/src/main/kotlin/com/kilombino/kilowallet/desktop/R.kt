@@ -28,6 +28,7 @@ object R {
         drawable.widget_preview to "res/drawable-nodpi/widget_preview.webp",
         drawable.xbt_coin to "res/drawable-nodpi/xbt_coin.webp",
         mipmap.ic_launcher_full to "res/mipmap-xxxhdpi/ic_launcher_full.webp",
-        mipmap.ic_launcher to "res/mipmap-xxxhdpi/ic_launcher.webp",
+        // The window and tray: the coin alone (Android's round launcher icon), not on a dark square.
+        mipmap.ic_launcher to "res/mipmap-xxxhdpi/ic_launcher_round.webp",
     )
 }
