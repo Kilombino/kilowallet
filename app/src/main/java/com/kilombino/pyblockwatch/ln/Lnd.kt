@@ -393,6 +393,11 @@ object Lnd {
 
     // ---------------------------------------------------------------- actions
 
+    /** Renames the running node now (peersrpc UpdateNodeAnnouncement): GetInfo and the next node announcement use [alias]. */
+    suspend fun rename(alias: String) {
+        call { Lndmobile.peersUpdateNodeAnnouncement(Pb().string(3, alias).build(), it) }
+    }
+
     suspend fun connect(pubkey: String, host: String) {
         runCatching {
             call { Lndmobile.connectPeer(Pb().msg(1, Pb().string(1, pubkey).string(2, host)).int(3, 30).build(), it) }

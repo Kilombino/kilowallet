@@ -1706,19 +1706,30 @@ private fun FeeLimitPanel(accent: Color) {
     }
 }
 
-/** Renames the node: saved now, used from the next start (LND reads it from its configuration). */
+/**
+ * Renames the node: saved for the next start (LND reads it from its configuration) and applied
+ * to the running node at once, so the change doesn't wait for the app's process to end.
+ */
 @Composable
 private fun AliasPanel(accent: Color, current: String) {
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     var alias by remember { mutableStateOf(Lightning.alias(ctx)) }
-    var saved by remember { mutableStateOf(false) }
+    var saved by remember { mutableStateOf<Boolean?>(null) }
     Panel(accent = accent) {
         SectionLabel("Node name", accent)
         Spacer(Modifier.height(6.dp))
-        Explain("What peers see your node as. Now: " + current.ifBlank { "—" } + ". A new name takes effect the next time the app starts.")
-        OutlinedTextField(alias, { alias = it.take(32); saved = false }, label = { Text("name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        TextButton(enabled = alias.isNotBlank(), onClick = { Lightning.setAlias(ctx, alias); saved = true }) { Text("SAVE", color = accent) }
-        if (saved) Text("Saved: close and reopen the app to use it.", style = MaterialTheme.typography.bodySmall, color = Good)
+        Explain("What peers see your node as. Now: " + current.ifBlank { "—" } + ".")
+        OutlinedTextField(alias, { alias = it.take(32); saved = null }, label = { Text("name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        TextButton(enabled = alias.isNotBlank(), onClick = {
+            Lightning.setAlias(ctx, alias)
+            scope.launch { saved = Lnd.running && runCatching { Lnd.rename(Lightning.alias(ctx)) }.isSuccess }
+        }) { Text("SAVE", color = accent) }
+        when (saved) {
+            true -> Text("Saved and in use.", style = MaterialTheme.typography.bodySmall, color = Good)
+            false -> Text("Saved: it takes effect when the node next starts.", style = MaterialTheme.typography.bodySmall, color = Good)
+            null -> {}
+        }
     }
 }
 

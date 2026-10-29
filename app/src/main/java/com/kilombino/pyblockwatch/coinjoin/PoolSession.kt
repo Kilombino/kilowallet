@@ -135,6 +135,10 @@ class PoolSession(private val env: Env, private val s: State) {
         var closedVote: String? = null,
         /** Member: when the closing we took was sent; only a later one from the creator replaces it (see "closing"). */
         var closingAt: Long = 0,
+        /** When the round's transaction went out (epoch seconds; 0 before, and for rounds saved before this). */
+        var sentAt: Long = 0,
+        /** When the round ended: confirmed, cancelled or refused (epoch seconds; 0 while it goes on). */
+        var endedAt: Long = 0,
     ) {
         val poolId: String get() = terms.id
         /** What this seat is kept under on the phone: the pool's id, or with [seatId] for another seat in it. */
@@ -171,6 +175,7 @@ class PoolSession(private val env: Env, private val s: State) {
             .put("pay_outputs", org.json.JSONArray(payOutputs))
             .put("seat_id", seatId).put("join_after", joinAfter).put("perp_id", perpId ?: "")
             .put("close_seq", closeSeq).put("closed_vote", closedVote ?: "").put("closing_at", closingAt)
+            .put("sent_at", sentAt).put("ended_at", endedAt)
 
         companion object {
             private fun JSONObject.str(k: String): String? = optString(k).ifEmpty { null }
@@ -226,6 +231,9 @@ class PoolSession(private val env: Env, private val s: State) {
                     o.optJSONArray("pay_outputs")?.let { a -> (0 until a.length()).map { a.getString(it) } }?.toMutableList() ?: mutableListOf(),
                     o.optString("seat_id"), o.optLong("join_after"), o.str("perp_id"), o.optInt("close_seq"),
                     o.str("closed_vote"), o.optLong("closing_at"),
+                    // Rounds sent before these were kept: phase_deadline was set to the time it went out.
+                    o.optLong("sent_at").takeIf { it > 0 } ?: if (o.optString("phase") in setOf("BROADCAST", "CONFIRMED")) o.optLong("phase_deadline") else 0L,
+                    o.optLong("ended_at"),
                 )
             }
         }
@@ -294,6 +302,9 @@ class PoolSession(private val env: Env, private val s: State) {
     /** The plan once every output is in; null before. */
     @Synchronized fun plan(): CoinjoinTx.Plan? = runCatching { buildPlan() }.getOrNull()
 
+    /** The round's txid: the one sent, or while signing the one it will have (signatures don't change it). */
+    @Synchronized fun plannedTxid(): String? = s.txid ?: if (s.phase == Phase.SIGNING) plan()?.let { CoinjoinTx.txid(it) } else null
+
     // ------------------------------------------------------------------------------- lifecycle
 
     @Synchronized
@@ -346,7 +357,12 @@ class PoolSession(private val env: Env, private val s: State) {
         runCatching { connect() }
     }
 
-    private fun save() { env.save(s); env.event(Event.Changed(s.poolId)) }
+    private fun save() {
+        // The times HISTORY shows: when it went out, and when it was over.
+        if (s.phase in setOf(Phase.BROADCAST, Phase.CONFIRMED) && s.sentAt == 0L) s.sentAt = env.now()
+        if (s.phase in setOf(Phase.CONFIRMED, Phase.ABORTED, Phase.REJECTED) && s.endedAt == 0L) s.endedAt = env.now()
+        env.save(s); env.event(Event.Changed(s.poolId))
+    }
 
     // ------------------------------------------------------------------------------- sending
 

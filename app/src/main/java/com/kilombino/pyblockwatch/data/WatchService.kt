@@ -83,7 +83,8 @@ class WatchService : Service() {
                 val (updated, txs, _) = scanner.refreshDetails(JamWatch.knownRows(e, js, store.gapLimit), endpoint, pin, quick)
                 if (!quick) js.setLastFullLook(chain)
                 val nf = Notifier(this, JAM_PREFIX)
-                BalanceWatch.evaluate(js, nf, chain, updated.sumOf { it.confirmed }, updated.sumOf { it.unconfirmed }, txs)
+                BalanceWatch.evaluate(js, nf, chain, updated.sumOf { it.confirmed }, updated.sumOf { it.unconfirmed }, txs,
+                    runCatching { com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.ownTxids(this) }.getOrDefault(emptySet()))
                 JamWatch.alerts(js, nf, JamWatch.bondStates(e, updated, endpoint, pin, js))
             }
             val notifier = Notifier(this)
@@ -201,6 +202,7 @@ class WatchService : Service() {
             BalanceWatch.evaluate(
                 ws, notifier, chain,
                 updated.sumOf { it.confirmed }, updated.sumOf { it.unconfirmed }, txs,
+                runCatching { com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.ownTxids(ctx) }.getOrDefault(emptySet()),
             )
         }
 

@@ -1,7 +1,8 @@
-sha256-arm64=f319f38bdb930f34d780589790c0f89a5d55d92a4ea169f5bba1293edebbcc44
+sha256-arm64=d2895f9533a71372fcf5e04855dabe0de6b71f40b64b37ed590ced18e648783b
 repo=https://github.com/paulscode/lightning-fork
 tag=v0.21.4-beta-blake2b.21.1
 commit=7c8f252b1
+neutrino=github.com/Kilombino/neutrino-blake2b v0.17.1-blake2b.1.1 (go.mod replace: advertises NODE_BLAKE2B, which Knots 29.4.3 needs to serve headers past the fork; paulscode/neutrino-blake2b#4)
 build=lnd-engine/build.sh
 go=1.27.3
 gomobile=v0.0.0-20261011034528-197770444867

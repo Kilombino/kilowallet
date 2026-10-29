@@ -33,6 +33,14 @@ object OpenTab {
     val flow = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     /** The coinjoin list asked for (0 POOLS, 1 IN PROGRESS, 2 HISTORY), until the coinjoin screen shows it. */
     val coinjoinList = kotlinx.coroutines.flow.MutableStateFlow<Int?>(null)
+    /**
+     * The tab and coinjoin list on screen, kept outside the screens: the wallet screen is built again
+     * when it comes back (after the fingerprint for a coinjoin, for one) and used to start over on BTC.
+     */
+    @Volatile var shown: String = BTC
+    @Volatile var shownCoinjoinList: Int? = null
+    /** The wallet a payment's notification is about ([Store.HOT] or [Store.WATCH]), until the app has switched to it. */
+    val wallet = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
     private val TABS = listOf(BTC, SPAMCOIN, ARK, COINJOIN, LIGHTNING, UPDATE, BTC_HOT, BTC_WATCH,
         COINJOIN_POOLS, COINJOIN_ROUNDS, COINJOIN_HISTORY)
@@ -48,5 +56,24 @@ object OpenTab {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
-    fun from(intent: Intent?) { intent?.getStringExtra(EXTRA)?.let { flow.value = it } }
+    fun from(intent: Intent?) { intent?.getStringExtra(EXTRA)?.let { open(it) } }
+
+    /**
+     * Asks for [tab]. A coinjoin list or a wallet is split here into the plain tab, which every screen
+     * knows, and the list or wallet beside it: the screens that only knew the plain tabs used to take
+     * "coinjoin:rounds" for an unknown one and open BTC.
+     */
+    fun open(tab: String) {
+        when (tab) {
+            COINJOIN_POOLS, COINJOIN_ROUNDS, COINJOIN_HISTORY -> {
+                coinjoinList.value = when (tab) { COINJOIN_POOLS -> 0; COINJOIN_HISTORY -> 2; else -> 1 }
+                flow.value = COINJOIN
+            }
+            BTC_HOT, BTC_WATCH -> {
+                wallet.value = if (tab == BTC_WATCH) Store.WATCH else Store.HOT
+                flow.value = BTC
+            }
+            else -> flow.value = tab
+        }
+    }
 }

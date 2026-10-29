@@ -183,7 +183,8 @@ class JamViewModel(app: Application) : AndroidViewModel(app) {
                 if (!quick) store.setLastFullLook(chain)
                 val used = updated.filter { it.isUsed || it.chainIndex == JoinMarket.BOND_BRANCH }
                 JamWatch.noteUsed(e, store, used)
-                BalanceWatch.evaluate(store, notifier, chain, used.sumOf { it.confirmed }, used.sumOf { it.unconfirmed }, txs)
+                BalanceWatch.evaluate(store, notifier, chain, used.sumOf { it.confirmed }, used.sumOf { it.unconfirmed }, txs,
+                    runCatching { com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.ownTxids(getApplication()) }.getOrDefault(emptySet()))
                 _state.update { it.copy(rows = used, txs = txs, height = tip, stale = false, jarNets = JamWatch.jarNets(txs, used)) }
                 // A newly used address may sit past the walked range: walk again.
                 if (used.filter { it.chainIndex in 0..1 }.size > st.rows.filter { it.chainIndex in 0..1 }.size) {

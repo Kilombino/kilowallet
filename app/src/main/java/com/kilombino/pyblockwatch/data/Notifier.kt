@@ -39,8 +39,8 @@ class Notifier(private val context: Context, private val titlePrefix: String = "
 
     /**
      * Post one alert. [id] is stable per (chain, event, txid) so re-evaluating the same
-     * state updates the existing notification instead of stacking duplicates, while a
-     * mempool alert and its later confirmation keep DIFFERENT ids so the user sees both.
+     * state updates the existing notification instead of stacking duplicates; a payment's
+     * first confirmation takes the place of its mempool alert.
      */
     private fun post(id: Int, title: String, text: String, tab: String) {
         ensureChannels()
@@ -83,17 +83,16 @@ class Notifier(private val context: Context, private val titlePrefix: String = "
              if (confirmed) "⚡ Lightning node: payment confirmed" else "⚡ Lightning node: incoming payment",
              "+${sats(amount)} sats on-chain in the Lightning node" + (if (confirmed) " (1 conf)" else " (0 conf)"), OpenTab.LIGHTNING)
 
+    // A payment is one notification: in the mempool (0 conf), then the same one again at its first
+    // block (1 conf), so the two don't pile up. Its wallet is in the title prefix.
     fun mempoolIn(chain: Chain, amount: Long, txid: String) =
-        post(idFor(chain, "mem", txid), "New incoming payment in the mempool",
-             "${label(chain)} · +${sats(amount)} sats (0 conf)", tabFor(chain))
+        post(idFor(chain, "pay", txid), "Received", "${label(chain)} · +${sats(amount)} sats · 0 conf", tabFor(chain))
 
     fun mempoolOut(chain: Chain, amount: Long, txid: String) =
-        post(idFor(chain, "mem", txid), "New outgoing payment in the mempool",
-             "${label(chain)} · ${sats(amount)} sats (0 conf)", tabFor(chain))
+        post(idFor(chain, "pay", txid), "Sent", "${label(chain)} · −${sats(amount)} sats · 0 conf", tabFor(chain))
 
     fun firstConfIn(chain: Chain, amount: Long, txid: String) =
-        post(idFor(chain, "conf", txid), "First confirmation of the incoming payment",
-             "${label(chain)} · +${sats(amount)} sats (1 conf)", tabFor(chain))
+        post(idFor(chain, "pay", txid), "Received ✅", "${label(chain)} · +${sats(amount)} sats · 1 conf", tabFor(chain))
 
     /** A confirmed incoming payment whose proof (merkle + block proof of work) did not check out. */
     fun unprovenIn(chain: Chain, amount: Long, txid: String) =
@@ -102,8 +101,7 @@ class Notifier(private val context: Context, private val titlePrefix: String = "
                  "out. Do not count on it; check it on your own node or another server.", tabFor(chain))
 
     fun firstConfOut(chain: Chain, amount: Long, txid: String) =
-        post(idFor(chain, "conf", txid), "First confirmation of the outgoing payment",
-             "${label(chain)} · ${sats(amount)} sats (1 conf)", tabFor(chain))
+        post(idFor(chain, "pay", txid), "Sent ✅", "${label(chain)} · −${sats(amount)} sats · 1 conf", tabFor(chain))
 
     // A change we only ever saw already-confirmed (received or spent between two checks,
     // never observed in the mempool). No txid to key on, so it collapses per chain.
@@ -239,6 +237,11 @@ object BalanceWatch {
         confirmed: Long,
         unconfirmed: Long,
         txs: List<TxConf>,
+        /**
+         * This phone's coinjoin transactions: they move the balance as any payment, but their round
+         * tells about them (sent, then received in this wallet), so they are counted here in silence.
+         */
+        coinjoins: Set<String> = emptySet(),
     ) {
         val prevConf = store.lastNotifiedConf(chain)
         val prevUnconf = store.lastNotifiedUnconf(chain)
@@ -264,19 +267,24 @@ object BalanceWatch {
         // Pending txids that vanished without confirming were replaced/evicted: drop quietly.
 
         val newAmounts = HashMap<String, Long>()
+        // Coinjoins of ours this wallet sees for the first time, pending or already confirmed.
+        val seen = store.coinjoinsSeen(chain)
+        val freshCoinjoins = txs.map { it.txid }.filter { it in coinjoins && it !in seen }
 
         // 1) New mempool transaction(s). The whole balance delta this cycle is theirs,
-        //    since confirmations are balance-neutral.
+        //    since confirmations are balance-neutral. Only a coinjoin among them: not told here.
         if (newPending.isNotEmpty()) {
             val share = if (newPending.size == 1) totalDelta else totalDelta / newPending.size
             newPending.forEach { newAmounts[it] = share }
-            if (totalDelta >= 0) notifier.mempoolIn(chain, totalDelta, newPending.first())
-            else notifier.mempoolOut(chain, -totalDelta, newPending.first())
+            if (newPending.all { it in coinjoins }) Unit
+            else if (totalDelta >= 0) notifier.mempoolIn(chain, totalDelta, newPending.first { it !in coinjoins })
+            else notifier.mempoolOut(chain, -totalDelta, newPending.first { it !in coinjoins })
         }
 
         // 2) Transactions that were pending and just got their first confirmation.
         val unproven = txs.filter { it.spv == false }.map { it.txid }.toSet()
         nowConfirmed.forEach { txid ->
+            if (txid in coinjoins) return@forEach
             val amount = prevMap[txid] ?: 0L
             if (amount >= 0 && txid in unproven) notifier.unprovenIn(chain, amount, txid)
             else if (amount >= 0) notifier.firstConfIn(chain, amount, txid)
@@ -287,7 +295,8 @@ object BalanceWatch {
         //    confirmed (common with the 5-minute background gap).
         //    It may still be unconfirmed (e.g. a payment to yourself, or an address the watcher
         //    only just started following): then say so instead of calling it confirmed.
-        if (newPending.isEmpty() && totalDelta != 0L) {
+        //    A coinjoin of ours first seen here (between two looks) is the change: nothing to tell.
+        if (newPending.isEmpty() && totalDelta != 0L && freshCoinjoins.isEmpty()) {
             val stillPending = unconfirmed != prevUnconf
             // A fresh confirmed payment that failed its proof is reported as such, not as received.
             val freshUnproven = txs.firstOrNull { it.spv == false && it.confirmations in 1..6 }
@@ -301,5 +310,6 @@ object BalanceWatch {
         val nextMap = currentPending.associateWith { prevMap[it] ?: newAmounts[it] ?: 0L }
         store.setPendingMap(chain, nextMap)
         store.setLastNotified(chain, confirmed, unconfirmed)
+        if (freshCoinjoins.isNotEmpty()) store.setCoinjoinsSeen(chain, seen + freshCoinjoins)
     }
 }

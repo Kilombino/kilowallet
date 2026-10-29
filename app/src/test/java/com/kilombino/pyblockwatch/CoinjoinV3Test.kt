@@ -64,6 +64,23 @@ class CoinjoinV3Test {
         assertNull(member.creatorSecret); assertNull(member.blindPriv)
     }
 
+    @Test fun historyKeepsWhenARoundWentOutAndEnded() {
+        val np = PoolSession.newPool(100_000, 2.0, 5, 1, v3 = true)
+        val c = coin(11, 150_000, ScriptType.P2WPKH)
+        val st = PoolSession.newState(np.terms, false, null, listOf(c), listOf(key(11)), listOf("m"),
+            script(41, ScriptType.P2WPKH), script(31, ScriptType.P2WPKH))
+        st.phase = PoolSession.Phase.CONFIRMED; st.sentAt = 1_800_000_000; st.endedAt = 1_800_000_600
+        val back = PoolSession.State.parse(JSONObject(st.toJson().toString()))
+        assertEquals(1_800_000_000L, back.sentAt); assertEquals(1_800_000_600L, back.endedAt)
+        // A round saved before the times were kept: it went out when its phase deadline was set.
+        val old = JSONObject(st.toJson().toString()).apply { remove("sent_at"); remove("ended_at"); put("phase_deadline", 1_700_000_000L) }
+        assertEquals(1_700_000_000L, PoolSession.State.parse(old).sentAt)
+        assertEquals(0L, PoolSession.State.parse(old).endedAt)
+        // One that never went out has no time of sending.
+        old.put("phase", "ABORTED")
+        assertEquals(0L, PoolSession.State.parse(old).sentAt)
+    }
+
     @Test fun seatMacsAreBoundToWhatTheySay() {
         val token = "00112233445566778899aabbccddeeff"
         val m = Protocol.mac(token, "vote", "v1", true)

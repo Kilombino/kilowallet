@@ -139,26 +139,21 @@ class MainActivity : FragmentActivity() {
                 // ARK and COINJOIN live in advanced mode: a notification about them switches to it.
                 val openTab by com.kilombino.pyblockwatch.data.OpenTab.flow.collectAsState()
                 LaunchedEffect(openTab) {
-                    val ot = com.kilombino.pyblockwatch.data.OpenTab
-                    when (openTab) {
-                        // A coinjoin notification opens its list: POOLS for a new pool, IN PROGRESS for a round of ours, HISTORY once it is over.
-                        ot.COINJOIN_POOLS, ot.COINJOIN_ROUNDS, ot.COINJOIN_HISTORY -> {
-                            ot.coinjoinList.value = when (openTab) { ot.COINJOIN_POOLS -> 0; ot.COINJOIN_HISTORY -> 2; else -> 1 }
-                            ot.flow.value = ot.COINJOIN; return@LaunchedEffect
-                        }
-                        // A payment's notification opens BTC on the wallet it is about; the other wallet after
-                        // the fingerprint, as its button at the top asks.
-                        ot.BTC_HOT, ot.BTC_WATCH -> {
-                            val watch = openTab == ot.BTC_WATCH
-                            val showing = !state.jamView && (if (watch) !state.isHot else state.isHot)
-                            if (!showing && (if (watch) vm.hasWatchWallet() else state.hasSeed))
-                                Biometric.confirm(this@MainActivity, if (watch) "Open the watch-only wallet" else "Back to the hot wallet",
-                                    if (watch) "Unlock to see the watched wallet" else "Unlock to see and spend your hot wallet",
-                                    onSuccess = { if (watch) vm.viewAsWatchOnly() else vm.viewAsHot() }, onError = {})
-                            ot.flow.value = ot.BTC; return@LaunchedEffect
-                        }
-                    }
-                    if (state.uiMode == "simple" && (openTab == ot.ARK || openTab == ot.COINJOIN)) vm.setUiMode("advanced")
+                    if (state.uiMode == "simple" && (openTab == com.kilombino.pyblockwatch.data.OpenTab.ARK ||
+                            openTab == com.kilombino.pyblockwatch.data.OpenTab.COINJOIN)) vm.setUiMode("advanced")
+                }
+                // A payment's notification opens BTC on the wallet it is about; the other wallet after the
+                // fingerprint, as its button at the top asks.
+                val askedWallet by com.kilombino.pyblockwatch.data.OpenTab.wallet.collectAsState()
+                LaunchedEffect(askedWallet) {
+                    val w = askedWallet ?: return@LaunchedEffect
+                    com.kilombino.pyblockwatch.data.OpenTab.wallet.value = null
+                    val watch = w == com.kilombino.pyblockwatch.data.Store.WATCH
+                    val showing = !state.jamView && (if (watch) !state.isHot else state.isHot)
+                    if (!showing && (if (watch) vm.hasWatchWallet() else state.hasSeed))
+                        Biometric.confirm(this@MainActivity, if (watch) "Open the watch-only wallet" else "Back to the hot wallet",
+                            if (watch) "Unlock to see the watched wallet" else "Unlock to see and spend your hot wallet",
+                            onSuccess = { if (watch) vm.viewAsWatchOnly() else vm.viewAsHot() }, onError = {})
                 }
                 Box(Modifier.fillMaxSize().background(Ink)) {
                     // A newer release on GitHub: looked for every 5 minutes while the app is open
@@ -210,21 +205,28 @@ class MainActivity : FragmentActivity() {
                     update?.takeIf { !busy || asked }?.let { r ->
                         if (upd is com.kilombino.pyblockwatch.data.AppUpdater.State.Idle) AlertDialog(
                             onDismissRequest = { update = null },
-                            title = { Text("Kilowallet ${r.version} is out") },
-                            text = { Text("Update now: it downloads here, is checked against the published hash and this " +
+                            title = { Text("There is a new update") },
+                            text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Kilowallet ${r.version}", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                                Text("Update now: it downloads here, is checked against the published hash and this " +
                                 "app's certificate, and installs over this one keeping everything." +
                                 (if (r.apkUrl == null) "\n\nThis release can't be installed from here (no APK, or no published hash to check it against): open its page instead." else "") +
                                 (if (busy) "\n\nA coinjoin round of yours is under way: updating now leaves it (your coin " +
-                                    "stays where it is), or choose NOT NOW and update once it is over." else ""),
-                                style = MaterialTheme.typography.bodySmall) },
+                                    "stays where it is), or choose CANCEL and update once it is over." else ""),
+                                style = MaterialTheme.typography.bodySmall)
+                            } },
                             confirmButton = { TextButton(onClick = {
                                 if (r.apkUrl != null) com.kilombino.pyblockwatch.data.AppUpdater.start(this@MainActivity, r)
                                 else { runCatching { uri.openUri(r.url) }; update = null }
-                            }) { Text(if (r.apkUrl != null) "UPDATE NOW" else "OPEN", color = Purple) } },
-                            dismissButton = { TextButton(onClick = {
-                                getSharedPreferences("pyblockwatch", MODE_PRIVATE).edit().putString("update_dismissed", r.version).apply()
-                                update = null
-                            }) { Text("NOT NOW", color = TextSoft) } },
+                            }) { Text(if (r.apkUrl != null) "UPDATE" else "OPEN", color = Purple) } },
+                            // READ opens the release's page on GitHub (what is new) and leaves the dialog up.
+                            dismissButton = { Row {
+                                TextButton(onClick = { runCatching { uri.openUri(r.url) } }) { Text("READ", color = TextSoft) }
+                                TextButton(onClick = {
+                                    getSharedPreferences("pyblockwatch", MODE_PRIVATE).edit().putString("update_dismissed", r.version).apply()
+                                    update = null
+                                }) { Text("CANCEL", color = TextSoft) }
+                            } },
                             containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
                         )
                     }
@@ -564,9 +566,15 @@ private fun WalletScreen(state: UiState, vm: WalletViewModel, onToggleNotificati
     val chain = state.selected
     val cs = state.current
     // Tabs: BTC (the BLAKE2b chain) and ARK; the spamchain opens from settings.
-    var arkTab by remember { mutableStateOf(false) }
-    var cjTab by remember { mutableStateOf(false) }
-    var lnTab by remember { mutableStateOf(false) }
+    // Where it was left, if the screen is built again (see OpenTab.shown).
+    var arkTab by remember { mutableStateOf(com.kilombino.pyblockwatch.data.OpenTab.shown == com.kilombino.pyblockwatch.data.OpenTab.ARK) }
+    var cjTab by remember { mutableStateOf(com.kilombino.pyblockwatch.data.OpenTab.shown == com.kilombino.pyblockwatch.data.OpenTab.COINJOIN) }
+    var lnTab by remember { mutableStateOf(com.kilombino.pyblockwatch.data.OpenTab.shown == com.kilombino.pyblockwatch.data.OpenTab.LIGHTNING) }
+    androidx.compose.runtime.SideEffect {
+        com.kilombino.pyblockwatch.data.OpenTab.shown = with(com.kilombino.pyblockwatch.data.OpenTab) {
+            when { arkTab -> ARK; cjTab -> COINJOIN; lnTab -> LIGHTNING; else -> BTC }
+        }
+    }
     var arkPull by remember { mutableStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
     val openTab by com.kilombino.pyblockwatch.data.OpenTab.flow.collectAsState()

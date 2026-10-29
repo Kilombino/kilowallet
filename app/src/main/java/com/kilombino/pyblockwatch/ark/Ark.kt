@@ -25,9 +25,10 @@ object Ark {
     const val BOARD_CONFIRMATIONS = 3
     const val MAX_VTXO_SAT = 1_000_000L
     const val MAX_LIGHTNING_SAT = 250_000L
-    // Paperclip funded recovery profile 2: reserve per recovery transaction, and the
-    // smallest output (330 dust + 1,000 claim allowance). See FUNDED-EXITS.md.
-    const val RESERVE_SAT = 2_000L
+    // Reserve per recovery transaction of an ordinary transfer (Paperclip 0.9.0 economical
+    // transfers: 330-sat anchor + 198-sat miner fee), and the smallest output (330 dust +
+    // 1,000 claim allowance). See FUNDED-EXITS.md and docs/fees-0.9.0.md of the engine.
+    const val RESERVE_SAT = 528L
     const val MIN_OUTPUT_SAT = 1_330L
 
     @Volatile private var port = 0
@@ -469,7 +470,7 @@ object Ark {
     /**
      * What an operation will really cost, shown BEFORE the user confirms. Paperclip runs a
      * "funded recovery profile": each Ark transfer reserves sats to pre-pay its on-chain
-     * emergency exit (about 6,000 with change, 4,000 without), and they are not refunded.
+     * emergency exit (about 1,584 with change, 1,056 without), and they are not refunded.
      * In fiat it is cents; in sats it can be most of a small payment, so it must be shown.
      */
     data class Estimate(

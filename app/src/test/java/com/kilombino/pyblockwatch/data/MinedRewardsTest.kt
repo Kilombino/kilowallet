@@ -33,12 +33,15 @@ class MinedRewardsTest {
         assertFalse(Scanner.immature(true, h, h + 6_479)) // spendable once the tip is its maturity block
         assertFalse(Scanner.immature(false, h, h + 10)) // not a reward: never locked
         assertFalse(Scanner.immature(true, 0, 100)) // unconfirmed: nothing to say
-        // Outside the flag day: the usual 100.
-        assertEquals(100, Scanner.maturityFor(979_920)); assertEquals(100, Scanner.maturityFor(973_439))
-        assertEquals(979_920 + 99, Scanner.maturesAt(979_920))
-        assertTrue(Scanner.immature(true, 979_920, 980_018)); assertFalse(Scanner.immature(true, 979_920, 980_019))
+        assertEquals(6_480, Scanner.maturityFor(979_918))
+        // Knots 29.4.3 (knots#468): from block 979 919, 25 920 confirmations, counted from each reward's block.
+        assertEquals(25_920, Scanner.maturityFor(979_919)); assertEquals(25_920, Scanner.maturityFor(990_000))
+        assertEquals(979_919 + 25_919, Scanner.maturesAt(979_919))
+        assertTrue(Scanner.immature(true, 979_919, 979_919 + 25_918)); assertFalse(Scanner.immature(true, 979_919, 979_919 + 25_919))
+        // Before the flag day: the usual 100.
+        assertEquals(100, Scanner.maturityFor(973_439))
         // Only coins younger than the longest maturity can be locked rewards: older ones are not looked at.
-        assertTrue(Scanner.mayBeImmature(h, h + 6_478)); assertFalse(Scanner.mayBeImmature(h, h + 6_479))
+        assertTrue(Scanner.mayBeImmature(h, h + 25_918)); assertFalse(Scanner.mayBeImmature(h, h + 25_919))
         assertFalse(Scanner.mayBeImmature(0, h))
     }
 
