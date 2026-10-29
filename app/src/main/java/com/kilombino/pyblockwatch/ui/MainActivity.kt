@@ -205,21 +205,28 @@ class MainActivity : FragmentActivity() {
                     update?.takeIf { !busy || asked }?.let { r ->
                         if (upd is com.kilombino.pyblockwatch.data.AppUpdater.State.Idle) AlertDialog(
                             onDismissRequest = { update = null },
-                            title = { Text("Kilowallet ${r.version} is out") },
-                            text = { Text("Update now: it downloads here, is checked against the published hash and this " +
+                            title = { Text("There is a new update") },
+                            text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Kilowallet ${r.version}", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                                Text("Update now: it downloads here, is checked against the published hash and this " +
                                 "app's certificate, and installs over this one keeping everything." +
                                 (if (r.apkUrl == null) "\n\nThis release can't be installed from here (no APK, or no published hash to check it against): open its page instead." else "") +
                                 (if (busy) "\n\nA coinjoin round of yours is under way: updating now leaves it (your coin " +
-                                    "stays where it is), or choose NOT NOW and update once it is over." else ""),
-                                style = MaterialTheme.typography.bodySmall) },
+                                    "stays where it is), or choose CANCEL and update once it is over." else ""),
+                                style = MaterialTheme.typography.bodySmall)
+                            } },
                             confirmButton = { TextButton(onClick = {
                                 if (r.apkUrl != null) com.kilombino.pyblockwatch.data.AppUpdater.start(this@MainActivity, r)
                                 else { runCatching { uri.openUri(r.url) }; update = null }
-                            }) { Text(if (r.apkUrl != null) "UPDATE NOW" else "OPEN", color = Purple) } },
-                            dismissButton = { TextButton(onClick = {
-                                getSharedPreferences("pyblockwatch", MODE_PRIVATE).edit().putString("update_dismissed", r.version).apply()
-                                update = null
-                            }) { Text("NOT NOW", color = TextSoft) } },
+                            }) { Text(if (r.apkUrl != null) "UPDATE" else "OPEN", color = Purple) } },
+                            // READ opens the release's page on GitHub (what is new) and leaves the dialog up.
+                            dismissButton = { Row {
+                                TextButton(onClick = { runCatching { uri.openUri(r.url) } }) { Text("READ", color = TextSoft) }
+                                TextButton(onClick = {
+                                    getSharedPreferences("pyblockwatch", MODE_PRIVATE).edit().putString("update_dismissed", r.version).apply()
+                                    update = null
+                                }) { Text("CANCEL", color = TextSoft) }
+                            } },
                             containerColor = PanelBg, titleContentColor = TextMain, textContentColor = TextSoft,
                         )
                     }

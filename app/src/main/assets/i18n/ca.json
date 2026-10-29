@@ -410,7 +410,7 @@
 "Error: could not save the file: {0}": "Error: no s'ha pogut desar el fitxer: {0}",
 "Error: the Lightning payment failed. The coins came back to ": "Error: el pagament Lightning ha fallat. Les monedes han tornat a ",
 "Estimated cost: {0} sats ({1}). You get about ": "Cost estimat: {0} sats ({1}). Reps uns ",
-"Every Ark payment pre-pays recovery reserves for each coin it uses: about 2 700 sats for a coin spent whole and 4 000 for one with change (4 000 and 6 000 where the server has not enabled its smaller anchors); change must be at least 1 330 sats. Small balances can only leave Ark on-chain. The wallet shows the exact cost before you confirm.": "Cada pagament Ark paga per avançat reserves de recuperació per cada moneda que fa servir: uns 2 700 sats per una moneda gastada sencera i 4 000 per una amb canvi (4 000 i 6 000 on el servidor no ha activat les seves àncores més petites); el canvi ha de ser d'almenys 1 330 sats. Els saldos petits només poden sortir d'Ark on-chain. El moneder mostra el cost exacte abans que confirmis.",
+"Every Ark payment pre-pays recovery reserves for each coin it uses: about 1 056 sats for a coin spent whole and 1 584 for one with change (4 000 and 6 000 where the server has not enabled its smaller anchors); change must be at least 1 330 sats. Small balances can only leave Ark on-chain. The wallet shows the exact cost before you confirm.": "Cada pagament Ark paga per avançat reserves de recuperació per cada moneda que fa servir: uns 1 056 sats per una moneda gastada sencera i 1 584 per una amb canvi (4 000 i 6 000 on el servidor no ha activat les seves àncores més petites); el canvi ha de ser d'almenys 1 330 sats. Els saldos petits només poden sortir d'Ark on-chain. El moneder mostra el cost exacte abans que confirmis.",
 "Every channel in that file gets closed. Only if the old phone no longer runs Lightning.": "Es tanquen tots els canals d'aquest fitxer. Només si el telèfon antic ja no executa Lightning.",
 "Every channel in the backup gets closed: the money comes back on-chain, but the channels are gone.": "Es tanquen tots els canals de la còpia: els diners tornen on-chain, però els canals desapareixen.",
 "Every character counts: upper and lower case, spaces (also at the start or the end) and accents.": "Compta cada caràcter: majúscules i minúscules, espais (també al principi o al final) i accents.",
@@ -1644,7 +1644,7 @@
 "spending wallet later, it can use these same words.": "per gastar, pot fer servir aquestes mateixes paraules.",
 "start over": "torna a començar",
 "starting the node": "iniciant el node",
-"stays where it is), or choose NOT NOW and update once it is over.": "es queda on és), o tria ARA NO i actualitza quan acabi.",
+"stays where it is), or choose CANCEL and update once it is over.": "es queda on és), o tria CANCEL·LA i actualitza quan acabi.",
 "step by step: someone joined or left, someone asks to close, your turn to sign, sent, confirmed, cancelled.": "pas a pas: algú s'ha unit o ha sortit, algú demana tancar, et toca signar, enviat, confirmat, cancel·lat.",
 "still in the process of starting": "encara s'està iniciant",
 "strength must be 128 or 256 bits": "la força ha de ser de 128 o 256 bits",
@@ -2421,5 +2421,9 @@
 "{0} · +{1} sats · 0 conf": "{0} · +{1} sats · 0 conf",
 "{0} · −{1} sats · 0 conf": "{0} · −{1} sats · 0 conf",
 "{0} · +{1} sats · 1 conf": "{0} · +{1} sats · 1 conf",
-"{0} · −{1} sats · 1 conf": "{0} · −{1} sats · 1 conf"
+"{0} · −{1} sats · 1 conf": "{0} · −{1} sats · 1 conf",
+"There is a new update": "Hi ha una nova actualització",
+"Kilowallet {0}": "Kilowallet {0}",
+"READ": "LLEGEIX",
+"UPDATE": "ACTUALITZA"
 }

@@ -410,7 +410,7 @@
 "Error: could not save the file: {0}": "Fehler: Die Datei konnte nicht gespeichert werden: {0}",
 "Error: the Lightning payment failed. The coins came back to ": "Fehler: Die Lightning-Zahlung ist fehlgeschlagen. Die Münzen sind zurück in ",
 "Estimated cost: {0} sats ({1}). You get about ": "Geschätzte Kosten: {0} sats ({1}). Du bekommst etwa ",
-"Every Ark payment pre-pays recovery reserves for each coin it uses: about 2 700 sats for a coin spent whole and 4 000 for one with change (4 000 and 6 000 where the server has not enabled its smaller anchors); change must be at least 1 330 sats. Small balances can only leave Ark on-chain. The wallet shows the exact cost before you confirm.": "Jede Ark-Zahlung zahlt für jede verwendete Münze Wiederherstellungsreserven im Voraus: etwa 2 700 sats für eine ganz ausgegebene Münze und 4 000 für eine mit Wechselgeld (4 000 und 6 000, wo der Server seine kleineren Anker nicht aktiviert hat); Wechselgeld muss mindestens 1 330 sats betragen. Kleine Guthaben können Ark nur on-chain verlassen. Das Wallet zeigt die genauen Kosten, bevor du bestätigst.",
+"Every Ark payment pre-pays recovery reserves for each coin it uses: about 1 056 sats for a coin spent whole and 1 584 for one with change (4 000 and 6 000 where the server has not enabled its smaller anchors); change must be at least 1 330 sats. Small balances can only leave Ark on-chain. The wallet shows the exact cost before you confirm.": "Jede Ark-Zahlung zahlt für jede verwendete Münze Wiederherstellungsreserven im Voraus: etwa 1 056 sats für eine ganz ausgegebene Münze und 1 584 für eine mit Wechselgeld (4 000 und 6 000, wo der Server seine kleineren Anker nicht aktiviert hat); Wechselgeld muss mindestens 1 330 sats betragen. Kleine Guthaben können Ark nur on-chain verlassen. Das Wallet zeigt die genauen Kosten, bevor du bestätigst.",
 "Every channel in that file gets closed. Only if the old phone no longer runs Lightning.": "Alle Kanäle in dieser Datei werden geschlossen. Nur, wenn das alte Handy Lightning nicht mehr ausführt.",
 "Every channel in the backup gets closed: the money comes back on-chain, but the channels are gone.": "Alle Kanäle im Backup werden geschlossen: Das Geld kommt on-chain zurück, aber die Kanäle sind weg.",
 "Every character counts: upper and lower case, spaces (also at the start or the end) and accents.": "Jedes Zeichen zählt: Groß- und Kleinschreibung, Leerzeichen (auch am Anfang oder Ende) und Akzente.",
@@ -1644,7 +1644,7 @@
 "spending wallet later, it can use these same words.": "zum Ausgeben erstellst, kann es dieselben Wörter verwenden.",
 "start over": "neu anfangen",
 "starting the node": "Knoten wird gestartet",
-"stays where it is), or choose NOT NOW and update once it is over.": "bleibt, wo sie ist), oder wähle JETZT NICHT und aktualisiere, wenn sie vorbei ist.",
+"stays where it is), or choose CANCEL and update once it is over.": "bleibt, wo sie ist), oder wähle ABBRECHEN und aktualisiere, wenn sie vorbei ist.",
 "step by step: someone joined or left, someone asks to close, your turn to sign, sent, confirmed, cancelled.": "Schritt für Schritt: jemand ist beigetreten oder gegangen, jemand will schließen, du bist mit Signieren dran, gesendet, bestätigt, abgebrochen.",
 "still in the process of starting": "startet noch",
 "strength must be 128 or 256 bits": "die Stärke muss 128 oder 256 Bit sein",
@@ -2421,5 +2421,9 @@
 "{0} · +{1} sats · 0 conf": "{0} · +{1} sats · 0 Best.",
 "{0} · −{1} sats · 0 conf": "{0} · −{1} sats · 0 Best.",
 "{0} · +{1} sats · 1 conf": "{0} · +{1} sats · 1 Best.",
-"{0} · −{1} sats · 1 conf": "{0} · −{1} sats · 1 Best."
+"{0} · −{1} sats · 1 conf": "{0} · −{1} sats · 1 Best.",
+"There is a new update": "Ein neues Update ist da",
+"Kilowallet {0}": "Kilowallet {0}",
+"READ": "LESEN",
+"UPDATE": "AKTUALISIEREN"
 }

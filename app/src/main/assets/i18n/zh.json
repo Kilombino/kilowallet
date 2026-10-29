@@ -408,7 +408,7 @@
 "Error: could not save the file: {0}": "错误：无法保存文件：{0}",
 "Error: the Lightning payment failed. The coins came back to ": "错误：Lightning 付款失败。币已退回到 ",
 "Estimated cost: {0} sats ({1}). You get about ": "预计费用：{0} sats（{1}）。你大约能收到 ",
-"Every Ark payment pre-pays recovery reserves for each coin it uses: about 2 700 sats for a coin spent whole and 4 000 for one with change (4 000 and 6 000 where the server has not enabled its smaller anchors); change must be at least 1 330 sats. Small balances can only leave Ark on-chain. The wallet shows the exact cost before you confirm.": "每笔 Ark 支付都会为用到的每枚币预付恢复储备金：整笔花掉的币约 2 700 sats，有找零的币约 4 000 sats（服务器未启用较小锚点时分别为 4 000 和 6 000）；找零至少 1 330 sats。小额余额只能通过链上离开 Ark。确认前钱包会显示准确费用。",
+"Every Ark payment pre-pays recovery reserves for each coin it uses: about 1 056 sats for a coin spent whole and 1 584 for one with change (4 000 and 6 000 where the server has not enabled its smaller anchors); change must be at least 1 330 sats. Small balances can only leave Ark on-chain. The wallet shows the exact cost before you confirm.": "每笔 Ark 支付都会为用到的每枚币预付恢复储备金：整笔花掉的币约 1 056 sats，有找零的币约 1 584 sats（服务器未启用较小锚点时分别为 4 000 和 6 000）；找零至少 1 330 sats。小额余额只能通过链上离开 Ark。确认前钱包会显示准确费用。",
 "Every channel in that file gets closed. Only if the old phone no longer runs Lightning.": "该文件里的所有通道都会被关闭。仅在旧手机不再运行 Lightning 时使用。",
 "Every channel in the backup gets closed: the money comes back on-chain, but the channels are gone.": "备份中的每个通道都会被关闭：资金回到链上，但通道没了。",
 "Every character counts: upper and lower case, spaces (also at the start or the end) and accents.": "每个字符都算数：大小写、空格（包括开头和结尾）以及重音符号。",
@@ -1632,7 +1632,7 @@
 "spending wallet later, it can use these same words.": "支出钱包，也可以使用这套助记词。",
 "start over": "重新开始",
 "starting the node": "正在启动节点",
-"stays where it is), or choose NOT NOW and update once it is over.": "留在原处），或选择“以后再说”，等它结束后再更新。",
+"stays where it is), or choose CANCEL and update once it is over.": "留在原处），或选择“取消”，等它结束后再更新。",
 "step by step: someone joined or left, someone asks to close, your turn to sign, sent, confirmed, cancelled.": "一步一步：有人加入或退出、有人请求关闭、轮到你签名、已发送、已确认、已取消。",
 "still in the process of starting": "仍在启动中",
 "strength must be 128 or 256 bits": "强度必须为 128 或 256 位",
@@ -2409,5 +2409,9 @@
 "{0} · +{1} sats · 0 conf": "{0} · +{1} sats · 0 确认",
 "{0} · −{1} sats · 0 conf": "{0} · −{1} sats · 0 确认",
 "{0} · +{1} sats · 1 conf": "{0} · +{1} sats · 1 确认",
-"{0} · −{1} sats · 1 conf": "{0} · −{1} sats · 1 确认"
+"{0} · −{1} sats · 1 conf": "{0} · −{1} sats · 1 确认",
+"There is a new update": "有新的更新",
+"Kilowallet {0}": "Kilowallet {0}",
+"READ": "阅读",
+"UPDATE": "更新"
 }
