@@ -11,6 +11,7 @@ export PATH=$HOME/go/bin:$PATH
 gomobile init
 GOFLAGS=-mod=mod go get golang.org/x/mobile/bind@latest
 mkdir -p mobile/build/android
-TAGS="mobile signrpc walletrpc chainrpc invoicesrpc routerrpc peersrpc neutrinorpc watchtowerrpc wtclientrpc"
+# offersrpc: pay BOLT 12 offers (lno1…).
+TAGS="mobile signrpc walletrpc chainrpc invoicesrpc routerrpc peersrpc neutrinorpc watchtowerrpc wtclientrpc offersrpc"
 echo "== bind"; GOFLAGS=-mod=mod nice gomobile bind -target=android/arm64,android/amd64 -androidapi 26 -tags="$TAGS" -ldflags "-s -w -extldflags '-Wl,-z,max-page-size=16384'" -v -o mobile/build/android/Lndmobile.aar ./mobile
 ls -la mobile/build/android/

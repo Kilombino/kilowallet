@@ -153,6 +153,20 @@ class I18nTest {
         assertEquals("xyzzy 42", I18n.tr("xyzzy 42"))
     }
 
+    /** Lightning: BOLT 12 offers, payments that go on in the background, and their notifications. */
+    @Test fun lightningOffersAndPaymentTexts() {
+        I18n.lang.value = I18n.ES
+        assertEquals("Pagar una factura u oferta Lightning", I18n.tr("Pay a Lightning invoice or offer"))
+        assertEquals("¿Pagar esta oferta?", I18n.tr("Pay this offer?"))
+        assertEquals("A Tienda · oferta BOLT 12", I18n.tr("To Tienda · BOLT 12 offer"))
+        assertEquals("⏳ Pagando 1 000 sats: en camino. Si falla, los sats vuelven a tu canal.",
+            I18n.tr("⏳ Paying 1 000 sats: on its way. If it fails, the sats come back to your channel."))
+        assertEquals("OCULTAR", I18n.tr("HIDE"))
+        assertEquals("❌ Lightning: 20 000 sats sin pagar", I18n.tr("❌ Lightning: 20 000 sats not paid"))
+        assertEquals("⚡ Lightning: recibido", I18n.tr("⚡ Lightning: received"))
+        assertEquals("esta oferta no se puede pagar: no es válida", I18n.tr("this offer can't be paid: it is not valid"))
+    }
+
     @Test fun everyTableKeepsThePlaceholdersAndTheEdges() {
         for (l in I18n.LANGUAGES.map { it.first }.filter { it != I18n.EN && File(dir, "$it.json").exists() }) {
             val o = JSONObject(File(dir, "$l.json").readText())

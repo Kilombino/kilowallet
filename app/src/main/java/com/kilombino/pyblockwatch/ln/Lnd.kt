@@ -368,7 +368,9 @@ object Lnd {
                       /** The exact amount, in millisatoshis (num_msat). */
                       val msat: Long = sats * 1000,
                       /** Blocks the payee asks for its own timelock (cltv_expiry): how long a held payment can stay held. */
-                      val cltv: Long = 18)
+                      val cltv: Long = 18,
+                      /** A BOLT 12 offer (lno1…) rather than an invoice: paid with [payOffer]. */
+                      val offer: String? = null)
 
     suspend fun decode(invoice: String): PayReq {
         val m = call { Lndmobile.decodePayReq(Pb().string(1, invoice.trim()).build(), it) }
@@ -379,11 +381,63 @@ object Lnd {
             blake2b = 512L in bits || 513L in bits, msat = m.long(12), cltv = m.long(9))
     }
 
+    /**
+     * Reads a BOLT 12 offer (offersrpc.DecodeBolt12) as something to pay. An offer without an
+     * amount comes back with sats 0, like an invoice without one.
+     */
+    suspend fun decodeOffer(offer: String): PayReq {
+        val m = call { Lndmobile.offersDecodeBolt12(Pb().string(1, offer.trim()).build(), it) }
+        // DecodeBolt12Response: type=1, for_this_chain=2, offer=5, valid=8, validation_error=9, ours=10.
+        if (m.string(1) != "offer") throw LndError("this is not a BOLT 12 offer (lno1…)")
+        if (!m.bool(2)) throw LndError("this offer is for another chain, not for Bitcoin (BLAKE2b)")
+        if (!m.bool(8)) throw LndError("this offer can't be paid: " + m.string(9).ifBlank { "it is not valid" })
+        if (m.bool(10)) throw LndError("this offer is your own node's")
+        // Offer: description=3, amount_msat=4, absolute_expiry=5, issuer=13.
+        val o = m.msg(5)
+        val msat = o.long(4)
+        return PayReq(o.string(13).ifBlank { "BOLT 12 offer" }, "", (msat + 999) / 1000, o.string(3), o.long(5), 0,
+            msat = msat, offer = offer.trim())
+    }
+
+    /**
+     * Pays a BOLT 12 offer (offersrpc.PayOffer): the node asks the issuer for an invoice over
+     * onion messages and pays it. [amountSats] only for an offer without an amount. Returns the
+     * preimage, or throws with why it failed.
+     */
+    suspend fun payOffer(offer: String, feeLimitSats: Long, timeoutSeconds: Int = 60, amountSats: Long? = null): String {
+        // PayOfferRequest: offer=1, amount_msat=3, timeout_seconds=6 (each for the invoice and the
+        // payment), fee_limit_msat=7.
+        val b = Pb().string(1, offer.trim()).int(6, timeoutSeconds).int(7, feeLimitSats * 1000)
+        amountSats?.let { b.int(3, it * 1000) }
+        val req = b.build()
+        val m = call(timeoutMs = (timeoutSeconds * 2 + 30) * 1000L) { Lndmobile.offersPayOffer(req, it) }
+        // PayOfferResponse: payment_preimage=3.
+        return m.bytes(3).joinToString("") { "%02x".format(it) }
+    }
+
+    /** Follows a payment already under way (routerrpc.TrackPaymentV2) to its end, like [pay]. */
+    suspend fun track(hashHex: String): String =
+        suspendCancellableCoroutine { cont ->
+            val hash = hashHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+            // routerrpc.TrackPaymentRequest: payment_hash=1.
+            stream({ Lndmobile.routerTrackPaymentV2(Pb().bytes(1, hash).build(), it) }, onMsg = { p ->
+                when (p.int(10)) {
+                    2 -> if (cont.isActive) cont.resume(p.string(6))
+                    3 -> if (cont.isActive) cont.resumeWithException(LndError(failureText(p.int(16))))
+                }
+            }, onEnd = { e -> if (cont.isActive) cont.resumeWithException(e ?: LndError("the payment ended without an answer")) })
+        }
+
     /** What a payment error means to someone paying, when the node's own words would not say. */
     fun payError(e: Throwable): String {
         val raw = e.message ?: "failed"
         return when {
             "option_blake2b" in raw -> SHA256_INVOICE
+            // LND keeps a payment it could not end yet (a part of it is held somewhere on the way).
+            "in transition" in raw || "AlreadyExists" in raw ->
+                "This invoice is already being paid: the payment is still on its way. Wait for it to end; " +
+                    "if it fails, the sats come back to your channel."
+            "already paid" in raw || "AlreadySucceeded" in raw -> "This invoice was already paid."
             else -> "Not paid: $raw"
         }
     }
@@ -553,6 +607,18 @@ object Lnd {
         call { Lndmobile.listInvoices(Pb().int(5, max).bool(6, true).build(), it) }.msgs(1).map {
             Invoice(it.string(1), it.long(5), it.long(19), it.long(7), it.long(8), it.int(21))
         }.sortedByDescending { it.created }
+
+    /**
+     * Invoices as they get paid (lnrpc.SubscribeInvoices), for as long as the node runs: those
+     * settled after [settleIndex] first, then each new one. BOLT 12 offers' invoices too.
+     */
+    fun subscribeSettled(settleIndex: Long, onSettled: (memo: String, sats: Long, settleIndex: Long, hashHex: String) -> Unit,
+                         onEnd: (Exception?) -> Unit) =
+        // InvoiceSubscription: settle_index=2. Invoice: memo=1, r_hash=4, settle_index=17,
+        // amt_paid_sat=19, state=21 (1 settled).
+        stream({ Lndmobile.subscribeInvoices(Pb().int(2, settleIndex).build(), it) }, onMsg = { inv ->
+            if (inv.int(21) == 1) onSettled(inv.string(1), inv.long(19), inv.long(17), inv.bytes(4).joinToString("") { "%02x".format(it) })
+        }, onEnd = onEnd)
 
     data class Payment(val sats: Long, val fee: Long, val timeSec: Long, val status: Int, val hash: String)
 

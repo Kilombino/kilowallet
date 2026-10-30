@@ -680,8 +680,19 @@ private fun PayLn(accent: Color, scanned: String?, channels: List<Lnd.Channel>, 
     var paidSats by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(paidSats) { if (paidSats != null) { kotlinx.coroutines.delay(4_000); paidSats = null } }
     val ctx = LocalContext.current
+    // Payments run in Lightning, not here: the dialog can be hidden, the app left, and the result
+    // still comes back (and as a notification).
+    val paying by Lightning.paying.collectAsState()
+    val payResult by Lightning.payResult.collectAsState()
+    LaunchedEffect(payResult) {
+        payResult?.let { (why, sats, ok) ->
+            if (ok) { paidSats = sats; msg = null; text = "" } else msg = why to false
+            req = null
+            Lightning.clearPayResult()
+        }
+    }
     Panel(accent = accent) {
-        SectionLabel("Pay a Lightning invoice", accent)
+        SectionLabel("Pay a Lightning invoice or offer", accent)
         androidx.compose.animation.AnimatedVisibility(visible = paidSats != null,
             enter = androidx.compose.animation.scaleIn() + androidx.compose.animation.fadeIn(),
             exit = androidx.compose.animation.fadeOut()) {
@@ -691,13 +702,27 @@ private fun PayLn(accent: Color, scanned: String?, channels: List<Lnd.Channel>, 
             }
         }
         val clip = LocalClipboardManager.current
-        OutlinedTextField(text, { text = it.trim(); req = null; msg = null }, label = { Text("Lightning invoice (lnbc…)") },
+        paying.forEach { p ->
+            Text("⏳ Paying ${street(groupSats(p.sats))} sats: on its way. If it fails, the sats come back to your channel.",
+                color = TextSoft, style = MaterialTheme.typography.bodySmall)
+        }
+        OutlinedTextField(text, { text = it.trim(); req = null; msg = null }, label = { Text("Invoice (lnbc…) or offer (lno1…)") },
             modifier = Modifier.fillMaxWidth(), maxLines = 4)
         TextButton(onClick = { clip.getText()?.text?.trim()?.let { text = it; req = null; msg = null } }) { Text("PASTE", color = accent) }
         Button(enabled = text.length > 20 && !busy, modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = accent), onClick = {
                 scope.launch {
                     val inv = text.removePrefix("lightning:")
+                    // A BOLT 12 offer, alone or in a bitcoin: link (lno=…).
+                    val offer = Regex("(?i)\\blno1[0-9a-z]+").find(inv)?.value
+                    if (offer != null) {
+                        busy = true
+                        runCatching { withContext(Dispatchers.IO) { Lnd.decodeOffer(offer.lowercase()) } }
+                            .onSuccess { req = it; msg = null }
+                            .onFailure { msg = (it.message ?: "not a valid offer") to false }
+                        busy = false
+                        return@launch
+                    }
                     runCatching { withContext(Dispatchers.IO) { Lnd.decode(inv) } }
                         .onSuccess { r ->
                             if (r.blake2b) { req = r; return@onSuccess }
@@ -726,12 +751,15 @@ private fun PayLn(accent: Color, scanned: String?, channels: List<Lnd.Channel>, 
         val asked = askedText.toLongOrNull()?.takeIf { it > 0 }
         val payAmount = if (r.sats > 0) r.sats else asked ?: 0L
         val feeLimit = Lightning.feeLimit(ctx, payAmount)
-        AlertDialog(onDismissRequest = { if (!busy) req = null },
-            title = { Text(if (r.sats > 0) "Pay ${groupSats(r.sats)} sats?" else "Pay this invoice?") },
+        val key = r.offer ?: r.hash
+        val inFlight = paying.any { it.key == key }
+        AlertDialog(onDismissRequest = { req = null },
+            title = { Text(if (r.sats > 0) "Pay ${groupSats(r.sats)} sats?" else if (r.offer != null) "Pay this offer?" else "Pay this invoice?") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (r.description.isNotBlank()) Text("“${r.description}”", style = MaterialTheme.typography.bodySmall)
-                    Text("To ${r.destination.take(20)}…", style = MaterialTheme.typography.bodySmall, color = TextSoft)
+                    if (r.offer != null) Text("To ${r.destination} · BOLT 12 offer", style = MaterialTheme.typography.bodySmall, color = TextSoft)
+                    else Text("To ${r.destination.take(20)}…", style = MaterialTheme.typography.bodySmall, color = TextSoft)
                     Text("Routing fee at most ${groupSats(feeLimit)} sats (change it in settings).", style = MaterialTheme.typography.bodySmall, color = TextSoft)
                     val usable = channels.filter { it.active && it.local > payAmount }
                     if (usable.size > 1) {
@@ -748,8 +776,11 @@ private fun PayLn(accent: Color, scanned: String?, channels: List<Lnd.Channel>, 
                             }
                         }
                     }
+                    if (inFlight) Text("On its way… You can hide this: the payment goes on and you'll get a notification when it ends.",
+                        style = MaterialTheme.typography.bodySmall, color = TextSoft)
                     if (r.sats == 0L) {
-                        Text("This invoice has no amount: say how much to pay.", style = MaterialTheme.typography.bodySmall, color = TextSoft)
+                        Text(if (r.offer != null) "This offer has no amount: say how much to pay." else "This invoice has no amount: say how much to pay.",
+                            style = MaterialTheme.typography.bodySmall, color = TextSoft)
                         OutlinedTextField(askedText, { askedText = it.filter(Char::isDigit) }, label = { Text("Sats") }, singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
                         FiatAmountField(askedText, { askedText = it })
@@ -757,18 +788,17 @@ private fun PayLn(accent: Color, scanned: String?, channels: List<Lnd.Channel>, 
                 }
             },
             confirmButton = {
-                TextButton(enabled = !busy && payAmount > 0, onClick = {
-                    busy = true
-                    scope.launch {
-                        runCatching { withContext(Dispatchers.IO) { Lnd.pay(text.removePrefix("lightning:"), feeLimit, outgoingChanId = via,
-                            amountSats = if (r.sats > 0) null else payAmount) } }
-                            .onSuccess { paidSats = payAmount; msg = null; text = ""; Lightning.refresh() }
-                            .onFailure { msg = Lnd.payError(it) to false }
-                        busy = false; req = null
+                TextButton(enabled = !inFlight && payAmount > 0, onClick = {
+                    val invoice = text.removePrefix("lightning:")
+                    val amount = if (r.sats > 0) null else payAmount
+                    Lightning.startPayment(ctx, key, payAmount) {
+                        if (r.offer != null) Lnd.payOffer(r.offer, feeLimit, amountSats = amount)
+                        else Lnd.pay(invoice, feeLimit, outgoingChanId = via, amountSats = amount)
                     }
-                }) { Text(if (busy) "PAYING…" else "PAY", color = accent) }
+                }) { Text(if (inFlight) "PAYING…" else "PAY", color = accent) }
             },
-            dismissButton = { TextButton(enabled = !busy, onClick = { req = null }) { Text("CANCEL") } })
+            // Hiding doesn't stop a payment already sent: LND can't take back what is on its way.
+            dismissButton = { TextButton(onClick = { req = null }) { Text(if (inFlight) "HIDE" else "CANCEL") } })
     }
 }
 
@@ -1176,8 +1206,8 @@ private fun DeleteEmptyNode(accent: Color, s: Lightning.Status.Running) {
 }
 
 /**
- * PAY: one camera button for both. A Lightning invoice (lnbc…, lightning:) goes to the
- * invoice field; a Bitcoin address or bitcoin: URI to the on-chain payment.
+ * PAY: one camera button for both. A Lightning invoice or BOLT 12 offer (lnbc…, lno1…,
+ * lightning:) goes to the invoice field; a Bitcoin address or bitcoin: URI to the on-chain payment.
  */
 @Composable
 private fun PaySheet(accent: Color, channels: List<Lnd.Channel>, onTx: (String) -> Unit, onDone: () -> Unit) {
@@ -1194,15 +1224,17 @@ private fun PaySheet(accent: Color, channels: List<Lnd.Channel>, onTx: (String) 
         val low = t.lowercase()
         when {
             low.startsWith("lightning:") -> { invoice = t.substring(10); msg = null }
-            low.startsWith("lnbc") -> { invoice = t; msg = null }
+            low.startsWith("lnbc") || low.startsWith("lno1") -> { invoice = t; msg = null }
             low.startsWith("bitcoin:") -> {
-                // A unified QR carries both: pay over Lightning when it has an invoice.
-                val ln = t.substringAfter('?', "").split('&').firstOrNull { it.lowercase().startsWith("lightning=") }?.substringAfter('=')
+                // A unified QR carries both: pay over Lightning when it has an invoice or an offer.
+                val params = t.substringAfter('?', "").split('&')
+                val ln = params.firstOrNull { it.lowercase().startsWith("lightning=") }?.substringAfter('=')
+                    ?: params.firstOrNull { it.lowercase().startsWith("lno=") }?.substringAfter('=')
                 if (ln != null) invoice = ln else onchain = t.substring(8)
                 msg = null
             }
             low.startsWith("bc1") || low.startsWith("1") || low.startsWith("3") -> { onchain = t; msg = null }
-            else -> msg = "That QR is neither a Lightning invoice nor a Bitcoin address."
+            else -> msg = "That QR is neither a Lightning invoice or offer nor a Bitcoin address."
         }
     }, onDismiss = { scanning = false })
     Button(onClick = {
@@ -1211,7 +1243,7 @@ private fun PaySheet(accent: Color, channels: List<Lnd.Channel>, onTx: (String) 
         else camera.launch(android.Manifest.permission.CAMERA)
     }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = accent.copy(alpha = 0.25f)),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
-        Text("📷 SCAN A QR (INVOICE OR ADDRESS)", color = TextMain, style = MaterialTheme.typography.labelSmall)
+        Text("📷 SCAN A QR (INVOICE, OFFER OR ADDRESS)", color = TextMain, style = MaterialTheme.typography.labelSmall)
     }
     msg?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall) }
     PayLn(accent, invoice, channels, onDone)
