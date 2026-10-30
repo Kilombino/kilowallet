@@ -668,9 +668,11 @@ object Lnd {
     fun subscribeSettled(settleIndex: Long, onSettled: (memo: String, sats: Long, settleIndex: Long, hashHex: String) -> Unit,
                          onEnd: (Exception?) -> Unit) =
         // InvoiceSubscription: settle_index=2. Invoice: memo=1, r_hash=4, settle_index=17,
-        // amt_paid_sat=19, state=21 (1 settled).
+        // value=5, amt_paid_sat=19, state=21 (1 settled). The invoice's amount when it has one: a
+        // blinded path's fee paid to us on top is not part of what the payer sent.
         stream({ Lndmobile.subscribeInvoices(Pb().int(2, settleIndex).build(), it) }, onMsg = { inv ->
-            if (inv.int(21) == 1) onSettled(inv.string(1), inv.long(19), inv.long(17), inv.bytes(4).joinToString("") { "%02x".format(it) })
+            val sats = inv.long(5).takeIf { it > 0 } ?: inv.long(19)
+            if (inv.int(21) == 1) onSettled(inv.string(1), sats, inv.long(17), inv.bytes(4).joinToString("") { "%02x".format(it) })
         }, onEnd = onEnd)
 
     data class Payment(val sats: Long, val fee: Long, val timeSec: Long, val status: Int, val hash: String)

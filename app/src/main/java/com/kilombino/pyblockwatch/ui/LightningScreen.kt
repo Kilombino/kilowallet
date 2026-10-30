@@ -1361,7 +1361,10 @@ private data class LnEntry(val time: Long, val delta: Long, val label: String, v
  */
 private fun ledger(s: Lightning.Status.Running): List<LnEntry> {
     data class E(val time: Long, val delta: Long, val label: String, val fee: Long = 0)
-    val events = s.invoices.filter { it.state == 1 && it.paid > 0 }.map { E(it.settled, it.paid, it.memo.ifBlank { "invoice" }) } +
+    // A payment over a blinded path to this phone pays the path's fee to us on top of the
+    // invoice: shown apart, like a payment's routing fee, so the line says what was asked.
+    val events = s.invoices.filter { it.state == 1 && it.paid > 0 }
+        .map { E(it.settled, it.paid, it.memo.ifBlank { "invoice" }, if (it.sats in 1 until it.paid) it.paid - it.sats else 0) } +
         s.payments.filter { it.status == 2 }.map { E(it.timeSec, -(it.sats + it.fee), "payment", it.fee) }
     var running = s.balances?.channels ?: 0L
     return events.sortedByDescending { it.time }.map { e ->
