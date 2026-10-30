@@ -2440,5 +2440,6 @@
 "fee {0}": "手续费 {0}",
 "Reusable offer (BOLT 12)": "可重复使用的报价 (BOLT 12)",
 "One code you can share and be paid on many times; each payer chooses the amount. It is paid only while this app has Lightning running, and only up to what your channels can receive.": "一个可分享、可多次收款的代码；每位付款人自行选择金额。只有在此应用运行闪电时才能收款，且不超过你的通道可接收的额度。",
-"SHOW MY OFFER": "显示我的报价"
+"SHOW MY OFFER": "显示我的报价",
+"Lightning is not ready to receive yet: wait until it shows Synced with a peer and try again": "闪电尚未准备好收款：请等到显示与对等节点 Synced 后再试"
 }

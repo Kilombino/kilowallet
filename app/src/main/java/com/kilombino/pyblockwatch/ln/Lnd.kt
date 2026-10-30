@@ -78,6 +78,11 @@ object Lnd {
             appendLine("protocol.splice=true")
             appendLine("[wtclient]")
             appendLine("wtclient.active=true")
+            // Blinded paths to this phone (its BOLT 12 offers and their invoices) may start at the
+            // phone itself, not only at a peer: the peer it has a channel with (Kilombino's node)
+            // can then pay it too, instead of having to go through itself twice.
+            appendLine("[routing]")
+            appendLine("routing.blinding.min-num-real-hops=0")
             if (torSocks != null) {
                 appendLine("[tor]")
                 appendLine("tor.active=true")
@@ -433,9 +438,29 @@ object Lnd {
      * payers reach it through its peer.
      */
     suspend fun reusableOffer(description: String): String {
-        // CreateOfferRequest: description=1, label=6, with_paths=7. CreateOfferResponse: offer=1 (Offer: bolt12=2).
-        val m = call { Lndmobile.offersCreateOffer(Pb().string(1, description).string(6, "kilowallet: reusable").bool(7, true).build(), it) }
-        return m.msg(1).string(2).ifBlank { throw LndError("the node gave no offer") }
+        // An offer minted before the channel was up has no path, and nobody can reach an
+        // unannounced phone without one: take any such offer of ours out of service.
+        disablePathlessOffers()
+        // CreateOfferRequest: description=1, label=6, with_paths=7. CreateOfferResponse: offer=1
+        // (Offer: offer_id=1, bolt12=2, num_paths=11).
+        val o = call { Lndmobile.offersCreateOffer(Pb().string(1, description).string(6, REUSABLE_LABEL).bool(7, true).build(), it) }.msg(1)
+        if (o.int(11) == 0) {
+            runCatching { call { Lndmobile.offersDisableOffer(Pb().bytes(1, o.bytes(1)).build(), it) } }
+            throw LndError("Lightning is not ready to receive yet: wait until it shows Synced with a peer and try again")
+        }
+        // The same fields give back the offer minted before, which may have been disabled.
+        // Offer: active=7.
+        if (!o.bool(7)) call { Lndmobile.offersEnableOffer(Pb().bytes(1, o.bytes(1)).build(), it) }
+        return o.string(2).ifBlank { throw LndError("the node gave no offer") }
+    }
+
+    private const val REUSABLE_LABEL = "kilowallet: reusable"
+
+    private suspend fun disablePathlessOffers() {
+        // ListOffersRequest: active_only=1. Offer: offer_id=1, label=9, num_paths=11.
+        val offers = runCatching { call { Lndmobile.offersListOffers(Pb().bool(1, true).build(), it) }.msgs(1) }.getOrDefault(emptyList())
+        for (o in offers.filter { it.string(9) == REUSABLE_LABEL && it.int(11) == 0 })
+            runCatching { call { Lndmobile.offersDisableOffer(Pb().bytes(1, o.bytes(1)).build(), it) } }
     }
 
     /** Follows a payment already under way (routerrpc.TrackPaymentV2) to its end, like [pay]. */

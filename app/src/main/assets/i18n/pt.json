@@ -2452,5 +2452,6 @@
 "fee {0}": "comissão {0}",
 "Reusable offer (BOLT 12)": "Oferta reutilizável (BOLT 12)",
 "One code you can share and be paid on many times; each payer chooses the amount. It is paid only while this app has Lightning running, and only up to what your channels can receive.": "Um código que podes partilhar e com o qual te podem pagar muitas vezes; cada um escolhe o montante. Só é pago enquanto esta app tem o Lightning a funcionar, e só até ao que os teus canais podem receber.",
-"SHOW MY OFFER": "MOSTRAR A MINHA OFERTA"
+"SHOW MY OFFER": "MOSTRAR A MINHA OFERTA",
+"Lightning is not ready to receive yet: wait until it shows Synced with a peer and try again": "O Lightning ainda não está pronto para receber: espera que mostre Synced com um peer e tenta de novo"
 }
