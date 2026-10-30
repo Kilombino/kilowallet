@@ -1314,19 +1314,20 @@ private fun BalanceLine(label: String, sats: Long, color: Color, note: String? =
     note?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = TextFaint) }
 }
 
-private data class LnEntry(val time: Long, val delta: Long, val label: String, val left: Long)
+/** [delta] is what the channels lost or gained, routing fee included; [fee] is that fee, shown apart. */
+private data class LnEntry(val time: Long, val delta: Long, val label: String, val left: Long, val fee: Long = 0)
 
 /**
  * Received invoices and sent payments, newest first, each with what was left in the channels
  * after it: worked back from the balance now (channel opens and closes are not in it).
  */
 private fun ledger(s: Lightning.Status.Running): List<LnEntry> {
-    data class E(val time: Long, val delta: Long, val label: String)
+    data class E(val time: Long, val delta: Long, val label: String, val fee: Long = 0)
     val events = s.invoices.filter { it.state == 1 && it.paid > 0 }.map { E(it.settled, it.paid, it.memo.ifBlank { "invoice" }) } +
-        s.payments.filter { it.status == 2 }.map { E(it.timeSec, -(it.sats + it.fee), if (it.fee > 0) "payment · fee ${it.fee}" else "payment") }
+        s.payments.filter { it.status == 2 }.map { E(it.timeSec, -(it.sats + it.fee), "payment", it.fee) }
     var running = s.balances?.channels ?: 0L
     return events.sortedByDescending { it.time }.map { e ->
-        LnEntry(e.time, e.delta, e.label, running).also { running -= e.delta }
+        LnEntry(e.time, e.delta, e.label, running, e.fee).also { running -= e.delta }
     }
 }
 
@@ -1344,8 +1345,12 @@ private fun Movements(accent: Color, moves: List<LnEntry>, title: String) {
                     Text(fmt.format(java.util.Date(m.time * 1000)) + " · left " + street(groupSats(m.left)),
                         style = MaterialTheme.typography.labelSmall, color = TextFaint)
                 }
-                Text((if (m.delta > 0) "+" else "−") + street(groupSats(kotlin.math.abs(m.delta))),
-                    style = MaterialTheme.typography.bodyMedium, color = if (m.delta > 0) Good else TextSoft)
+                // What was paid first; the routing fee on its own, smaller, under it.
+                Column(horizontalAlignment = Alignment.End) {
+                    Text((if (m.delta > 0) "+" else "−") + street(groupSats(kotlin.math.abs(m.delta) - m.fee)),
+                        style = MaterialTheme.typography.bodyMedium, color = if (m.delta > 0) Good else TextSoft)
+                    if (m.fee > 0) Text("fee " + street(groupSats(m.fee)), style = MaterialTheme.typography.labelSmall, color = TextFaint)
+                }
             }
         }
     }

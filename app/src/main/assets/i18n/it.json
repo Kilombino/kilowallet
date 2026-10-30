@@ -2448,5 +2448,6 @@
 "This invoice was already paid.": "Questa fattura è già pagata.",
 "⚡ Lightning: paid": "⚡ Lightning: pagato",
 "❌ Lightning: {0} sats not paid": "❌ Lightning: {0} sats non pagati",
-"⚡ Lightning: received": "⚡ Lightning: ricevuto"
+"⚡ Lightning: received": "⚡ Lightning: ricevuto",
+"fee {0}": "commissione {0}"
 }

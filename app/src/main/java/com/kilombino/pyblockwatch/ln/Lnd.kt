@@ -409,7 +409,18 @@ object Lnd {
         // payment), fee_limit_msat=7.
         val b = Pb().string(1, offer.trim()).int(6, timeoutSeconds).int(7, feeLimitSats * 1000)
         amountSats?.let { b.int(3, it * 1000) }
-        val req = b.build()
+        val first = runCatching { payOfferOnce(b.build(), timeoutSeconds) }
+        val e = first.exceptionOrNull() ?: return first.getOrThrow()
+        // No route right after the phone reconnects: the channel isn't active yet on this side. The
+        // invoice was already fetched; pay that one again once, a little later (LND names it in
+        // the reason: "retry with this invoice, not the offer: lni1…").
+        val invoice = Regex("lni1[0-9a-z]+").find(e.message ?: "")?.value
+        if (invoice == null || "no_route" !in (e.message ?: "")) throw e
+        kotlinx.coroutines.delay(15_000)
+        return payOfferOnce(Pb().string(2, invoice).int(6, timeoutSeconds).int(7, feeLimitSats * 1000).build(), timeoutSeconds)
+    }
+
+    private suspend fun payOfferOnce(req: ByteArray, timeoutSeconds: Int): String {
         val m = call(timeoutMs = (timeoutSeconds * 2 + 30) * 1000L) { Lndmobile.offersPayOffer(req, it) }
         // PayOfferResponse: payment_preimage=3.
         return m.bytes(3).joinToString("") { "%02x".format(it) }
@@ -438,7 +449,12 @@ object Lnd {
                 "This invoice is already being paid: the payment is still on its way. Wait for it to end; " +
                     "if it fails, the sats come back to your channel."
             "already paid" in raw || "AlreadySucceeded" in raw -> "This invoice was already paid."
-            else -> "Not paid: $raw"
+            // An offer's payment that failed: LND adds the whole fetched invoice (lni1…) to its
+            // reason, a wall of text nobody can read.
+            "no_route" in raw || "NO_ROUTE" in raw -> "Not paid: " + failureText(2)
+            "insufficient_balance" in raw || "INSUFFICIENT_BALANCE" in raw -> "Not paid: " + failureText(5)
+            "timeout" in raw && "payment failed" in raw -> "Not paid: " + failureText(1)
+            else -> "Not paid: " + raw.substringBefore("; retry with this invoice").let { if (it.length > 200) it.take(200) + "…" else it }
         }
     }
 

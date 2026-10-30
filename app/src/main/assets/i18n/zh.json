@@ -2436,5 +2436,6 @@
 "This invoice was already paid.": "这张发票已支付。",
 "⚡ Lightning: paid": "⚡ 闪电：已支付",
 "❌ Lightning: {0} sats not paid": "❌ 闪电：{0} sats 未支付",
-"⚡ Lightning: received": "⚡ 闪电：已收到"
+"⚡ Lightning: received": "⚡ 闪电：已收到",
+"fee {0}": "手续费 {0}"
 }
