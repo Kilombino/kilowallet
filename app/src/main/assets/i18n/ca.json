@@ -2449,5 +2449,8 @@
 "⚡ Lightning: paid": "⚡ Lightning: pagat",
 "❌ Lightning: {0} sats not paid": "❌ Lightning: {0} sats sense pagar",
 "⚡ Lightning: received": "⚡ Lightning: rebut",
-"fee {0}": "comissió {0}"
+"fee {0}": "comissió {0}",
+"Reusable offer (BOLT 12)": "Oferta reutilitzable (BOLT 12)",
+"One code you can share and be paid on many times; each payer chooses the amount. It is paid only while this app has Lightning running, and only up to what your channels can receive.": "Un codi que pots compartir i amb el qual et poden pagar moltes vegades; cadascú tria l'import. Només es cobra mentre aquesta app té Lightning en marxa, i només fins al que els teus canals poden rebre.",
+"SHOW MY OFFER": "MOSTRAR LA MEVA OFERTA"
 }

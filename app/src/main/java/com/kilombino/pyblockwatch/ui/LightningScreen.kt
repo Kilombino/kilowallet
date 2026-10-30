@@ -300,7 +300,11 @@ private fun LnNode(s: Lightning.Status.Running, accent: Color, settings: Boolean
     when (sheet) {
         LnSheet.Fund -> FundSheet(accent) { showTx = "On-chain transaction" to it }
         LnSheet.Open -> OpenSheet(accent, b?.onchainConfirmed ?: 0, onTx = { showTx = "Funding transaction" to it }) { sheet = LnSheet.None }
-        LnSheet.Receive -> { ReceiveLn(accent, i.syncedChain && s.channels.any { it.active }); Movements(accent, book.filter { it.delta > 0 }, "Invoices paid to you") }
+        LnSheet.Receive -> {
+            ReceiveLn(accent, i.syncedChain && s.channels.any { it.active })
+            ReusableOffer(accent)
+            Movements(accent, book.filter { it.delta > 0 }, "Invoices paid to you")
+        }
         LnSheet.Pay -> { PaySheet(accent, s.channels, onTx = { showTx = "On-chain payment" to it }) { sheet = LnSheet.None }; Movements(accent, book.filter { it.delta < 0 }, "Payments you made") }
         LnSheet.None -> {}
     }
@@ -602,6 +606,40 @@ private fun OpenSheet(accent: Color, onchain: Long, onTx: (String) -> Unit, onDo
                 }
             }) { Text(if (busy) "OPENING…" else "OPEN CHANNEL") }
         msg?.let { (t, ok) -> Text(t, color = if (ok) Good else Bad, style = MaterialTheme.typography.bodySmall) }
+    }
+}
+
+/** A fixed BOLT 12 offer to share: paid many times, each payer choosing the amount. */
+@Composable
+private fun ReusableOffer(accent: Color) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var offer by remember { mutableStateOf<String?>(null) }
+    var err by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    Panel(accent = accent) {
+        SectionLabel("Reusable offer (BOLT 12)", accent)
+        Explain("One code you can share and be paid on many times; each payer chooses the amount. " +
+            "It is paid only while this app has Lightning running, and only up to what your channels can receive.")
+        if (offer == null) Button(enabled = !busy, modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = accent), onClick = {
+                err = null; busy = true
+                scope.launch {
+                    runCatching { withContext(Dispatchers.IO) { Lnd.reusableOffer(Lightning.alias(ctx)) } }
+                        .onSuccess { offer = it }
+                        .onFailure { err = "Could not create it: " + (it.message ?: "the node refused") }
+                    busy = false
+                }
+            }) { Text(if (busy) "CREATING…" else "SHOW MY OFFER") }
+        err?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall) }
+        offer?.let { o ->
+            Spacer(Modifier.height(8.dp))
+            val copier = rememberCopier()
+            // Offers have no checksum: upper case makes a denser QR code.
+            Column(Modifier.fillMaxWidth().clickable { copier.copy(o) }, horizontalAlignment = Alignment.CenterHorizontally) { QrImage(o.uppercase(), 240) }
+            Text(o.take(40) + "…", style = MaterialTheme.typography.bodySmall, color = TextSoft, modifier = Modifier.clickable { copier.copy(o) })
+            TextButton(onClick = { copier.copy(o) }) { Text(if (copier.copied) "COPIED ✓" else "COPY", color = if (copier.copied) Good else accent) }
+        }
     }
 }
 

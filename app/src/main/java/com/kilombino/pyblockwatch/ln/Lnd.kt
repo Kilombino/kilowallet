@@ -426,6 +426,18 @@ object Lnd {
         return m.bytes(3).joinToString("") { "%02x".format(it) }
     }
 
+    /**
+     * This node's reusable BOLT 12 offer, without an amount: each payer chooses how much
+     * (offersrpc.CreateOffer). The same fields always mint the same offer, so asking again
+     * returns the one already made. Blinded paths are asked for: this node is not announced, and
+     * payers reach it through its peer.
+     */
+    suspend fun reusableOffer(description: String): String {
+        // CreateOfferRequest: description=1, label=6, with_paths=7. CreateOfferResponse: offer=1 (Offer: bolt12=2).
+        val m = call { Lndmobile.offersCreateOffer(Pb().string(1, description).string(6, "kilowallet: reusable").bool(7, true).build(), it) }
+        return m.msg(1).string(2).ifBlank { throw LndError("the node gave no offer") }
+    }
+
     /** Follows a payment already under way (routerrpc.TrackPaymentV2) to its end, like [pay]. */
     suspend fun track(hashHex: String): String =
         suspendCancellableCoroutine { cont ->

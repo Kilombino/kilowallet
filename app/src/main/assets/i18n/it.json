@@ -2449,5 +2449,8 @@
 "⚡ Lightning: paid": "⚡ Lightning: pagato",
 "❌ Lightning: {0} sats not paid": "❌ Lightning: {0} sats non pagati",
 "⚡ Lightning: received": "⚡ Lightning: ricevuto",
-"fee {0}": "commissione {0}"
+"fee {0}": "commissione {0}",
+"Reusable offer (BOLT 12)": "Offerta riutilizzabile (BOLT 12)",
+"One code you can share and be paid on many times; each payer chooses the amount. It is paid only while this app has Lightning running, and only up to what your channels can receive.": "Un codice da condividere per essere pagato molte volte; ogni pagatore sceglie l'importo. Si incassa solo mentre questa app ha Lightning attivo, e solo fino a quanto i tuoi canali possono ricevere.",
+"SHOW MY OFFER": "MOSTRA LA MIA OFFERTA"
 }

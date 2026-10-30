@@ -165,6 +165,9 @@ class I18nTest {
         assertEquals("❌ Lightning: 20 000 sats sin pagar", I18n.tr("❌ Lightning: 20 000 sats not paid"))
         assertEquals("⚡ Lightning: recibido", I18n.tr("⚡ Lightning: received"))
         assertEquals("esta oferta no se puede pagar: no es válida", I18n.tr("this offer can't be paid: it is not valid"))
+        assertEquals("Oferta reutilizable (BOLT 12)", I18n.tr("Reusable offer (BOLT 12)"))
+        assertEquals("MOSTRAR MI OFERTA", I18n.tr("SHOW MY OFFER"))
+        assertEquals("comisión 2", I18n.tr("fee 2"))
     }
 
     @Test fun everyTableKeepsThePlaceholdersAndTheEdges() {
