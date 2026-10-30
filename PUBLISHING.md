@@ -135,6 +135,12 @@ tag `v0.1.0` and attaching the APK.
 users check before installing) and the certificate SHA-256 (what AppVerifier shows),
 plus a pointer to README-REPRODUCIBLE.md.
 
+The signed APK's hash must be written exactly as `Signed APK SHA-256: \`<64 hex>\`` (with that
+label and the backticks): the in-app updater looks for that line, and a release without it is
+only offered as a page to OPEN, not as an UPDATE the app installs. Check it after publishing:
+the release's body must match `Signed APK SHA-256:\s*\`([0-9a-f]{64})\`` with the hash of the
+attached `.apk`.
+
 ## 8. Zapstore
 
 Zapstore reads GitHub releases directly, so step 7 must be done first. Publishing is
