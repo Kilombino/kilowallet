@@ -31,11 +31,19 @@ class RelayClient(
     /**
      * A circuit of its own through Tor: Arti (like Tor's IsolateSOCKSAuth) never shares a circuit
      * between streams that give different SOCKS usernames, so each seat of this phone in a pool,
-     * and each output handed in, leaves Tor from its own exit. Null: Tor's default.
+     * and each output handed in, leaves Tor from its own exit. Null: Tor's default. The same
+     * username goes to the relay's onion, so there too each seat and output has its own circuit.
      */
     private val isolation: String? = null,
+    /**
+     * The same relay as a .onion (ws://, Tor encrypts end to end), tried first whenever the
+     * connection goes through Tor: it never leaves the Tor network, so no exit or Cloudflare in
+     * the way. When it can't be reached, [url] through Tor as before. Only the transport changes:
+     * the relay, its events and what pools say are the same as over [url].
+     */
+    private val onion: String? = onionFor(url),
 ) {
-    private var socket: SSLSocket? = null
+    private var socket: java.net.Socket? = null
     private var out: OutputStream? = null
     private val rnd = SecureRandom()
     private val pendingOk = ConcurrentHashMap<String, CompletableFuture<Pair<Boolean, String>>>()
@@ -43,43 +51,91 @@ class RelayClient(
     @Volatile var connected = false; private set
     /** When the relay last sent us anything (a frame of any kind, pongs included). */
     @Volatile var lastHeard = 0L; private set
+    /** How this connection reached the relay: [VIA_ONION], [VIA_TOR] or [VIA_DIRECT]. */
+    @Volatile var via: String = ""; private set
 
     fun connect() {
-        val u = URI(url)
-        require(u.scheme == "wss") { "only wss:// relays" }
-        val host = u.host
-        val port = if (u.port > 0) u.port else 443
         // Through the app's Tor when it is already running (for a .onion node), so the relay sees
         // a Tor exit, not this phone's address. TLS goes end to end over it as usual.
         val proxy = socksOverride?.let { java.net.Proxy(java.net.Proxy.Type.SOCKS, it) }
             ?: if (com.kilombino.pyblockwatch.chain.Tor.running) com.kilombino.pyblockwatch.chain.Tor.proxy(0) else null
-        val s = if (proxy != null) {
-            val raw = if (isolation != null) socks5(proxy.address() as InetSocketAddress, host, port, isolation)
-                else java.net.Socket(proxy).also { it.connect(InetSocketAddress.createUnresolved(host, port), 60_000) }
-            (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(raw, host, port, true) as SSLSocket
-        } else (SSLSocketFactory.getDefault().createSocket() as SSLSocket).also { it.connect(InetSocketAddress(host, port), 15_000) }
-        // The certificate must be for this host name: the TLS layer checks it (endpoint
-        // identification), and on Android the platform's verifier checks it again, as
-        // HttpsURLConnection would. (Off Android that verifier refuses everything by design.)
-        s.sslParameters = s.sslParameters.apply {
-            serverNames = listOf(SNIHostName(host)); endpointIdentificationAlgorithm = "HTTPS"
+        if (proxy == null) { open(url, null, 15_000); via = VIA_DIRECT; return }
+        val o = onion
+        if (o != null && System.currentTimeMillis() - onionFailedAt >= ONION_RETRY_MS) {
+            try {
+                open(o, proxy, ONION_TIMEOUT_MS); via = VIA_ONION
+                onionFailedAt = 0L
+                log("relay: connected through its onion")
+                return
+            } catch (e: Exception) {
+                // No descriptor, no introduction point, a timeout: Tor says "SOCKS server general
+                // failure" or nothing at all. The https address through a Tor exit hides this
+                // phone just the same; the error is only shown when that fails too.
+                onionFailedAt = System.currentTimeMillis()
+                log("relay: onion unreachable (${e.message}), through a Tor exit instead")
+                try { open(url, proxy, 60_000) } catch (e2: Exception) {
+                    throw java.io.IOException("${e2.message ?: e2.javaClass.simpleName} (its onion too: ${e.message ?: e.javaClass.simpleName})", e2)
+                        .apply { addSuppressed(e) }
+                }
+                via = VIA_TOR
+                return
+            }
         }
-        s.startHandshake()
-        if (System.getProperty("java.vendor").orEmpty().contains("Android", true))
-            check(HttpsURLConnection.getDefaultHostnameVerifier().verify(host, s.session)) { "certificate is not for $host" }
-        s.soTimeout = 0
-        val key = Base64.getEncoder().encodeToString(ByteArray(16).also { rnd.nextBytes(it) })
-        val path = (u.rawPath ?: "").ifEmpty { "/" }
-        val o = s.outputStream
-        o.write(("GET $path HTTP/1.1\r\nHost: $host\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
-            "Sec-WebSocket-Key: $key\r\nSec-WebSocket-Version: 13\r\nUser-Agent: Kilowallet\r\n\r\n").toByteArray())
-        o.flush()
-        val inp = s.inputStream
-        val status = readLine(inp)
-        check(status.contains(" 101")) { "relay refused the WebSocket: $status" }
-        while (readLine(inp).isNotEmpty()) { /* skip headers */ }
-        socket = s; out = o; connected = true; lastHeard = System.currentTimeMillis()
-        Thread({ readLoop(inp) }, "relay-$host").apply { isDaemon = true }.start()
+        open(url, proxy, 60_000); via = VIA_TOR
+    }
+
+    /**
+     * Opens the WebSocket to [target] (wss://, or ws:// to a .onion only), through [proxy] when
+     * given, waiting at most [timeoutMs] for the connection and for the relay's answer.
+     */
+    private fun open(target: String, proxy: java.net.Proxy?, timeoutMs: Int) {
+        val u = URI(target)
+        val host = u.host
+        val tls = u.scheme == "wss"
+        require(tls || (u.scheme == "ws" && isOnion(host) && proxy != null)) { "only wss:// relays (ws:// only to a .onion, through Tor)" }
+        val port = if (u.port > 0) u.port else if (tls) 443 else 80
+        val raw: java.net.Socket? = when {
+            proxy == null -> null
+            isolation != null -> socks5(proxy.address() as InetSocketAddress, host, port, isolation, timeoutMs)
+            else -> java.net.Socket(proxy).also {
+                try { it.connect(InetSocketAddress.createUnresolved(host, port), timeoutMs) }
+                catch (e: Exception) { runCatching { it.close() }; throw e }
+            }
+        }
+        val s: java.net.Socket = try {
+            if (!tls) raw!! else {
+                val ssl = if (raw != null) (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(raw, host, port, true) as SSLSocket
+                    else (SSLSocketFactory.getDefault().createSocket() as SSLSocket).also { it.connect(InetSocketAddress(host, port), timeoutMs) }
+                // The certificate must be for this host name: the TLS layer checks it (endpoint
+                // identification), and on Android the platform's verifier checks it again, as
+                // HttpsURLConnection would. (Off Android that verifier refuses everything by design.)
+                ssl.sslParameters = ssl.sslParameters.apply {
+                    serverNames = listOf(SNIHostName(host)); endpointIdentificationAlgorithm = "HTTPS"
+                }
+                ssl.soTimeout = timeoutMs
+                ssl.startHandshake()
+                if (System.getProperty("java.vendor").orEmpty().contains("Android", true))
+                    check(HttpsURLConnection.getDefaultHostnameVerifier().verify(host, ssl.session)) { "certificate is not for $host" }
+                ssl
+            }
+        } catch (e: Exception) { runCatching { raw?.close() }; throw e }
+        try {
+            // The relay's answer is awaited no longer than the connection; after it, no time limit.
+            s.soTimeout = timeoutMs
+            val key = Base64.getEncoder().encodeToString(ByteArray(16).also { rnd.nextBytes(it) })
+            val path = (u.rawPath ?: "").ifEmpty { "/" }
+            val o = s.outputStream
+            o.write(("GET $path HTTP/1.1\r\nHost: $host\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+                "Sec-WebSocket-Key: $key\r\nSec-WebSocket-Version: 13\r\nUser-Agent: Kilowallet\r\n\r\n").toByteArray())
+            o.flush()
+            val inp = s.inputStream
+            val status = readLine(inp)
+            check(status.contains(" 101")) { "relay refused the WebSocket: $status" }
+            while (readLine(inp).isNotEmpty()) { /* skip headers */ }
+            s.soTimeout = 0
+            socket = s; out = o; connected = true; lastHeard = System.currentTimeMillis()
+            Thread({ readLoop(inp) }, "relay-$host").apply { isDaemon = true }.start()
+        } catch (e: Exception) { runCatching { s.close() }; throw e }
     }
 
     /**
@@ -87,11 +143,11 @@ class RelayClient(
      * (RFC 1929) carrying [isolation]: Java's own SOCKS client only sends a username/password from
      * a process-wide Authenticator, so this one is written out (the host is resolved by Tor).
      */
-    private fun socks5(proxy: InetSocketAddress, host: String, port: Int, isolation: String): java.net.Socket {
+    private fun socks5(proxy: InetSocketAddress, host: String, port: Int, isolation: String, timeoutMs: Int): java.net.Socket {
         val raw = java.net.Socket()
         try {
             raw.connect(InetSocketAddress(proxy.hostString, proxy.port), 15_000)
-            raw.soTimeout = 60_000
+            raw.soTimeout = timeoutMs
             val o = raw.getOutputStream(); val i = raw.getInputStream()
             o.write(byteArrayOf(5, 1, 2)); o.flush()
             val m = readFully(i, 2)
@@ -102,7 +158,7 @@ class RelayClient(
             val h = host.toByteArray()
             o.write(byteArrayOf(5, 1, 0, 3, h.size.toByte()) + h + byteArrayOf((port shr 8).toByte(), port.toByte())); o.flush()
             val r = readFully(i, 4)
-            check(r[1].toInt() == 0) { "the SOCKS proxy could not connect (${r[1].toInt() and 0xff})" }
+            check(r[1].toInt() == 0) { socksError(r[1].toInt() and 0xff) }
             when (r[3].toInt()) {
                 1 -> readFully(i, 4 + 2)
                 4 -> readFully(i, 16 + 2)
@@ -117,6 +173,38 @@ class RelayClient(
     companion object {
         /** Tests: a SOCKS proxy to go through instead of the app's Tor. */
         @JvmField @Volatile var socksOverride: InetSocketAddress? = null
+
+        const val VIA_ONION = "onion"
+        const val VIA_TOR = "tor"
+        const val VIA_DIRECT = "direct"
+
+        /** How long the onion gets (a first visit fetches its descriptor and builds a rendezvous). */
+        const val ONION_TIMEOUT_MS = 45_000
+        /** After the onion failed, connections go straight to the Tor exit for this long. */
+        const val ONION_RETRY_MS = 10 * 60_000L
+        @Volatile internal var onionFailedAt = 0L
+
+        /** Where the app logs which way the relay was reached (logcat on Android, nothing elsewhere). */
+        @JvmField @Volatile var log: (String) -> Unit = { m ->
+            if (System.getProperty("java.vendor").orEmpty().contains("Android", true))
+                runCatching { android.util.Log.i("Kilowallet", m) }
+        }
+
+        /** The .onion of a relay we run, for the transport over Tor; null for any other relay. */
+        fun onionFor(url: String): String? = if (url == Protocol.RELAY) Protocol.RELAY_ONION else null
+
+        internal fun isOnion(host: String?): Boolean = host.orEmpty().lowercase().trimEnd('.').endsWith(".onion")
+
+        /** SOCKS5 replies (RFC 1928), worded as Tor's own log words them. */
+        internal fun socksError(code: Int): String = when (code) {
+            1 -> "SOCKS server general failure"
+            2 -> "connection not allowed by ruleset"
+            3 -> "network unreachable"
+            4 -> "host unreachable"
+            5 -> "connection refused"
+            6 -> "TTL expired"
+            else -> "the SOCKS proxy could not connect ($code)"
+        }
     }
 
     private fun readLine(inp: InputStream): String {
