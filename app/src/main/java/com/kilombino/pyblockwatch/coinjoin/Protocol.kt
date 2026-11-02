@@ -76,6 +76,13 @@ import org.json.JSONObject
  */
 object Protocol {
     const val RELAY = "wss://relay.kilombino.com"
+    /**
+     * The same relay (same strfry, same events) as a Tor onion service: how the app reaches it
+     * when Tor is on, falling back to [RELAY] through a Tor exit (see [RelayClient]). Plain ws://
+     * because Tor already encrypts end to end. A transport only: nothing published names it, and
+     * every wallet, the desktop and StartOS ones and older versions included, keeps [RELAY].
+     */
+    const val RELAY_ONION = "ws://pf7d47aytdrrlmoa6f23gpsi7bjwvpeo27gnuz4vhh44rtn2r4bdy6qd.onion"
     const val KIND_POOL = 32022
     /** Seconds between an open pool's re-announcements by its creator. */
     const val HEARTBEAT = 10 * 60L
