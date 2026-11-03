@@ -62,8 +62,11 @@ data class NostrEvent(
         fun hash(pubkey: String, createdAt: Long, kind: Int, tags: List<List<String>>, content: String): ByteArray =
             Hashes.sha256(serialize(pubkey, createdAt, kind, tags, content).toByteArray(Charsets.UTF_8))
 
+        /** Unix seconds for new events; tests move it to run hours of a pool in minutes. */
+        @JvmStatic @Volatile var clock: () -> Long = { System.currentTimeMillis() / 1000 }
+
         fun sign(secret: BigInteger, kind: Int, tags: List<List<String>>, content: String,
-                 createdAt: Long = System.currentTimeMillis() / 1000): NostrEvent {
+                 createdAt: Long = clock()): NostrEvent {
             val pub = Secp256k1.xOnly(Secp256k1.publicPoint(secret)).toHex()
             val h = hash(pub, createdAt, kind, tags, content)
             return NostrEvent(h.toHex(), pub, createdAt, kind, tags, content, Schnorr.sign(secret, h).toHex())
