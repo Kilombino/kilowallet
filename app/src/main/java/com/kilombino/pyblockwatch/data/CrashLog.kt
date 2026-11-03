@@ -63,5 +63,24 @@ class KilowalletApp : Application() {
         CrashLog.captureNativeErrors(this)
         // Electrum over Tor (a .onion server, or every server when chosen) from any part of the app.
         com.kilombino.pyblockwatch.chain.Tor.install(this)
+        debugCoinjoinOverride()
+    }
+
+    /**
+     * A debuggable build (never a published one) can run its coinjoin pools on a relay of the test
+     * machine and under another network name, so pools tried in the emulator never reach
+     * relay.kilombino.com nor the wallets there. Set before anything else runs (the coinjoin service
+     * restarts without an activity): `run-as … sh -c 'echo "ws://127.0.0.1:7777 blake2b-regtest" > files/debug-coinjoin'`.
+     * The relay client takes plain ws:// only to the loopback (`adb reverse` to the test machine).
+     */
+    private fun debugCoinjoinOverride() {
+        if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0) return
+        val f = File(filesDir, "debug-coinjoin").takeIf { it.exists() } ?: return
+        // A file there that can't be read leaves coinjoin on no relay at all, never on the real one.
+        val (relay, network) = runCatching { f.readText().trim().split(Regex("\\s+")).let { it[0] to it[1] } }
+            .getOrDefault("ws://127.0.0.1:1" to "blake2b-debug")
+        com.kilombino.pyblockwatch.coinjoin.Protocol.RELAY = relay
+        com.kilombino.pyblockwatch.coinjoin.Protocol.NETWORK = network
+        android.util.Log.w("Kilowallet", "debug build: coinjoin on $relay, network $network")
     }
 }
