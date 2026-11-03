@@ -35,7 +35,7 @@ class RelayClient(
      */
     private val isolation: String? = null,
 ) {
-    private var socket: SSLSocket? = null
+    private var socket: java.net.Socket? = null
     private var out: OutputStream? = null
     private val rnd = SecureRandom()
     private val pendingOk = ConcurrentHashMap<String, CompletableFuture<Pair<Boolean, String>>>()
@@ -46,9 +46,28 @@ class RelayClient(
 
     fun connect() {
         val u = URI(url)
-        require(u.scheme == "wss") { "only wss:// relays" }
         val host = u.host
-        val port = if (u.port > 0) u.port else 443
+        // Plain ws:// only to a relay on this machine (tests run one); anything else is wss://.
+        val plain = u.scheme == "ws" && (host == "127.0.0.1" || host == "localhost" || host == "[::1]" || host == "::1")
+        require(u.scheme == "wss" || plain) { "only wss:// relays" }
+        val port = if (u.port > 0) u.port else if (plain) 80 else 443
+        val s: java.net.Socket = if (plain) java.net.Socket().also { it.connect(InetSocketAddress(host, port), 15_000) } else tls(host, port)
+        s.soTimeout = 0
+        val key = Base64.getEncoder().encodeToString(ByteArray(16).also { rnd.nextBytes(it) })
+        val path = (u.rawPath ?: "").ifEmpty { "/" }
+        val o = s.outputStream
+        o.write(("GET $path HTTP/1.1\r\nHost: $host\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+            "Sec-WebSocket-Key: $key\r\nSec-WebSocket-Version: 13\r\nUser-Agent: Kilowallet\r\n\r\n").toByteArray())
+        o.flush()
+        val inp = s.inputStream
+        val status = readLine(inp)
+        check(status.contains(" 101")) { "relay refused the WebSocket: $status" }
+        while (readLine(inp).isNotEmpty()) { /* skip headers */ }
+        socket = s; out = o; connected = true; lastHeard = System.currentTimeMillis()
+        Thread({ readLoop(inp) }, "relay-$host").apply { isDaemon = true }.start()
+    }
+
+    private fun tls(host: String, port: Int): SSLSocket {
         // Through the app's Tor when it is already running (for a .onion node), so the relay sees
         // a Tor exit, not this phone's address. TLS goes end to end over it as usual.
         val proxy = socksOverride?.let { java.net.Proxy(java.net.Proxy.Type.SOCKS, it) }
@@ -67,19 +86,7 @@ class RelayClient(
         s.startHandshake()
         if (System.getProperty("java.vendor").orEmpty().contains("Android", true))
             check(HttpsURLConnection.getDefaultHostnameVerifier().verify(host, s.session)) { "certificate is not for $host" }
-        s.soTimeout = 0
-        val key = Base64.getEncoder().encodeToString(ByteArray(16).also { rnd.nextBytes(it) })
-        val path = (u.rawPath ?: "").ifEmpty { "/" }
-        val o = s.outputStream
-        o.write(("GET $path HTTP/1.1\r\nHost: $host\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
-            "Sec-WebSocket-Key: $key\r\nSec-WebSocket-Version: 13\r\nUser-Agent: Kilowallet\r\n\r\n").toByteArray())
-        o.flush()
-        val inp = s.inputStream
-        val status = readLine(inp)
-        check(status.contains(" 101")) { "relay refused the WebSocket: $status" }
-        while (readLine(inp).isNotEmpty()) { /* skip headers */ }
-        socket = s; out = o; connected = true; lastHeard = System.currentTimeMillis()
-        Thread({ readLoop(inp) }, "relay-$host").apply { isDaemon = true }.start()
+        return s
     }
 
     /**
