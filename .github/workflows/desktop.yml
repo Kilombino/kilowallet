@@ -20,8 +20,6 @@ env:
   ARK_REPO: Kilombino/paperclip-wallet-app
   ARK_COMMIT: 349d199250b407fdf84f0986e94e4f427d5a5f61
   GOBIND: golang.org/x/mobile/cmd/gobind@v0.0.0-20261011034528-197770444867
-  # The neutrino that advertises NODE_BLAKE2B (lnd-overlay/go.mod replace), fetched from its repo.
-  GOPRIVATE: github.com/Kilombino/*
   TOR_VERSION: 15.0.25
 
 jobs:
