@@ -83,6 +83,18 @@ class Notifier(private val context: Context, private val titlePrefix: String = "
              if (confirmed) "⚡ Lightning node: payment confirmed" else "⚡ Lightning node: incoming payment",
              "+${sats(amount)} sats on-chain in the Lightning node" + (if (confirmed) " (1 conf)" else " (0 conf)"), OpenTab.LIGHTNING)
 
+    // A Lightning payment is one notification, keyed by its payment hash (or the offer it pays):
+    // paid or not paid replaces "on its way" if that was shown.
+    fun lightningPaid(amount: Long, key: String) =
+        post(("lnpay:$key").hashCode(), "⚡ Lightning: paid", "−${sats(amount)} sats", OpenTab.LIGHTNING)
+
+    fun lightningNotPaid(amount: Long, why: String, key: String) =
+        post(("lnpay:$key").hashCode(), "❌ Lightning: ${sats(amount)} sats not paid", why, OpenTab.LIGHTNING)
+
+    fun lightningReceived(amount: Long, memo: String, key: String) =
+        post(("lnrecv:$key").hashCode(), "⚡ Lightning: received",
+             "+${sats(amount)} sats" + (if (memo.isNotBlank()) "\n“$memo”" else ""), OpenTab.LIGHTNING)
+
     // A payment is one notification: in the mempool (0 conf), then the same one again at its first
     // block (1 conf), so the two don't pile up. Its wallet is in the title prefix.
     fun mempoolIn(chain: Chain, amount: Long, txid: String) =

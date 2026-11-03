@@ -275,7 +275,7 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
             creating = false; com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.pending.value = null
             // A payment goes back to SEND as it was typed, nothing lost.
             pay?.draft?.let { com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.backToSend.value = it }
-        }) { amount, rate, minPeers, peers, hours, password, maxInputs, outputs, u, dest, cap ->
+        }) { amount, rate, minPeers, peers, hours, password, maxInputs, outputs, u, dest, cap, async ->
             scope.launch {
                 val type = if (u.first().type == ScriptType.P2TR) ScriptType.P2TR else ScriptType.P2WPKH
                 // A payment's outputs are the recipients' addresses as typed; nothing is derived for them.
@@ -289,7 +289,7 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
                             runCatching { withContext(Dispatchers.Default) {
                                 val perpId = cap?.let { com.kilombino.pyblockwatch.coinjoin.Perpetual.newId() }
                                 CoinjoinHub.create(ctx, pick, amount, rate, peers, hours, minPeers, password,
-                                    maxInputs, CoinjoinHub.autoDefault(ctx), outputs, pay?.payments.orEmpty(), perpId = perpId)
+                                    maxInputs, CoinjoinHub.autoDefault(ctx), outputs, pay?.payments.orEmpty(), perpId = perpId, async = async)
                                     .also { st -> beginPerpetual(ctx, st, pick, cap) }
                             } }
                                 .onSuccess { st ->
@@ -453,7 +453,8 @@ private fun poolTypeLine(t: Protocol.Terms): String =
         (if (t.maxInputs > 1) " · up to ${t.maxInputs} coins each" else " · one coin each") +
         (if (t.v5) " · " + (if (t.outputs > 1) "a payment pool (v5): the creator pays ${t.payments.size} recipient(s); you get ${groupSats(t.mixTotal)} in ${t.outputs} equal outputs"
             else "a payment pool (v5): the creator pays ${t.payments.size} recipient(s); you get ${groupSats(t.mixTotal)} in one output")
-        else if (t.outputs > 1) " · ${t.outputs} outputs each (v4)" else if (t.v3) " · blind outputs (v3)" else "")
+        else if (t.outputs > 1) " · ${t.outputs} outputs each (v4)" else if (t.v3) " · blind outputs (v3)" else "") +
+        (t.async?.let { a -> " · asynchronous (v6): ${a.vote / 60} min to answer, ${a.outputs / 60} for outputs, ${a.sign / 60} to sign" } ?: "")
 
 /**
  * The mixed outputs' scripts for [dest]: null for the hot wallet (its own fresh addresses, picked
@@ -711,7 +712,7 @@ private fun CreatePool(
     pay: com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.Request?,
     onCancel: () -> Unit,
     onCreate: (amount: Long, rate: Double, minPeers: Int, maxPeers: Int, hours: Int, password: String, maxInputs: Int,
-               outputs: Int, coins: List<Scanner.SpendableUtxo>, dest: Destination.Kind, perpetualCap: Double?) -> Unit,
+               outputs: Int, coins: List<Scanner.SpendableUtxo>, dest: Destination.Kind, perpetualCap: Double?, async: Boolean) -> Unit,
 ) {
     val ctx = LocalContext.current
     // From your coins (the default): whole coins ticked first, and the amount worked out so they
@@ -730,6 +731,8 @@ private fun CreatePool(
     var minText by remember { mutableStateOf("2") }
     var password by remember { mutableStateOf("") }
     var hoursText by remember { mutableStateOf("6") }
+    // Kilojoin v6: asynchronous rounds, for people who answer at different times.
+    var async by remember { mutableStateOf(false) }
     var pickCoin by remember { mutableStateOf(false) }
     var choosingDest by remember { mutableStateOf(false) }
     // What each person puts in, in all (amount × outputs); each output at least TEST_MIN_AMOUNT.
@@ -783,12 +786,12 @@ private fun CreatePool(
     if (pickCoin && error == null) {
         val exactFor = WalletViewModel.ExactFor(null, null, org.json.JSONObject().put("amount", amount!!).put("feeRate", rate!!)
             .put("maxPeers", peers!!).put("hours", hours!!).put("minPeers", minPeers!!).put("password", password).put("maxInputs", maxInputs!!)
-            .put("outputs", outputs!!))
+            .put("outputs", outputs!!).put("async", async))
         CoinPicker(vm, accent, if (pay != null) "Your coins for the payment" else "Your coins for the pool", amount, rate, type, maxInputs, outputs, exactFor,
             onCancel = { pickCoin = false }, initial = pay?.coins.orEmpty(), payment = pay != null,
             feeOutputs = payV5?.size ?: outputs, paymentPool = payV5 != null, perpetualOk = pay == null && outputs == 1,
             initialPerpetual = perpetual, initialCap = capText.ifEmpty { rateText }) { u, dest, cap ->
-            onCreate(amount, rate, minPeers!!, peers!!, hours!!, password, maxInputs, outputs, u, dest, cap)
+            onCreate(amount, rate, minPeers!!, peers!!, hours!!, password, maxInputs, outputs, u, dest, cap, async)
         }
         return
     }
@@ -799,7 +802,7 @@ private fun CreatePool(
     val cap = if (perpetualOk && perpetual) (capText.ifEmpty { rateText }).replace(',', '.').toDoubleOrNull() else null
     val capBad = perpetualOk && perpetual && (cap == null || cap < 1.0 || cap > 500.0)
     fun open(d: Destination.Kind) = onCreate(amount!!, rate!!, minPeers!!, peers!!, hours!!, password, maxInputs!!, outputs!!, picked.toList(), d,
-        if (d == Destination.Kind.HOT) cap else null)
+        if (d == Destination.Kind.HOT) cap else null, async)
     if (choosingDest && fromCoins && error == null) {
         Panel(accent = accent) {
             SectionLabel("Open a pool from your coins", accent)
@@ -962,7 +965,21 @@ private fun CreatePool(
         field("most people (${Protocol.MIN_PEERS}–${Protocol.MAX_PEERS})", peersText) { peersText = it }
         field("open for (hours)", hoursText) { hoursText = it }
         field("most coins per person (1–${Protocol.MAX_INPUTS})", inputsText) { inputsText = it }
-        if (payV5 != null) Text("Only Kilowallet 1.2.7 or newer (Kilojoin v5) sees this pool.",
+        // Kilojoin v6: the mark apart from the words, so the words are found in the translations.
+        TextButton(onClick = { async = !async }, modifier = Modifier.fillMaxWidth()) {
+            Text(if (async) "●" else "○", color = if (async) accent else TextMain, style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.width(6.dp))
+            Text("Asynchronous rounds (Kilojoin v6)", color = if (async) accent else TextMain,
+                style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+        }
+        if (async) Text("For people who answer at different times: up to an hour to answer, 30 minutes for the outputs and two " +
+            "hours to sign, with an end time no round goes past. Nobody is left out of a round without being asked again. " +
+            "As its creator, this phone runs the pool: keep it online, charged and with coinjoin allowed in the background " +
+            "until the round is done (a Kilojoin node is better at it). Only wallets that know Kilojoin v6 see these pools.",
+            color = TextFaint, style = MaterialTheme.typography.bodySmall)
+        // An asynchronous pool is v6 whatever else it is: the text above already says who sees it.
+        if (async) Unit
+        else if (payV5 != null) Text("Only Kilowallet 1.2.7 or newer (Kilojoin v5) sees this pool.",
             color = TextFaint, style = MaterialTheme.typography.bodySmall)
         else if ((outputs ?: 1) == 1) Text(if (!taproot && maxInputs == 1) "One coin each: Kilowallet versions before 0.27 can join it too."
             else "Only Kilowallet 0.27 or newer sees this pool.",
@@ -1040,7 +1057,8 @@ private fun MyPoolCard(
             PoolSession.Phase.OPEN -> "Waiting for people · $people/${st.terms.maxPeers} · closes in ${remaining(st.terms.expiresAt)}"
             PoolSession.Phase.VOTING -> "Close now with $people people?"
             PoolSession.Phase.CLOSING -> "Closing with $people people · collecting outputs"
-            PoolSession.Phase.SIGNING -> "Ready: sign within ${remaining(st.phaseDeadline)}"
+            PoolSession.Phase.SIGNING -> if (session?.reserved == true) "Signed · your coins are held until the round resolves"
+                else "Ready: sign within ${remaining(st.phaseDeadline)}"
             PoolSession.Phase.BROADCAST -> "Sent · waiting for the first confirmation"
             PoolSession.Phase.CONFIRMED -> "Confirmed ✅"
             PoolSession.Phase.ABORTED -> "Cancelled: ${st.reason}. Your coin did not move."
@@ -1154,7 +1172,16 @@ private fun MyPoolCard(
                 } else {
                     val iAsked = st.voteBy == st.token?.let { Protocol.tokenHash(it) }
                     val by = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(st.voteDeadline * 1000))
-                    if (iAsked || st.votedOn == st.voteId) {
+                    if ((iAsked || st.votedOn == st.voteId) && st.terms.v6) {
+                        // Kilojoin v6: a yes sent is not yet a yes recorded; nobody is left out without being asked again.
+                        Text(if (st.voteAcked == st.voteId) "Your yes is recorded by the pool's creator." else "Your yes is sent; waiting for the creator to record it.",
+                            color = if (st.voteAcked == st.voteId) Good else TextSoft, style = MaterialTheme.typography.bodySmall)
+                        Text("Waiting for the others to answer, until $by. You can close the app. If someone doesn't answer, they " +
+                            "leave the pool and the rest are asked again: it never closes with fewer people without asking.",
+                            color = TextSoft, style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.height(6.dp))
+                        btn(if (st.creator) "CANCEL POOL" else if (manySeats) "LEAVE THIS SEAT" else "LEAVE", modifier = Modifier.fillMaxWidth()) { confirmLeave = true }
+                    } else if (iAsked || st.votedOn == st.voteId) {
                         Text("Waiting for the others to answer, until $by. Whoever has not answered by then is left " +
                             "out; if too few are left, the pool reopens without them.",
                             color = TextSoft, style = MaterialTheme.typography.bodySmall)
@@ -1171,7 +1198,15 @@ private fun MyPoolCard(
             }
             PoolSession.Phase.SIGNING -> {
                 val plan = session?.plan()
-                if (st.postedSig) Text("Signed. Waiting for the others (${st.sigs.size}/${plan?.coins?.size ?: "?"} coins)…",
+                if (session?.reserved == true) Text("Signed, and the time to sign is over without every signature. Your coins stay " +
+                    "held: the transaction can still go out if the last signatures arrive. They are free once it confirms, or once a " +
+                    "coin of the round is spent elsewhere.", color = Warn, style = MaterialTheme.typography.bodySmall)
+                else if (st.postedSig && st.terms.v6) Text("Signed, and the relay has your signature: you can close the app. " +
+                    "Whoever has every signature sends the transaction. (${st.sigs.size}/${plan?.coins?.size ?: "?"} coins)",
+                    color = TextSoft, style = MaterialTheme.typography.bodySmall)
+                else if (st.terms.v6 && session?.signed == true) Text("Signed. Sending your signature to the relay…",
+                    color = TextSoft, style = MaterialTheme.typography.bodySmall)
+                else if (st.postedSig) Text("Signed. Waiting for the others (${st.sigs.size}/${plan?.coins?.size ?: "?"} coins)…",
                     color = TextSoft, style = MaterialTheme.typography.bodySmall)
                 else {
                     plan?.let {
@@ -1707,7 +1742,8 @@ private fun RoundCard(
         PoolSession.Phase.OPEN -> "Waiting for people · $people/${st.terms.maxPeers} people · closes at ${hhmm(st.terms.expiresAt)}"
         PoolSession.Phase.VOTING -> if (needsMe(st)) "Closing vote · your answer, by ${hhmm(st.voteDeadline)}" else "Closing vote · $people people"
         PoolSession.Phase.CLOSING -> "Closing · $people people · collecting outputs"
-        PoolSession.Phase.SIGNING -> if (st.postedSig) "Signed · waiting for the others" else if (needsMe(st)) "Ready to sign" else "Signing"
+        PoolSession.Phase.SIGNING -> if (st.postedSig && st.terms.v6 && st.reason.isNotEmpty()) "Signed · coins held until the round resolves"
+            else if (st.postedSig) "Signed · waiting for the others" else if (needsMe(st)) "Ready to sign" else "Signing"
         PoolSession.Phase.BROADCAST -> "Sent · waiting for a block"
         PoolSession.Phase.CONFIRMED -> "Confirmed"
         PoolSession.Phase.ABORTED -> "Cancelled"

@@ -112,6 +112,67 @@ object Lightning {
         p.edit().putString("fund_addrs", list.takeLast(30).joinToString("\n")).apply()
     }
 
+    /** A payment this app is waiting on: the PAY dialog may be gone, the app in the background. */
+    data class Paying(val key: String, val sats: Long)
+    private val _paying = MutableStateFlow<List<Paying>>(emptyList())
+    val paying: StateFlow<List<Paying>> = _paying.asStateFlow()
+    /** How the last payment started here ended, for the PAY card: (text, paid). */
+    private val _payResult = MutableStateFlow<Triple<String, Long, Boolean>?>(null)
+    val payResult: StateFlow<Triple<String, Long, Boolean>?> = _payResult.asStateFlow()
+    fun clearPayResult() { _payResult.value = null }
+
+    /**
+     * Runs a payment outside the screen, so closing the dialog or leaving the app doesn't lose
+     * it: the outcome comes back in [payResult] and as a notification. [key] is the payment hash
+     * (or the offer): one payment per key at a time.
+     */
+    fun startPayment(ctx: Context, key: String, sats: Long, pay: suspend () -> Unit) {
+        val app = ctx.applicationContext
+        synchronized(_paying) {
+            if (_paying.value.any { it.key == key }) return
+            _paying.value = _paying.value + Paying(key, sats)
+        }
+        scope.launch {
+            val r = runCatching { pay() }
+            synchronized(_paying) { _paying.value = _paying.value.filterNot { it.key == key } }
+            val n = com.kilombino.pyblockwatch.data.Notifier(app)
+            r.onSuccess { _payResult.value = Triple("", sats, true); n.lightningPaid(sats, key) }
+                .onFailure { e ->
+                    val why = Lnd.payError(e)
+                    _payResult.value = Triple(why, sats, false)
+                    n.lightningNotPaid(sats, why, key)
+                }
+            runCatching { refreshHere() }
+        }
+    }
+
+    /**
+     * Payments still on their way from an earlier run (LND keeps them across restarts): followed
+     * to their end here, so the result is shown and notified like a payment started now.
+     */
+    private fun followInFlight(app: Context, payments: List<Lnd.Payment>) {
+        // A BOLT 12 payment is keyed by its offer until it ends; don't follow it twice.
+        if (_paying.value.isNotEmpty()) return
+        for (p in payments.filter { it.status == 1 && it.hash.isNotBlank() })
+            startPayment(app, p.hash, p.sats) { Lnd.track(p.hash) }
+    }
+
+    @Volatile private var invoiceWatch = false
+
+    /** Notifies each invoice paid to this node while it runs (and those paid since the last one notified). */
+    private fun watchInvoices(app: Context) {
+        if (invoiceWatch) return
+        invoiceWatch = true
+        val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        Lnd.subscribeSettled(prefs.getLong("settle_index", 0L), onSettled = { memo, sats, index, hash ->
+            if (index > prefs.getLong("settle_index", 0L)) {
+                prefs.edit().putLong("settle_index", index).apply()
+                com.kilombino.pyblockwatch.data.Notifier(app).lightningReceived(sats, memo, hash)
+                scope.launch { runCatching { refreshHere() } }
+            }
+        }, onEnd = { invoiceWatch = false })
+    }
+
     /** Payments to the FUND addresses the explorer sees and the node does not yet. */
     @Volatile var incoming: List<Lnd.ChainTx> = emptyList()
         private set
@@ -362,6 +423,7 @@ object Lightning {
             val inv = runCatching { Lnd.invoices() }.getOrDefault(emptyList())
             val pay = runCatching { Lnd.payments() }.getOrDefault(emptyList())
             _status.value = Status.Running(info, b, ch, p, chainTip, cl, inv, pay)
+            appCtx?.let { app -> watchInvoices(app); followInFlight(app, pay) }
         }.onFailure {
             // The wallet RPC can answer before LND has looked at its database, so the state read
             // at start may not be the real one: a locked wallet found here is opened here.

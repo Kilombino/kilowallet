@@ -48,7 +48,9 @@ object CoinjoinHub {
     @Synchronized
     private fun persist(ctx: Context) {
         val a = JSONArray(); sessions.values.forEach { a.put(it.state.toJson()) }
-        prefs(ctx).edit().putString(KEY_SESSIONS, a.toString()).apply()
+        val e = prefs(ctx).edit().putString(KEY_SESSIONS, a.toString())
+        // Kilojoin v6: a pool this phone runs acknowledges votes and outputs only once they are kept: on disk first.
+        if (sessions.values.any { it.state.creator && it.state.terms.v6 && !it.done }) e.commit() else e.apply()
         // Keys kept for rounds on their own: only while the round is live and still on its own.
         AutoKeyVault.keepOnly(ctx, sessions.values.filter { !it.done && it.autoKeys != null }.map { it.state.key }.toSet())
         _states.value = sessions.values.map { it.state }.sortedByDescending { it.created }
@@ -299,11 +301,13 @@ object CoinjoinHub {
         payments: List<Long> = emptyList(),
         /** A perpetual coin's round ([Perpetual]): its id; the pool opens after a random wait. */
         perpId: String? = null,
+        /** Kilojoin v6: asynchronous rounds (longer windows, every answer acknowledged); this phone runs it and must stay online. */
+        async: Boolean = false,
     ): PoolSession.State {
         // New pools are v3 (outputs registered blindly), v4 with several outputs each; older
-        // wallets keep joining v1 and v2 ones.
+        // wallets keep joining v1 and v2 ones. Asynchronous ones are v6.
         val np = PoolSession.newPool(amount, feeRate, maxPeers, hours, minPeers, !password.isNullOrEmpty(),
-            pick.type, maxInputs, v3 = true, outputs = outputs, payments = payments)
+            pick.type, maxInputs, v3 = true, outputs = outputs, payments = payments, async = async)
         val st = PoolSession.newState(np.terms, true, np.secret, pick.txCoins(), pick.coins.map { it.coinKey.key }, pick.coins.map { it.coinPath },
             pick.mixScripts, pick.changeScript, password?.ifEmpty { null }, np.creatorSecret, np.blindPriv, perpId = perpId)
         add(ctx, st, if (auto || perpId != null) pick.coins.map { it.coinKey.key } else null)

@@ -154,6 +154,23 @@ class I18nTest {
         assertEquals("xyzzy 42", I18n.tr("xyzzy 42"))
     }
 
+    /** Lightning: BOLT 12 offers, payments that go on in the background, and their notifications. */
+    @Test fun lightningOffersAndPaymentTexts() {
+        I18n.lang.value = I18n.ES
+        assertEquals("Pagar una factura u oferta Lightning", I18n.tr("Pay a Lightning invoice or offer"))
+        assertEquals("¿Pagar esta oferta?", I18n.tr("Pay this offer?"))
+        assertEquals("A Tienda · oferta BOLT 12", I18n.tr("To Tienda · BOLT 12 offer"))
+        assertEquals("⏳ Pagando 1 000 sats: en camino. Si falla, los sats vuelven a tu canal.",
+            I18n.tr("⏳ Paying 1 000 sats: on its way. If it fails, the sats come back to your channel."))
+        assertEquals("OCULTAR", I18n.tr("HIDE"))
+        assertEquals("❌ Lightning: 20 000 sats sin pagar", I18n.tr("❌ Lightning: 20 000 sats not paid"))
+        assertEquals("⚡ Lightning: recibido", I18n.tr("⚡ Lightning: received"))
+        assertEquals("esta oferta no se puede pagar: no es válida", I18n.tr("this offer can't be paid: it is not valid"))
+        assertEquals("Oferta reutilizable (BOLT 12)", I18n.tr("Reusable offer (BOLT 12)"))
+        assertEquals("MOSTRAR MI OFERTA", I18n.tr("SHOW MY OFFER"))
+        assertEquals("comisión 2", I18n.tr("fee 2"))
+    }
+
     @Test fun everyTableKeepsThePlaceholdersAndTheEdges() {
         for (l in I18n.LANGUAGES.map { it.first }.filter { it != I18n.EN && File(dir, "$it.json").exists() }) {
             val o = JSONObject(File(dir, "$l.json").readText())
@@ -235,6 +252,25 @@ class I18nTest {
             val o = JSONObject(File(dir, "$l.json").readText())
             o.keys().forEach { k -> assertTrue("$l: XBT in \"$k\"", !k.contains("XBT") && !o.getString(k).contains("XBT")) }
         }
+        I18n.lang.value = I18n.ES
+    }
+    /** Kilojoin v6 (asynchronous rounds): every text in every language, and how a pool's line and a vote read. */
+    @Test fun asyncRoundTexts() {
+        val keys = listOf("Asynchronous rounds (Kilojoin v6)", "Your yes is recorded by the pool's creator.",
+            "Your yes is sent; waiting for the creator to record it.", "Signed. Sending your signature to the relay…",
+            "Signed · your coins are held until the round resolves", "asynchronous (v6): {0} min to answer, {1} for outputs, {2} to sign",
+            "the pool reached its final time", "a coin of the round was spent elsewhere: its transaction can never confirm, and your coins are free")
+        for (l in I18n.LANGUAGES.map { it.first }.filter { it != I18n.EN }) {
+            val o = JSONObject(File(dir, "$l.json").readText())
+            keys.forEach { k -> assertTrue("$l lacks \"$k\"", o.has(k) && o.getString(k) != k) }
+        }
+        I18n.lang.value = I18n.ES
+        assertEquals("Solo monedas SegWit nativo (bc1q) · una moneda cada uno · asíncrono (v6): 60 min para responder, 30 para las salidas, 120 para firmar"
+            .substringAfterLast(" · "), I18n.tr("Native SegWit (bc1q) coins only · one coin each · asynchronous (v6): 60 min to answer, 30 for outputs, 120 to sign")
+            .substringAfterLast(" · "))
+        assertEquals("Esperando a que respondan los demás, hasta las 14:05. Puedes cerrar la app. Si alguien no responde, sale del pool y se pregunta otra vez a los demás: nunca se cierra con menos gente sin preguntar.",
+            I18n.tr("Waiting for the others to answer, until 14:05. You can close the app. If someone doesn't answer, they leave the pool and the rest are asked again: it never closes with fewer people without asking."))
+        assertEquals("Cancelado: el pool llegó a su hora final. Tu moneda no se ha movido.", I18n.tr("Cancelled: the pool reached its final time. Your coin did not move."))
         I18n.lang.value = I18n.ES
     }
 }
