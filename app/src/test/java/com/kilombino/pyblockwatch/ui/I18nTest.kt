@@ -253,4 +253,23 @@ class I18nTest {
         }
         I18n.lang.value = I18n.ES
     }
+    /** Kilojoin v6 (asynchronous rounds): every text in every language, and how a pool's line and a vote read. */
+    @Test fun asyncRoundTexts() {
+        val keys = listOf("Asynchronous rounds (Kilojoin v6)", "Your yes is recorded by the pool's creator.",
+            "Your yes is sent; waiting for the creator to record it.", "Signed. Sending your signature to the relay…",
+            "Signed · your coins are held until the round resolves", "asynchronous (v6): {0} min to answer, {1} for outputs, {2} to sign",
+            "the pool reached its final time", "a coin of the round was spent elsewhere: its transaction can never confirm, and your coins are free")
+        for (l in I18n.LANGUAGES.map { it.first }.filter { it != I18n.EN }) {
+            val o = JSONObject(File(dir, "$l.json").readText())
+            keys.forEach { k -> assertTrue("$l lacks \"$k\"", o.has(k) && o.getString(k) != k) }
+        }
+        I18n.lang.value = I18n.ES
+        assertEquals("Solo monedas SegWit nativo (bc1q) · una moneda cada uno · asíncrono (v6): 60 min para responder, 30 para las salidas, 120 para firmar"
+            .substringAfterLast(" · "), I18n.tr("Native SegWit (bc1q) coins only · one coin each · asynchronous (v6): 60 min to answer, 30 for outputs, 120 to sign")
+            .substringAfterLast(" · "))
+        assertEquals("Esperando a que respondan los demás, hasta las 14:05. Puedes cerrar la app. Si alguien no responde, sale del pool y se pregunta otra vez a los demás: nunca se cierra con menos gente sin preguntar.",
+            I18n.tr("Waiting for the others to answer, until 14:05. You can close the app. If someone doesn't answer, they leave the pool and the rest are asked again: it never closes with fewer people without asking."))
+        assertEquals("Cancelado: el pool llegó a su hora final. Tu moneda no se ha movido.", I18n.tr("Cancelled: the pool reached its final time. Your coin did not move."))
+        I18n.lang.value = I18n.ES
+    }
 }

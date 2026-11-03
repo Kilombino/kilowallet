@@ -195,7 +195,7 @@ object PerfectCoin {
                 val perpId = if (branch != null) Perpetual.newId() else null
                 val st = if (c != null) CoinjoinHub.create(app, pick, c.getLong("amount"), c.getDouble("feeRate"), c.getInt("maxPeers"), c.getInt("hours"),
                     c.getInt("minPeers"), c.optString("password").ifEmpty { null }, c.optInt("maxInputs", 1), auto = true,
-                    outputs = c.optInt("outputs", 1), perpId = perpId)
+                    outputs = c.optInt("outputs", 1), perpId = perpId, async = c.optBoolean("async"))
                 else {
                     val t = CoinjoinHub.fetchPools().firstOrNull { it.id == w.poolId } ?: error("that pool is no longer open")
                     changed(w.terms, t)?.let { error("the pool is not the one you chose ($it)") }
