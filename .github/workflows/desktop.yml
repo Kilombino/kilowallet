@@ -78,7 +78,8 @@ jobs:
       - name: tor (Tor Project expert bundle)
         run: |
           f=tor-expert-bundle-${{ matrix.tor }}-$TOR_VERSION.tar.gz
-          curl -fsSLO "https://dist.torproject.org/torbrowser/$TOR_VERSION/$f"
+          # dist.torproject.org keeps only the current releases; older ones move to the archive (same files, same hash).
+          curl -fsSLO "https://dist.torproject.org/torbrowser/$TOR_VERSION/$f" || curl -fsSLO "https://archive.torproject.org/tor-package-archive/torbrowser/$TOR_VERSION/$f"
           echo "${{ matrix.tor_sha }}  $f" | sha256sum -c -
           mkdir tor-x && tar xzf "$f" -C tor-x
 
