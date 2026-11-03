@@ -24,7 +24,8 @@ case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*) JNI_OS=win32; OUTLIB=gojni.dll; EXTRA_LD="-Wl,-Bstatic -lpthread -Wl,-Bdynamic" ;;
   *) echo "unknown system $(uname -s)"; exit 1 ;;
 esac
-TAGS="mobile signrpc walletrpc chainrpc invoicesrpc routerrpc peersrpc neutrinorpc watchtowerrpc wtclientrpc"
+# offersrpc: pay BOLT 12 offers (lno1…), as the Android engine (lnd-engine/build.sh).
+TAGS="mobile signrpc walletrpc chainrpc invoicesrpc routerrpc peersrpc neutrinorpc watchtowerrpc wtclientrpc offersrpc"
 OUT=$(mktemp -d)
 GOFLAGS=-mod=mod gobind -lang=go,java -tags="$TAGS" -outdir="$OUT" ./mobile
 G=mobile/build/desktop-gobind

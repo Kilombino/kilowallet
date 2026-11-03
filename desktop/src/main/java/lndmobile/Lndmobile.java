@@ -713,6 +713,70 @@ public abstract class Lndmobile {
 	 */
 	public static native void newAddress(byte[] msg, Callback callback);
 	/**
+	 * CreateOffer mints a BOLT 12 offer for this node&#39;s chain and stores it. The
+	node answers invoice requests for it over onion messages for as long as
+	it is active and unexpired.
+	
+	NOTE: This method produces a single result or error, and the callback will
+	be called only once.
+	 */
+	public static native void offersCreateOffer(byte[] msg, Callback callback);
+	/**
+	 * DecodeBolt12 decodes an offer (lno1...), invoice request (lnr1...) or
+	invoice (lni1...) and reports which chain it names.
+	
+	NOTE: This method produces a single result or error, and the callback will
+	be called only once.
+	 */
+	public static native void offersDecodeBolt12(byte[] msg, Callback callback);
+	/**
+	 * DisableOffer stops the node from serving an offer. The offer stays listed
+	and can be enabled again.
+	
+	NOTE: This method produces a single result or error, and the callback will
+	be called only once.
+	 */
+	public static native void offersDisableOffer(byte[] msg, Callback callback);
+	/**
+	 * EnableOffer resumes serving a disabled offer.
+	
+	NOTE: This method produces a single result or error, and the callback will
+	be called only once.
+	 */
+	public static native void offersEnableOffer(byte[] msg, Callback callback);
+	/**
+	 * FetchInvoice asks an offer&#39;s issuer for an invoice over onion messages
+	and returns it once it has been checked against the request. Nothing is
+	paid.
+	
+	NOTE: This method produces a single result or error, and the callback will
+	be called only once.
+	 */
+	public static native void offersFetchInvoice(byte[] msg, Callback callback);
+	/**
+	 * ListOfferInvoices lists the invoices this node has issued for its
+	offers, with their state in the invoice registry.
+	
+	NOTE: This method produces a single result or error, and the callback will
+	be called only once.
+	 */
+	public static native void offersListOfferInvoices(byte[] msg, Callback callback);
+	/**
+	 * ListOffers lists the offers this node has minted, newest first.
+	
+	NOTE: This method produces a single result or error, and the callback will
+	be called only once.
+	 */
+	public static native void offersListOffers(byte[] msg, Callback callback);
+	/**
+	 * PayOffer fetches an invoice for an offer and pays it, or pays an invoice
+	fetched earlier. It returns when the payment succeeds or fails.
+	
+	NOTE: This method produces a single result or error, and the callback will
+	be called only once.
+	 */
+	public static native void offersPayOffer(byte[] msg, Callback callback);
+	/**
 	 * OpenChannel attempts to open a singly funded channel specified in the
 	request to a remote peer. Users are able to specify a target number of
 	blocks that the funding transaction should be confirmed in, or a manual fee
