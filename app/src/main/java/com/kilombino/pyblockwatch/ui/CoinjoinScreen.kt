@@ -977,7 +977,9 @@ private fun CreatePool(
             "As its creator, this phone runs the pool: keep it online, charged and with coinjoin allowed in the background " +
             "until the round is done (a Kilojoin node is better at it). Only wallets that know Kilojoin v6 see these pools.",
             color = TextFaint, style = MaterialTheme.typography.bodySmall)
-        if (payV5 != null) Text("Only Kilowallet 1.2.7 or newer (Kilojoin v5) sees this pool.",
+        // An asynchronous pool is v6 whatever else it is: the text above already says who sees it.
+        if (async) Unit
+        else if (payV5 != null) Text("Only Kilowallet 1.2.7 or newer (Kilojoin v5) sees this pool.",
             color = TextFaint, style = MaterialTheme.typography.bodySmall)
         else if ((outputs ?: 1) == 1) Text(if (!taproot && maxInputs == 1) "One coin each: Kilowallet versions before 0.27 can join it too."
             else "Only Kilowallet 0.27 or newer sees this pool.",
