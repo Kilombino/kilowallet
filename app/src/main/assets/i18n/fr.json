@@ -876,6 +876,8 @@
 "Sent from the chosen coins: ": "Envoyé depuis les pièces choisies : ",
 "Sent from the deposit: ": "Envoyé depuis le dépôt : ",
 "Sent · waiting for a block": "Envoyé · en attente d'un bloc",
+"Sent · confirmed {0}/{1}": "Envoyé · {0}/{1} confirmations",
+"Signed · not sent yet, it goes again": "Signé · pas encore envoyé, nouvel essai en cours",
 "Sent · waiting for confirmation": "Envoyé · en attente de confirmation",
 "Sent · waiting for the first confirmation": "Envoyé · en attente de la première confirmation",
 "Sent.": "Envoyé.",

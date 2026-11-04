@@ -876,6 +876,8 @@
 "Sent from the chosen coins: ": "Enviat des de les monedes triades: ",
 "Sent from the deposit: ": "Enviat des del dipòsit: ",
 "Sent · waiting for a block": "Enviat · esperant un bloc",
+"Sent · confirmed {0}/{1}": "Enviat · {0}/{1} confirmacions",
+"Signed · not sent yet, it goes again": "Signat · encara no enviat, es torna a provar",
 "Sent · waiting for confirmation": "Enviat · esperant confirmació",
 "Sent · waiting for the first confirmation": "Enviat · esperant la primera confirmació",
 "Sent.": "Enviat.",

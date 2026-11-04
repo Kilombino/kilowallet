@@ -23,6 +23,10 @@ class TestChain {
     /** Every transaction taken, raw, in order, with who sent it. */
     val broadcasts = CopyOnWriteArrayList<Pair<String, String>>()
     @Volatile var down = false
+    /** Every broadcast refused, as a node with a full mempool or a fee floor would (the chain itself still answers). */
+    @Volatile var refuse = false
+    /** Broadcasts asked for, taken or not. */
+    val attempts = java.util.concurrent.atomic.AtomicInteger()
 
     fun fund(c: CoinjoinTx.Coin) { utxos[c.outpoint] = Utxo(c.value, c.script.toHex()) }
 
@@ -67,6 +71,8 @@ class TestChain {
     @Synchronized
     fun broadcast(raw: String, who: String): String {
         if (down) throw java.io.IOException("server out of reach")
+        attempts.incrementAndGet()
+        if (refuse) throw IllegalStateException("mempool full")
         val tx = TxParse.parse(raw)
         val txid = TxParse.txid(tx)
         if (txs.containsKey(txid)) throw IllegalStateException("txn-already-in-mempool")

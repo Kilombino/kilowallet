@@ -870,6 +870,8 @@
 "Sent from the chosen coins: ": "已从所选的币发送: ",
 "Sent from the deposit: ": "已从存款发送: ",
 "Sent · waiting for a block": "已发送 · 等待区块",
+"Sent · confirmed {0}/{1}": "已发送 · {0}/{1} 次确认",
+"Signed · not sent yet, it goes again": "已签名 · 尚未发送，将重试",
 "Sent · waiting for confirmation": "已发送 · 等待确认",
 "Sent · waiting for the first confirmation": "已发送 · 等待第一次确认",
 "Sent.": "已发送。",

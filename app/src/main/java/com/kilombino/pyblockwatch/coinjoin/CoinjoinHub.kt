@@ -190,9 +190,10 @@ object CoinjoinHub {
         load(ctx)
         // Only a round being built (outputs posted, signatures asked) holds its coins: spending
         // one then would spoil it for everyone. A pool still waiting for people, or voting,
-        // lets its coins be spent ([waitingOutpoints]); the spend leaves that pool.
+        // lets its coins be spent ([waitingOutpoints]); the spend leaves that pool. A round sent but not seen (its
+        // broadcast failed, or it was reorged out) holds them too until it confirms 6 deep or is given up.
         return synchronized(this) {
-            sessions.values.filter { !it.done && it.state.phase in setOf(PoolSession.Phase.CLOSING, PoolSession.Phase.SIGNING) }
+            sessions.values.filter { !it.done && it.state.phase in setOf(PoolSession.Phase.CLOSING, PoolSession.Phase.SIGNING, PoolSession.Phase.BROADCAST) }
                 .flatMap { st -> st.state.seat.coins.map { it.outpoint } }.toSet()
         }
     }
