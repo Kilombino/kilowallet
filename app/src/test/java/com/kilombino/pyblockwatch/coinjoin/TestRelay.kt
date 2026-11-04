@@ -24,7 +24,8 @@ import java.util.concurrent.CopyOnWriteArrayList
  *  - [noOk]: an event is stored and delivered but its OK never comes back (the sender can't tell);
  *  - [duplicate]: every event is delivered twice to every live subscription;
  *  - [shuffle]: stored events are replayed in random order (not newest first);
- *  - [forget]: stored events matching a predicate are dropped from history (lost or pruned history).
+ *  - [forget]: stored events matching a predicate are dropped from history (lost or pruned history);
+ *  - [hold]: an event is answered OK but stored and delivered only at [release] (a message that comes late).
  */
 class TestRelay : AutoCloseable {
     private val server = ServerSocket(0, 50, InetAddress.getLoopbackAddress())
@@ -40,6 +41,15 @@ class TestRelay : AutoCloseable {
     @Volatile var noOk: (JSONObject) -> Boolean = { false }
     @Volatile var duplicate = false
     @Volatile var shuffle = false
+    @Volatile var hold: (JSONObject) -> Boolean = { false }
+    private val held = CopyOnWriteArrayList<JSONObject>()
+
+    /** Stores and delivers the events [hold] kept back, in the order they came; returns how many. */
+    fun release(): Int {
+        val l = held.toList(); held.removeAll(l.toSet())
+        for (ev in l) { store(ev); for (c in conns) c.deliver(ev) }
+        return l.size
+    }
 
     /** Drops stored events matching [pred] from history; returns how many. */
     fun forget(pred: (JSONObject) -> Boolean): Int { val l = stored.filter(pred); stored.removeAll(l.toSet()); return l.size }
@@ -111,9 +121,11 @@ class TestRelay : AutoCloseable {
                     val parsed = runCatching { NostrEvent.parse(ev) }.getOrNull()
                     if (parsed == null || !parsed.verify()) { send(JSONArray().put("OK").put(ev.optString("id")).put(false).put("invalid: bad signature")); return }
                     val lost = lose(ev)
-                    if (!lost) store(ev)
+                    val late = !lost && hold(ev)
+                    if (late) held.add(ev)
+                    if (!lost && !late) store(ev)
                     if (!noOk(ev)) send(JSONArray().put("OK").put(ev.getString("id")).put(true).put(""))
-                    if (!lost) for (c in conns) c.deliver(ev)
+                    if (!lost && !late) for (c in conns) c.deliver(ev)
                 }
                 "REQ" -> {
                     val id = a.getString(1)
