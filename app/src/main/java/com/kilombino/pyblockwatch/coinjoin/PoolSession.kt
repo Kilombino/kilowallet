@@ -31,6 +31,11 @@ class PoolSession(private val env: Env, private val s: State) {
         fun broadcast(rawHex: String): String
         /** Confirmations of [txid], 0 in the mempool, null when unknown. */
         fun confirmations(txid: String): Int?
+        /**
+         * v6: confirmations of the transaction that spends [coin], when that is not [roundTxid] (0 in the mempool);
+         * null when the coin is unspent, spent by the round itself, or the chain could not tell. Null never frees a round.
+         */
+        fun conflictDepth(coin: CoinjoinTx.Coin, roundTxid: String): Int? = null
         fun save(state: State)
         fun event(e: Event)
         fun now(): Long = System.currentTimeMillis() / 1000
@@ -159,6 +164,8 @@ class PoolSession(private val env: Env, private val s: State) {
         var stateN: Int = 0,
         /** When this wallet had signed all its inputs (its coins are reserved from then until the round resolves). */
         var signedAt: Long = 0,
+        /** v6: confirmations of the round's transaction at the last look (it counts as confirmed at [DEPTH]). */
+        var confs: Int = 0,
     ) {
         val poolId: String get() = terms.id
         /** What this seat is kept under on the phone: the pool's id, or with [seatId] for another seat in it. */
@@ -198,7 +205,8 @@ class PoolSession(private val env: Env, private val s: State) {
             .put("sent_at", sentAt).put("ended_at", endedAt)
             .also { if (terms.v6) it.put("vote_seq", voteSeq).put("vote_n", voteN).put("vote_ended_n", voteEndedN)
                 .put("vote_acked", voteAcked ?: "").put("votes_sent", votesSent).put("used_votes", org.json.JSONArray(usedVotes.toList()))
-                .put("revotes", revotes).put("last_msgs", JSONObject(lastMsgs as Map<*, *>)).put("state_n", stateN).put("signed_at", signedAt) }
+                .put("revotes", revotes).put("last_msgs", JSONObject(lastMsgs as Map<*, *>)).put("state_n", stateN).put("signed_at", signedAt)
+                .put("confs", confs) }
 
         companion object {
             private fun JSONObject.str(k: String): String? = optString(k).ifEmpty { null }
@@ -261,7 +269,7 @@ class PoolSession(private val env: Env, private val s: State) {
                     o.optInt("vote_seq"), o.optInt("vote_n"), o.optInt("vote_ended_n"), o.str("vote_acked"),
                     o.optInt("votes_sent"),
                     o.optJSONArray("used_votes")?.let { a -> (0 until a.length()).map { a.getString(it) } }?.toMutableSet() ?: linkedSetOf(),
-                    o.optInt("revotes"), o.map("last_msgs"), o.optInt("state_n"), o.optLong("signed_at"),
+                    o.optInt("revotes"), o.map("last_msgs"), o.optInt("state_n"), o.optLong("signed_at"), o.optInt("confs"),
                 )
             }
         }
@@ -1253,11 +1261,16 @@ class PoolSession(private val env: Env, private val s: State) {
             val msg = ok.exceptionOrNull()?.message ?: "broadcast failed"
             if (!msg.contains("already", true)) return abort("broadcast failed: $msg")
         }
-        s.txid = tx.txid; s.phase = Phase.BROADCAST; s.phaseDeadline = env.now(); save()
-        channel(JSONObject().put("type", "tx").put("txid", tx.txid))
+        sent(tx.txid)
+    }
+
+    /** The round's transaction went out from here: everyone is told. */
+    private fun sent(txid: String) {
+        s.txid = txid; s.phase = Phase.BROADCAST; s.phaseDeadline = env.now(); save()
+        channel(JSONObject().put("type", "tx").put("txid", txid))
         announce()
         publishState(force = true)
-        env.event(Event.Broadcast(s.poolId, tx.txid))
+        env.event(Event.Broadcast(s.poolId, txid))
     }
 
     /**
@@ -1463,6 +1476,9 @@ class PoolSession(private val env: Env, private val s: State) {
 
     /** v6: a deadline no later than the pool's final time. */
     private fun capped(t: Long): Long = minOf(t, terms.async?.final ?: t)
+
+    /** v6: a whole round (a vote, the outputs, the signing, each its full window) still fits before `final` from [now]. */
+    private fun roundFits(now: Long): Boolean = now + terms.voteSeconds + terms.outputsSeconds + terms.signSeconds <= terms.async!!.final
 
     /** v6: every one of our inputs is signed: our coins are reserved until the round resolves. */
     private fun signedAll(): Boolean = s.seat.coins.isNotEmpty() && s.seat.coins.all { it.outpoint in s.sigs }
@@ -1741,7 +1757,9 @@ class PoolSession(private val env: Env, private val s: State) {
 
     /**
      * v6, a round we signed past its time: it resolves only on the chain. The transaction seen (by anyone's
-     * broadcast) is the round going on; a coin of it spent by anything else means it never can, and frees ours.
+     * broadcast) is the round going on; a coin of it spent by anything else, [DEPTH] blocks deep, means it never
+     * can, and frees ours. A spend less deep may still be replaced or reorged away: the round stays reserved, and
+     * whoever holds every signature keeps sending it.
      */
     private fun resolveSigned(now: Long) {
         if (now - lastResolve < RESOLVE_EVERY) return
@@ -1750,17 +1768,30 @@ class PoolSession(private val env: Env, private val s: State) {
         val txid = CoinjoinTx.txid(plan)
         val c = runCatching { env.confirmations(txid) }.getOrNull()
         if (c != null) {
-            s.txid = txid; s.phase = if (c >= 1) Phase.CONFIRMED else Phase.BROADCAST; if (s.sentAt == 0L) s.sentAt = now
-            s.phaseDeadline = now; save()
+            s.txid = txid; s.phase = if (c >= DEPTH) Phase.CONFIRMED else Phase.BROADCAST; if (s.sentAt == 0L) s.sentAt = now
+            s.confs = c; s.phaseDeadline = now; save()
             env.event(Event.Broadcast(s.poolId, txid))
-            if (c >= 1) env.event(Event.Confirmed(s.poolId, txid))
+            if (c >= DEPTH) env.event(Event.Confirmed(s.poolId, txid))
             return
         }
-        val unspent = runCatching { env.coinsUnspent(plan.coins) }.getOrNull() ?: return
-        if (unspent.size == plan.coins.size && unspent.any { it == false }) {
+        if (conflictBuried(plan, txid)) {
             s.phase = Phase.ABORTED
             s.reason = "a coin of the round was spent elsewhere: its transaction can never confirm, and your coins are free"
             save(); env.event(Event.Aborted(s.poolId, s.reason)); stop()
+        } else if (s.sigs.size == plan.coins.size &&
+            runCatching { env.broadcast(CoinjoinTx.assemble(plan, s.sigs.mapValues { Hashes.hexToBytes(it.value) }).rawHex) }.isSuccess)
+            sent(txid)
+    }
+
+    /**
+     * v6: a coin of the round spent by another transaction at least [DEPTH] blocks deep. Only then can the round
+     * never confirm: a spend in the mempool, or in a block or two, may still be replaced, evicted or reorged away.
+     */
+    private fun conflictBuried(plan: CoinjoinTx.Plan, txid: String): Boolean {
+        val unspent = runCatching { env.coinsUnspent(plan.coins) }.getOrNull() ?: return false
+        if (unspent.size != plan.coins.size) return false
+        return plan.coins.indices.any { i ->
+            unspent[i] == false && (runCatching { env.conflictDepth(plan.coins[i], txid) }.getOrNull() ?: -1) >= DEPTH
         }
     }
 
@@ -1785,7 +1816,7 @@ class PoolSession(private val env: Env, private val s: State) {
                     }
                     sendReopen("timeout")
                     if (weSaidYes && silent.isNotEmpty() && people(s.seats) >= terms.minPeers && s.revotes < MAX_REVOTES &&
-                        now + terms.outputsSeconds < final) {
+                        roundFits(now)) {
                         s.revotes++; save()
                         sendVoteOpen(myTokenHash!!, randomHex(8))
                     }
@@ -1803,7 +1834,7 @@ class PoolSession(private val env: Env, private val s: State) {
                         s.seats.removeAll { it.tokenHash in missing }; missing.forEach { s.accepts.remove(it) }; save()
                         creatorChannel(roster()); announce()
                         sendReopen("outputs_timeout")
-                        if (people(s.seats) >= terms.minPeers && s.revotes < MAX_REVOTES && now + terms.outputsSeconds < final &&
+                        if (people(s.seats) >= terms.minPeers && s.revotes < MAX_REVOTES && roundFits(now) &&
                             (!terms.v5 || s.seats.count { isCreatorSeat(it) } == 1)) {
                             s.revotes++; save(); sendVoteOpen(myTokenHash!!, randomHex(8))
                         }
@@ -1821,6 +1852,10 @@ class PoolSession(private val env: Env, private val s: State) {
             Phase.SIGNING -> {
                 // Our signatures the relay did not take go again.
                 if (signedAll() && !s.postedSig && now - lastSigSent >= RESEND_SECONDS) postOwnSigs()
+                // Reserved: the same signatures again every day, and the creator's snapshot with all it holds, so a
+                // relay that keeps events a week still has them for whoever comes back to complete the round.
+                if (signedAll() && s.postedSig && now - lastSigSent >= REPOST_EVERY) postOwnSigs()
+                if (s.creator && signedAll() && now - lastStatePub >= REPOST_EVERY) publishState(force = true)
                 if (now > s.phaseDeadline + 60 || now > final) {
                     if (!signedAll()) {
                         // We never signed: nothing of ours can go out, the round is over for us.
@@ -1833,14 +1868,16 @@ class PoolSession(private val env: Env, private val s: State) {
             }
             Phase.BROADCAST -> s.txid?.let { txid ->
                 val c = runCatching { env.confirmations(txid) }.getOrNull()
-                if (c != null && c >= 1) { s.phase = Phase.CONFIRMED; save(); env.event(Event.Confirmed(s.poolId, txid)); stop() }
+                if (c != null && c != s.confs) { s.confs = c; save() }
+                // Confirmed only [DEPTH] blocks deep: a block or two can still be reorged away.
+                if (c != null && c >= DEPTH) { s.phase = Phase.CONFIRMED; save(); env.event(Event.Confirmed(s.poolId, txid)); stop() }
                 else if (c == null && now - lastResolve >= RESOLVE_EVERY) {
-                    // Not seen: either it fell out of mempools (it goes again, we hold every signature) or a coin of it
-                    // was spent elsewhere (then it never confirms, and our coins are free). Time alone decides nothing.
+                    // Not seen (never, or no more after a reorg): either it fell out of mempools and blocks (it goes again,
+                    // we hold every signature) or a coin of it was spent elsewhere, [DEPTH] deep (then it never confirms,
+                    // and our coins are free). Time alone decides nothing.
                     lastResolve = now
                     val plan = buildPlan() ?: return@let
-                    val unspent = runCatching { env.coinsUnspent(plan.coins) }.getOrNull() ?: return@let
-                    if (unspent.size == plan.coins.size && unspent.any { it == false }) {
+                    if (conflictBuried(plan, txid)) {
                         s.phase = Phase.ABORTED; s.reason = "the transaction never appeared: a coin of the round was spent elsewhere"
                         save(); env.event(Event.Aborted(s.poolId, s.reason)); stop()
                     } else if (s.sigs.size == plan.coins.size)
@@ -1911,6 +1948,13 @@ class PoolSession(private val env: Env, private val s: State) {
         @JvmField var MEMBER_GRACE = 600L
         /** New votes a creator opens by itself after one timed out with silent seats. */
         const val MAX_REVOTES = 5
+        /**
+         * v6: blocks deep the round's transaction is before the round counts as confirmed, and another spend of one
+         * of its coins before the round is given up (and the coins it reserved are free).
+         */
+        const val DEPTH = 6
+        /** v6: seconds between the reposts of a reserved round's signatures (and its creator's snapshot). */
+        @JvmField var REPOST_EVERY = 86_400L
         /** Seconds of the random wait before each output is handed in (3 to 43 s). */
         @JvmField var OUTPUT_DELAY = 3..42
         /** Seconds between the session's looks at its deadlines. */

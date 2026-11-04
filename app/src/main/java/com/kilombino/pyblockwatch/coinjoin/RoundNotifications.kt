@@ -76,7 +76,7 @@ object RoundNotifications {
             PoolSession.Phase.VOTING -> "$people people · closing vote"
             PoolSession.Phase.CLOSING -> "$people people · collecting outputs"
             PoolSession.Phase.SIGNING -> if (st.postedSig) "$people people · signed, waiting for the others" else "$people people · signing"
-            PoolSession.Phase.BROADCAST -> "Sent · waiting for a block"
+            PoolSession.Phase.BROADCAST -> if (st.terms.v6 && st.confs > 0) "Sent · confirmed ${st.confs}/${PoolSession.DEPTH}" else "Sent · waiting for a block"
             PoolSession.Phase.CONFIRMED -> "Done · Confirmed"
             PoolSession.Phase.ABORTED -> "Cancelled"
             PoolSession.Phase.REJECTED -> "Refused"
