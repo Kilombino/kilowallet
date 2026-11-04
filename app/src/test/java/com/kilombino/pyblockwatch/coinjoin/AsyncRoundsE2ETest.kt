@@ -52,7 +52,10 @@ class AsyncRoundsE2ETest {
         fun broadcast(raw: String, who: String): String
         fun confirmations(txid: String): Int?
         fun mine()
-        fun spendElsewhere(c: CoinjoinTx.Coin, key: BigInteger)
+        /** The coin spent by some other transaction: in a block when [mine], else only in the mempool. */
+        fun spendElsewhere(c: CoinjoinTx.Coin, key: BigInteger, mine: Boolean = true)
+        /** Confirmations of the transaction spending [c], unless that is [except]; null when unspent. */
+        fun conflictDepth(c: CoinjoinTx.Coin, except: String): Int?
         /** Who broadcast, and what (the raw transactions taken). */
         val sent: List<Pair<String, String>>
     }
@@ -64,13 +67,21 @@ class AsyncRoundsE2ETest {
         override fun broadcast(raw: String, who: String) = c.broadcast(raw, who)
         override fun confirmations(txid: String) = c.confirmations(txid)
         override fun mine() = c.mine()
-        override fun spendElsewhere(c: CoinjoinTx.Coin, key: BigInteger) = this.c.spendElsewhere(c.outpoint)
+        override fun spendElsewhere(c: CoinjoinTx.Coin, key: BigInteger, mine: Boolean) = this.c.spendElsewhere(c.outpoint, if (mine) 1 else 0)
+        override fun conflictDepth(c: CoinjoinTx.Coin, except: String) = this.c.conflictDepth(c.outpoint, except)
         override val sent: List<Pair<String, String>> get() = c.broadcasts
     }
 
     /** A BLAKE2b regtest node (Knots with -testactivationheight=blake2b@…): it checks every signature. */
     private inner class RegtestChain : Chain {
         override val sent = CopyOnWriteArrayList<Pair<String, String>>()
+        /** outpoint → the transaction that spends it, for those sent from here. */
+        private val spentBy = java.util.concurrent.ConcurrentHashMap<String, String>()
+        private fun noteSpends(raw: String) {
+            val tx = com.kilombino.pyblockwatch.crypto.TxParse.parse(raw)
+            val id = com.kilombino.pyblockwatch.crypto.TxParse.txid(tx)
+            tx.inputs.forEach { spentBy["${it.txid}:${it.vout}"] = id }
+        }
         fun rpc(method: String, vararg params: Any): Any? {
             val c = URL("http://127.0.0.1:18999/wallet/w").openConnection() as HttpURLConnection
             c.requestMethod = "POST"; c.doOutput = true
@@ -96,18 +107,23 @@ class AsyncRoundsE2ETest {
         }
         // A node takes the same transaction again without complaint: each one is noted once, with who sent it first.
         override fun broadcast(raw: String, who: String): String = (rpc("sendrawtransaction", raw) as String)
-            .also { synchronized(sent) { if (sent.none { it.second == raw }) sent.add(who to raw) } }
+            .also { noteSpends(raw); synchronized(sent) { if (sent.none { it.second == raw }) sent.add(who to raw) } }
         override fun confirmations(txid: String): Int? =
             runCatching { (rpc("getrawtransaction", txid, true) as JSONObject).optInt("confirmations", 0) }.getOrNull()
         override fun mine() { rpc("generatetoaddress", 1, rpc("getnewaddress") as String) }
-        override fun spendElsewhere(c: CoinjoinTx.Coin, key: BigInteger) {
+        override fun conflictDepth(c: CoinjoinTx.Coin, except: String): Int? {
+            if (unspent(c)) return null
+            val by = spentBy[c.outpoint] ?: return null
+            return if (by == except) null else confirmations(by)
+        }
+        override fun spendElsewhere(c: CoinjoinTx.Coin, key: BigInteger, mine: Boolean) {
             // A plain spend of the coin back to the node's wallet, signed with the unified sighash (BLAKE2b chain).
             val to = Address.scriptPubKey(pub(key.add(BigInteger.valueOf(77))), ScriptType.P2WPKH)
             val tb = com.kilombino.pyblockwatch.crypto.TxBuilder
             val ins = listOf(com.kilombino.pyblockwatch.crypto.TxBuilder.Input(c.txid, c.vout, c.value, key, c.pubkey, 0xfffffffdL, ScriptType.P2WPKH))
             val outs = listOf(com.kilombino.pyblockwatch.crypto.TxBuilder.Output(to, c.value - 500))
             val raw = tb.assemble(ins, outs, listOf(tb.witnessSignature(2L, ins, outs, 0, 0L, unified = true, grindLowR = true)), 2L, 0L).rawHex
-            rpc("sendrawtransaction", raw); mine()
+            rpc("sendrawtransaction", raw); noteSpends(raw); if (mine) mine()
         }
     }
 
@@ -129,6 +145,7 @@ class AsyncRoundsE2ETest {
             override fun coinUnspent(coin: CoinjoinTx.Coin) = chain.unspent(coin)
             override fun broadcast(rawHex: String): String = chain.broadcast(rawHex, name)
             override fun confirmations(txid: String): Int? = chain.confirmations(txid)
+            override fun conflictDepth(coin: CoinjoinTx.Coin, roundTxid: String): Int? = chain.conflictDepth(coin, roundTxid)
             override fun now(): Long = this@AsyncRoundsE2ETest.now()
             override fun save(state: PoolSession.State) {
                 val j = state.toJson().toString()
@@ -143,10 +160,12 @@ class AsyncRoundsE2ETest {
         }
         val st: PoolSession.State get() = session.state
 
-        fun open(minPeers: Int = 2, maxPeers: Int = 5, async: Boolean = true): Protocol.Terms {
-            val np = PoolSession.newPool(10_000, 1.0, maxPeers, 2, minPeers, v3 = true, async = async)
+        /** [payments]: a v5 pool, the creator paying these (its seat's outputs are the payments). */
+        fun open(minPeers: Int = 2, maxPeers: Int = 5, async: Boolean = true, payments: List<Long> = emptyList()): Protocol.Terms {
+            val np = PoolSession.newPool(10_000, 1.0, maxPeers, 2, minPeers, v3 = true, payments = payments, async = async)
+            val outs = if (payments.isEmpty()) listOf(mix) else payments.indices.map { script(key.add(BigInteger.valueOf(20L + it))) }
             session = PoolSession(env, PoolSession.newState(np.terms, true, np.secret, listOf(coin), listOf(key), listOf("m/$name"),
-                listOf(mix), change, creatorSecret = np.creatorSecret, blindPriv = np.blindPriv))
+                outs, change, creatorSecret = np.creatorSecret, blindPriv = np.blindPriv))
             wallets += this
             session.start()
             waitFor("$name opens") { st.phase == Phase.OPEN }
@@ -186,9 +205,9 @@ class AsyncRoundsE2ETest {
      * The clock forward by [seconds], in steps of at most 9 minutes with the sessions' timers between them,
      * as time would pass for real: the creator keeps re-announcing its pool every 10 minutes as it does.
      */
-    private fun advance(seconds: Long) {
+    private fun advance(seconds: Long, stepMax: Long = 540L) {
         var left = seconds
-        while (left > 0) { val step = minOf(left, 540L); offset.addAndGet(step); left -= step; Thread.sleep(1300) }
+        while (left > 0) { val step = minOf(left, stepMax); offset.addAndGet(step); left -= step; Thread.sleep(1300) }
     }
 
     /** The open pools on the relay, as a wallet lists them. */
@@ -234,6 +253,7 @@ class AsyncRoundsE2ETest {
         NostrEvent.clock = { now() }
         PoolSession.TICK_SECONDS = 1; PoolSession.OUTPUT_DELAY = 0..1; PoolSession.RESEND_SECONDS = 3; PoolSession.OUTPUT_ACK_WAIT = 3
         PoolSession.RESOLVE_EVERY = 2; PoolSession.SYNC_EVERY = 5; PoolSession.RECLOSE_AFTER = 2
+        PoolSession.REPOST_EVERY = 86_400
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -243,6 +263,7 @@ class AsyncRoundsE2ETest {
         Protocol.RELAY = saved["relay"] as String; Protocol.NETWORK = saved["net"] as String; NostrEvent.clock = saved["clock"] as () -> Long
         PoolSession.TICK_SECONDS = 15; PoolSession.OUTPUT_DELAY = 3..42; PoolSession.RESEND_SECONDS = 30; PoolSession.OUTPUT_ACK_WAIT = 20
         PoolSession.RESOLVE_EVERY = 120; PoolSession.SYNC_EVERY = 120; PoolSession.RECLOSE_AFTER = 15
+        PoolSession.REPOST_EVERY = 86_400
         assertTrue("states that did not survive a restart: ${roundTrip.take(2)}", roundTrip.isEmpty())
     }
 
@@ -305,7 +326,7 @@ class AsyncRoundsE2ETest {
         assertEquals(c.session.plan()!!.let { CoinjoinTx.assemble(it, a.st.sigs.mapValues { e -> Hashes.hexToBytes(e.value) }).rawHex },
             chain.sent.first().second)
 
-        chain.mine()
+        repeat(PoolSession.DEPTH) { chain.mine() }
         waitFor("confirmed") { a.st.phase == Phase.CONFIRMED && c.st.phase == Phase.CONFIRMED }
         // B, offline all along since signing, comes back and finds its round done.
         b.restart()
@@ -428,8 +449,9 @@ class AsyncRoundsE2ETest {
 
     /**
      * The signing window and the final time pass with C's signature missing: A and B signed, so their coins
-     * stay reserved (not cancelled, not free); C, which never signed, is out. Then C's coin is spent elsewhere:
-     * the round can never go out, and A's and B's coins are free.
+     * stay reserved (not cancelled, not free); C, which never signed, is out. Then C's coin is spent elsewhere,
+     * first only in the mempool (it could still be replaced or evicted): still reserved, and through five blocks
+     * too. At six confirmations of that spend the round can never go out, and A's and B's coins are free.
      */
     @Test fun signedInputsStayReservedUntilResolved() {
         val (a, b, c) = threeInAPool()
@@ -446,7 +468,14 @@ class AsyncRoundsE2ETest {
         advance(a.st.terms.async!!.final - now() + 600)
         Thread.sleep(3000)
         assertTrue(a.session.reserved && b.session.reserved)
-        chain.spendElsewhere(c.st.seat.coin, c.key)
+        chain.spendElsewhere(c.st.seat.coin, c.key, mine = false)
+        Thread.sleep(5000)
+        assertTrue("an unconfirmed conflict frees nothing", a.session.reserved && b.session.reserved)
+        repeat(PoolSession.DEPTH - 1) { chain.mine() }
+        Thread.sleep(5000)
+        assertEquals(PoolSession.DEPTH - 1, chain.conflictDepth(c.st.seat.coin, ""))
+        assertTrue("a conflict ${PoolSession.DEPTH - 1} deep frees nothing", a.session.reserved && b.session.reserved)
+        chain.mine()
         waitFor("resolved") { a.st.phase == Phase.ABORTED && b.st.phase == Phase.ABORTED }
         assertTrue(a.st.reason, a.st.reason.contains("spent elsewhere"))
     }
@@ -478,6 +507,108 @@ class AsyncRoundsE2ETest {
         waitFor("broadcast", 90) { chain.sent.isNotEmpty() }
         assertEquals(1, chain.sent.size)
         waitFor("everyone has it") { listOf(a, b, c).all { it.st.txid != null } }
+    }
+
+    /**
+     * The round's transaction one block deep, then reorged out and gone from every mempool: nobody takes it as
+     * confirmed, the wallets holding every signature send it again, and it counts as confirmed only six blocks deep.
+     */
+    @Test fun aRoundReorgedOutIsSentAgainAndConfirmedOnlySixDeep() {
+        org.junit.Assume.assumeTrue("a reorg that also empties the mempool: the chain in memory only", chain is MemChain)
+        val mem = (chain as MemChain).c
+        val (a, b, c) = threeInAPool()
+        b.session.requestClose(); waitFor("voting") { listOf(a, b, c).all { it.st.phase == Phase.VOTING } }
+        a.session.vote(true); c.session.vote(true)
+        allSigning(a, b, c)
+        a.sign(); b.sign(); c.sign()
+        waitFor("broadcast") { listOf(a, b, c).all { it.st.txid != null && it.st.sigs.size == 3 } }
+        val txid = a.st.txid!!
+        assertEquals(1, chain.sent.size)
+        chain.mine()
+        waitFor("one confirmation seen") { listOf(a, b, c).all { it.st.confs == 1 } }
+        Thread.sleep(3000)
+        assertTrue("one block deep is not confirmed", listOf(a, b, c).all { it.st.phase == Phase.BROADCAST })
+        mem.reorgOut(txid)
+        assertNull(chain.confirmations(txid))
+        waitFor("sent again") { chain.sent.size == 2 && chain.confirmations(txid) == 0 }
+        assertEquals(txid, com.kilombino.pyblockwatch.crypto.TxParse.txid(com.kilombino.pyblockwatch.crypto.TxParse.parse(chain.sent[1].second)))
+        assertTrue(listOf(a, b, c).none { it.st.phase == Phase.CONFIRMED })
+        repeat(PoolSession.DEPTH - 1) { chain.mine() }
+        waitFor("five confirmations seen") { listOf(a, b, c).all { it.st.confs == PoolSession.DEPTH - 1 } }
+        Thread.sleep(3000)
+        assertTrue(listOf(a, b, c).all { it.st.phase == Phase.BROADCAST })
+        chain.mine()
+        waitFor("confirmed six deep") { listOf(a, b, c).all { it.st.phase == Phase.CONFIRMED } }
+        assertEquals(2, chain.sent.size)
+    }
+
+    /**
+     * The creator opens a new vote by itself only if a whole round (vote, outputs, signing, each its full window) still
+     * fits before `final`. The first vote opens ten minutes before the pool's open time ends, the latest it can: D says
+     * nothing, and the default `final` leaves room for the second vote. C says nothing to that one: a third would end
+     * past `final`, so there is none (the rule before, the outputs window only, would have opened it).
+     */
+    @Test fun aNewVoteOnlyWhenAWholeRoundStillFits() {
+        val (a, b, c) = threeInAPool()
+        val d = W("D"); d.join(listPools().single { it.id == a.st.poolId })
+        waitFor("four seats") { listOf(a, b, c, d).all { it.st.seats.size == 4 } }
+        val t = a.st.terms; val w = t.async!!
+        assertEquals("the default final", t.expiresAt + 2 * w.vote + 2 * w.outputs + w.sign, w.final)
+        advance(t.expiresAt - now() - 600)
+        b.session.requestClose(); waitFor("voting") { listOf(a, b, c, d).all { it.st.phase == Phase.VOTING } }
+        a.session.vote(true); c.session.vote(true)
+        waitFor("A and C recorded") { th(a) in a.st.accepts && th(c) in a.st.accepts }
+        advance(w.vote + 60)
+        waitFor("a second vote over A, B and C") { listOf(a, b, c).all { it.st.voteN == 2 && it.st.phase == Phase.VOTING } }
+        assertEquals(3, a.st.seats.size)
+        assertTrue(now() + w.vote + w.outputs + w.sign <= w.final)
+        a.session.vote(true); b.session.vote(true)
+        waitFor("A and B recorded") { th(a) in a.st.accepts && th(b) in a.st.accepts }
+        advance(w.vote + 60)
+        waitFor("the second vote over") { a.st.phase != Phase.VOTING }
+        Thread.sleep(3000)
+        assertTrue("a whole round no longer fits", now() + w.vote + w.outputs + w.sign > w.final)
+        assertTrue("the outputs window alone would", now() + w.outputs < w.final)
+        assertEquals(2, a.st.voteN); assertEquals(1, a.st.revotes)
+        assertEquals(2, msgs(a, "vote_open").size)
+        assertEquals(listOf("timeout", "timeout"), msgs(a, "reopen").map { it.optString("outcome") })
+        assertTrue(listOf(a, b).none { it.st.phase == Phase.VOTING })
+    }
+
+    /**
+     * A reserved round outlives a relay that keeps events a week (relay.kilombino.com). C signs, its signature is
+     * lost, and it goes offline; A (the creator) and B sign and wait reserved. Eight days later the relay has
+     * dropped everything older than seven days, and C's requests for a snapshot are lost too: what C finds is A's
+     * and B's daily reposts of their signatures (and A's snapshot), so it holds every signature and broadcasts.
+     */
+    @Test fun aReservedRoundOutlivesAWeekOfRelayRetention() {
+        val (a, b, c) = threeInAPool()
+        b.session.requestClose(); waitFor("voting") { listOf(a, b, c).all { it.st.phase == Phase.VOTING } }
+        a.session.vote(true); c.session.vote(true)
+        allSigning(a, b, c)
+        val cOut = c.st.seat.coin.outpoint
+        relay.lose = { ev -> read(a, ev)?.let { it.optString("type") == "sig" && it.optString("outpoint") == cOut } ?: false }
+        c.sign()
+        c.stop()
+        a.sign(); b.sign()
+        val firstSigs = relay.stored.filter { read(a, it)?.optString("type") == "sig" }.map { it.getString("id") }.toSet()
+        assertEquals(2, firstSigs.size)
+        val week = 7 * 86_400L
+        advance(8 * 86_400L, stepMax = 4 * 3600L)
+        assertTrue(a.session.reserved && b.session.reserved)
+        assertEquals(0, chain.sent.size)
+        val dropped = relay.forget { it.getLong("created_at") < now() - week }
+        assertTrue(dropped > 0)
+        val sigsLeft = relay.stored.mapNotNull { read(a, it) }.filter { it.optString("type") == "sig" }
+        assertTrue("only reposts are left", relay.stored.none { it.getString("id") in firstSigs })
+        assertEquals(setOf(a.st.seat.coin.outpoint, b.st.seat.coin.outpoint), sigsLeft.map { it.getString("outpoint") }.toSet())
+        assertTrue("A's snapshots go on", relay.stored.mapNotNull { read(a, it) }.any { it.optString("type") == "state" })
+        relay.lose = { ev -> read(a, ev)?.optString("type") == "sync" }
+        c.restart()
+        waitFor("broadcast", 90) { chain.sent.isNotEmpty() }
+        assertEquals(1, chain.sent.size)
+        waitFor("everyone has it") { listOf(a, b, c).all { it.st.txid != null } }
+        assertEquals(3, c.st.sigs.size)
     }
 
     /**
@@ -592,6 +723,104 @@ class AsyncRoundsE2ETest {
         assertTrue(relay.published.none { read(a, it)?.optString("type") in setOf("vote_ack", "state") })
         a.sign(); b.sign()
         waitFor("broadcast") { a.st.txid != null && b.st.txid != null }
+    }
+
+    // ------------------------------------------------------------------ v3–v5 rounds after signing (1.5.1)
+
+    /** Three wallets in a pool before v6: v3 (blind outputs), or v5 when [payments] (the creator pays them). */
+    private fun threeInAnOldPool(payments: List<Long> = emptyList()): Triple<W, W, W> {
+        val a = W("A"); val b = W("B"); val c = W("C")
+        val t = a.open(async = false, payments = payments)
+        assertEquals(if (payments.isEmpty()) Protocol.V3 else Protocol.V5, t.version); assertNull(t.async)
+        val listed = listPools().single { it.id == t.id }
+        b.join(listed); c.join(listed)
+        waitFor("everyone sees three seats") { listOf(a, b, c).all { it.st.seats.size == 3 } }
+        b.session.requestClose(); waitFor("voting") { listOf(a, b, c).all { it.st.phase == Phase.VOTING } }
+        a.session.vote(true); c.session.vote(true)
+        allSigning(a, b, c)
+        return Triple(a, b, c)
+    }
+
+    /**
+     * v3: C's coin is spent elsewhere, in the mempool only, before C signs. Every wallet then holds every signature and
+     * its broadcast fails: before 1.5.1 that cancelled the round at once; now the round stays sent-pending (its coins
+     * reserved) while that spend could still be replaced or reorged away, five blocks deep too, and is given up only
+     * when the spend is six blocks deep.
+     */
+    @Test fun oldPoolAnUnconfirmedConflictKeepsTheRoundAndSixDeepFreesIt() {
+        org.junit.Assume.assumeTrue(chain is MemChain)
+        val (a, b, c) = threeInAnOldPool()
+        a.sign(); b.sign()
+        chain.spendElsewhere(c.st.seat.coin, c.key, mine = false)
+        c.sign()
+        waitFor("every signature everywhere") { listOf(a, b, c).all { it.st.sigs.size == 3 && it.st.phase == Phase.BROADCAST } }
+        assertTrue(chain.sent.isEmpty())
+        assertTrue(listOf(a, b, c).all { it.st.reason.startsWith(PoolSession.NOT_SENT) })
+        advance(13 * 3600L, stepMax = 4 * 3600L)
+        repeat(PoolSession.DEPTH - 1) { chain.mine() }
+        Thread.sleep(5000)
+        assertEquals(PoolSession.DEPTH - 1, chain.conflictDepth(c.st.seat.coin, ""))
+        assertTrue("a conflict ${PoolSession.DEPTH - 1} deep frees nothing", listOf(a, b, c).all { it.st.phase == Phase.BROADCAST })
+        chain.mine()
+        waitFor("given up") { listOf(a, b, c).all { it.st.phase == Phase.ABORTED } }
+        assertTrue(a.st.reason, a.st.reason.contains("spent elsewhere"))
+        assertTrue(chain.sent.isEmpty())
+    }
+
+    /**
+     * v3: every broadcast refused (a node's full mempool) for thirteen hours while the round's coins stay unspent.
+     * Before 1.5.1 the round was cancelled at the first failure (and a round unseen for 12 h was given up): now it is
+     * sent again and again, its coins never freed, and once a node takes it, everyone is told and it confirms 6 deep.
+     */
+    @Test fun oldPoolUnseenForTwelveHoursWithItsCoinsUnspentIsSentAgainNotFreed() {
+        org.junit.Assume.assumeTrue(chain is MemChain)
+        val mem = (chain as MemChain).c
+        val (a, b, c) = threeInAnOldPool()
+        mem.refuse = true
+        a.sign(); b.sign(); c.sign()
+        waitFor("held") { listOf(a, b, c).all { it.st.phase == Phase.BROADCAST && it.st.txid != null } }
+        val tried = mem.attempts.get()
+        advance(13 * 3600L, stepMax = 4 * 3600L)
+        Thread.sleep(3000)
+        assertTrue("A ${a.st.phase} ${a.st.reason}", listOf(a, b, c).all { it.st.phase == Phase.BROADCAST })
+        assertTrue("sent again meanwhile", mem.attempts.get() > tried)
+        assertTrue(listOf(a, b, c).all { w -> chain.unspent(w.st.seat.coin) })
+        assertTrue(chain.sent.isEmpty())
+        mem.refuse = false
+        waitFor("taken") { chain.sent.size == 1 }
+        val txid = a.st.txid!!
+        waitFor("everyone told") { relay.published.mapNotNull { read(a, it) }.any { it.optString("type") == "tx" && it.optString("txid") == txid } }
+        waitFor("no longer pending") { listOf(a, b, c).any { !it.st.reason.startsWith(PoolSession.NOT_SENT) } }
+        repeat(PoolSession.DEPTH) { chain.mine() }
+        waitFor("confirmed") { listOf(a, b, c).all { it.st.phase == Phase.CONFIRMED } }
+    }
+
+    /**
+     * v5 (a payment pool): the round's transaction one block deep, then reorged out and gone from every mempool.
+     * Before 1.5.1 one confirmation ended the round; now it shows confirmed 1/6, is sent again, and is confirmed
+     * only six blocks deep.
+     */
+    @Test fun oldPaymentPoolReorgedAfterOneBlockIsSentAgainAndConfirmedOnlySixDeep() {
+        org.junit.Assume.assumeTrue(chain is MemChain)
+        val mem = (chain as MemChain).c
+        val (a, b, c) = threeInAnOldPool(payments = listOf(4_000L, 6_000L))
+        assertEquals(2, b.st.payOutputs.size)
+        a.sign(); b.sign(); c.sign()
+        waitFor("broadcast") { listOf(a, b, c).all { it.st.txid != null } }
+        val txid = a.st.txid!!
+        assertEquals(1, chain.sent.size)
+        chain.mine()
+        waitFor("one confirmation seen") { listOf(a, b, c).all { it.st.confs == 1 } }
+        Thread.sleep(3000)
+        assertTrue("one block deep is not confirmed", listOf(a, b, c).all { it.st.phase == Phase.BROADCAST })
+        mem.reorgOut(txid)
+        waitFor("sent again") { chain.sent.size == 2 && chain.confirmations(txid) == 0 }
+        waitFor("back to 0") { listOf(a, b, c).all { it.st.confs == 0 } }
+        repeat(PoolSession.DEPTH - 1) { chain.mine() }
+        Thread.sleep(4000)
+        assertTrue(listOf(a, b, c).none { it.st.phase == Phase.CONFIRMED })
+        chain.mine()
+        waitFor("confirmed six deep") { listOf(a, b, c).all { it.st.phase == Phase.CONFIRMED } }
     }
 
     private fun assertEquals(expected: Long, actual: Long, delta: Double) = org.junit.Assert.assertEquals(expected.toDouble(), actual.toDouble(), delta)

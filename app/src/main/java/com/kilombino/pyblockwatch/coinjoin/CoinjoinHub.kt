@@ -190,9 +190,10 @@ object CoinjoinHub {
         load(ctx)
         // Only a round being built (outputs posted, signatures asked) holds its coins: spending
         // one then would spoil it for everyone. A pool still waiting for people, or voting,
-        // lets its coins be spent ([waitingOutpoints]); the spend leaves that pool.
+        // lets its coins be spent ([waitingOutpoints]); the spend leaves that pool. A round sent but not seen (its
+        // broadcast failed, or it was reorged out) holds them too until it confirms 6 deep or is given up.
         return synchronized(this) {
-            sessions.values.filter { !it.done && it.state.phase in setOf(PoolSession.Phase.CLOSING, PoolSession.Phase.SIGNING) }
+            sessions.values.filter { !it.done && it.state.phase in setOf(PoolSession.Phase.CLOSING, PoolSession.Phase.SIGNING, PoolSession.Phase.BROADCAST) }
                 .flatMap { st -> st.state.seat.coins.map { it.outpoint } }.toSet()
         }
     }
@@ -458,6 +459,16 @@ object CoinjoinHub {
                 val h = c.history(Address.electrumScriptHash(st.mixScript)).firstOrNull { it.txid == txid } ?: return@electrum null
                 if (h.height <= 0) 0 else c.blockHeight() - h.height + 1
             }
+            override fun conflictDepth(coin: CoinjoinTx.Coin, roundTxid: String): Int? = runCatching { electrum { c ->
+                // The coin's address sees the transaction that spends it: the one, other than the round's, that has it as an input.
+                for (h in c.history(Address.electrumScriptHash(coin.script))) {
+                    if (h.txid == coin.txid || h.txid == roundTxid) continue
+                    val tx = com.kilombino.pyblockwatch.crypto.TxParse.parse(c.transaction(h.txid))
+                    if (tx.inputs.any { it.txid == coin.txid && it.vout == coin.vout })
+                        return@electrum if (h.height <= 0) 0 else c.blockHeight() - h.height + 1
+                }
+                null
+            } }.getOrNull()
             override fun save(state: PoolSession.State) {
                 // Left on purpose ("not yet", LEAVE): nothing to keep, and the pool goes back
                 // to the open list so the user can join again straight away.
