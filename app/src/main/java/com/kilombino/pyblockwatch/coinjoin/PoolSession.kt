@@ -1418,7 +1418,14 @@ class PoolSession(private val env: Env, private val s: State) {
                     s.warnedExpiry = true; save()
                     if (autoKeys != null && runCatching { requestClose() }.isSuccess) env.event(Event.DidAlone(s.poolId, Alone.ASKED_TO_CLOSE))
                     else env.event(Event.ExpiringSoon(s.poolId, people(s.seats), ((terms.expiresAt - now) / 60).toInt().coerceAtLeast(1)))
+                } else if (terms.v6 && !s.creator && s.phase == Phase.OPEN && now > terms.expiresAt) {
+                    // v6: the pool lives until `final`, not `timeout` (PROTOCOL §14). Open again after a vote that
+                    // timed out, the creator's new vote may come a moment after its reopen: a member waits for it, and
+                    // for the creator's abort if there is none. A creator that is gone stops re-announcing (above).
+                    if (now > terms.async!!.final) localEnd("the pool reached its final time")
                 } else if (now > terms.expiresAt) {
+                    // The creator itself (v6 too): past `timeout` a pool open again only ever gets a new vote from the
+                    // creator right at its reopen (roundFits), so one still open has nothing left to wait for.
                     if (s.creator) abort("the pool expired") else { s.phase = Phase.ABORTED; s.reason = "the pool expired"; save(); env.event(Event.Aborted(s.poolId, s.reason)) }
                 } else if (s.phase == Phase.JOINING && !s.creator && now - maxOf(s.created, s.joinAfter) > JOIN_TIMEOUT) {
                     // Only the creator's wallet lets people in; if it is closed, or the pool ended

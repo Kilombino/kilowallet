@@ -576,6 +576,41 @@ class AsyncRoundsE2ETest {
     }
 
     /**
+     * A member open again after a vote that timed out, past the pool's `timeout`, waits for the creator's new vote
+     * (PROTOCOL §14: a v6 pool lives until `final`); it used to leave at once with "the pool expired" whenever its
+     * timer ran between the creator's reopen and that vote. The relay holds the new vote back, so it always does
+     * here: B and C stay open, then take the vote when it comes, and the round goes through.
+     */
+    @Test fun aMemberOpenAgainPastTimeoutWaitsForTheNewVote() {
+        val (a, b, c) = threeInAPool()
+        val d = W("D"); d.join(listPools().single { it.id == a.st.poolId })
+        waitFor("four seats") { listOf(a, b, c, d).all { it.st.seats.size == 4 } }
+        val t = a.st.terms; val w = t.async!!
+        advance(t.expiresAt - now() - 600)
+        b.session.requestClose(); waitFor("voting") { listOf(a, b, c, d).all { it.st.phase == Phase.VOTING } }
+        a.session.vote(true); c.session.vote(true)
+        waitFor("A and C recorded") { th(a) in a.st.accepts && th(c) in a.st.accepts }
+        fun newVote(m: JSONObject) = m.optString("type") == "vote_open" && m.optInt("n") >= 2
+        relay.hold = { ev -> read(a, ev)?.let { m -> newVote(m) || m.optString("type") == "state" &&
+            m.optJSONArray("replay")?.let { r -> (0 until r.length()).any { newVote(r.getJSONObject(it).getJSONObject("msg")) } } == true } ?: false }
+        advance(w.vote + 60)
+        waitFor("the creator's second vote") { a.st.voteN == 2 && a.st.phase == Phase.VOTING }
+        waitFor("B and C open again") { listOf(b, c).all { it.st.phase == Phase.OPEN && it.st.voteN == 1 } }
+        assertTrue("past the pool's timeout", now() > t.expiresAt)
+        assertTrue(now() < w.final)
+        Thread.sleep(5000) // five ticks of every timer
+        assertEquals(listOf(Phase.OPEN, Phase.OPEN), listOf(b, c).map { it.st.phase })
+        relay.hold = { false }
+        assertTrue("the second vote was held", relay.release() > 0)
+        waitFor("B and C in the second vote") { listOf(b, c).all { it.st.voteN == 2 && it.st.phase == Phase.VOTING } }
+        b.session.vote(true); c.session.vote(true)
+        allSigning(a, b, c)
+        a.sign(); b.sign(); c.sign()
+        waitFor("broadcast") { chain.sent.isNotEmpty() && listOf(a, b, c).all { it.st.txid != null } }
+        assertEquals(1, chain.sent.size)
+    }
+
+    /**
      * A reserved round outlives a relay that keeps events a week (relay.kilombino.com). C signs, its signature is
      * lost, and it goes offline; A (the creator) and B sign and wait reserved. Eight days later the relay has
      * dropped everything older than seven days, and C's requests for a snapshot are lost too: what C finds is A's
