@@ -381,7 +381,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                         else -> {}
                     }
                 }
-                val rows = doneRows ?: return@runCatching
+                // No answer (the node or server out of reach, a failed look): keep the figures but
+                // say they are the last known ones, instead of a green "complete" over old data.
+                val rows = doneRows ?: run { updateIf(xpub, chain) { it.copy(stale = true) }; return@runCatching }
                 android.util.Log.i("Kilowallet", "look ${chain.name} ${if (quick) "quick" else "full"}: ${rows.size} used, ${System.currentTimeMillis() - started} ms")
                 if (!quick) ws.setLastFullLook(chain)
                 if (_state.value.xpub == xpub) noteUsed(rows)
@@ -396,7 +398,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                     it.copy(rows = rows, transactions = doneTxs, height = tip, phase = ScanPhase.Complete, stale = false)
                 }
                 saveSnapshot(chain)
-            } } finally { updateIf(xpub, chain) { it.copy(refreshing = null) } }
+            }.onFailure { e -> if (e !is kotlinx.coroutines.CancellationException) updateIf(xpub, chain) { it.copy(stale = true) } }
+            } finally { updateIf(xpub, chain) { it.copy(refreshing = null) } }
         }
     }
 
