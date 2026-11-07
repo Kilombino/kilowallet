@@ -297,6 +297,22 @@ class NodeRpcBackend(private val node: RpcNode) {
                 outScripts["$id:${o.getInt("n")}"] = Address.electrumScriptHash(Hashes.hexToBytes(o.getJSONObject("scriptPubKey").getString("hex")))
             }
         }
+        // A mined reward still maturing is unspent (it can't be spent yet), and an Electrum server
+        // counts it, but listunspent leaves it out: a miner's balance read 0, the wallet showed no
+        // "locked until block …" note, and the quick look took the address for spent and settled
+        // and stopped asking about it, so new rewards only showed after a full rescan.
+        // listtransactions is read fresh each time (the cached gettransaction keeps its old category).
+        for (k in 0 until lt.length()) {
+            val e = lt.getJSONObject(k)
+            if (e.optString("category") != "immature") continue
+            val id = e.getString("txid"); val n = e.optInt("vout", -1)
+            val conf = e.optInt("confirmations")
+            val sh = outScripts["$id:$n"] ?: continue
+            if (conf <= 0) continue
+            val list = utxos.getOrPut(sh) { mutableListOf() }
+            if (list.none { it.txid == id && it.vout == n })
+                list += ElectrumClient.Utxo(id, n, sats(e.getDouble("amount")), tip() - conf + 1)
+        }
         for ((id, t) in decoded) {
             val conf = t.optInt("confirmations")
             if (conf < 0) continue
