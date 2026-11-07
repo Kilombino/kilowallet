@@ -11,6 +11,7 @@ import com.sun.net.httpserver.HttpServer
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 import java.net.InetSocketAddress
@@ -67,6 +68,10 @@ class NodeRpcImmatureTest {
             assertEquals(1, young!!.vout); assertEquals(1_640_000L, young.value); assertEquals(999, young.height)
             assertEquals(3_280_000L, node.balance(sh).confirmed)
             assertEquals(setOf(reward, older), node.history(sh).map { it.txid }.toSet())
+            // The status carries the coins: a cached balance from before (0) is not reused.
+            val historyOnly = com.kilombino.pyblockwatch.crypto.Hashes.sha256(
+                listOf(older to 851, reward to 999).sortedBy { it.first }.joinToString("") { "${it.first}:${it.second}:" }.toByteArray()).toHex()
+            assertNotEquals(historyOnly, node.status(sh))
         } finally { server.stop(0) }
     }
 }
