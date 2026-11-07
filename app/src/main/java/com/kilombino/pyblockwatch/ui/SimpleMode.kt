@@ -332,7 +332,7 @@ private fun SimpleBalance(
             if (cs.phase is ScanPhase.Complete) {
                 Text(refreshCountdown(nextRefreshAt, secondsUntilRefresh), style = MaterialTheme.typography.bodySmall, color = TextFaint)
                 Spacer(Modifier.width(8.dp))
-                StillDot(Good, 7)
+                StillDot(if (cs.stale) Warn else Good, 7)
             }
         }
         // Until the first check of this launch finishes, a 0 would look like an empty wallet:

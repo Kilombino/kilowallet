@@ -354,7 +354,11 @@ class NodeRpcBackend(private val node: RpcNode) {
     fun status(sh: String): String? {
         val h = history[sh] ?: return null
         if (h.isEmpty()) return null
-        return Hashes.sha256(h.sortedBy { it.first }.joinToString("") { "${it.first}:${it.second}:" }.toByteArray()).toHex()
+        // The coins held go in too: the wallet keeps each address's balance under its status, so a
+        // balance read differently (mined rewards still maturing, counted since 1.5.3) has to change
+        // the status, or the old figure stays until the next payment.
+        val coins = balance(sh).let { "|${it.confirmed}:${it.unconfirmed}" }
+        return Hashes.sha256((h.sortedBy { it.first }.joinToString("") { "${it.first}:${it.second}:" } + coins).toByteArray()).toHex()
     }
 
     fun history(sh: String): List<ElectrumClient.HistoryItem> =
