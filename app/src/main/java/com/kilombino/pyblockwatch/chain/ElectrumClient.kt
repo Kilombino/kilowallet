@@ -89,6 +89,22 @@ class ElectrumClient(
             f.init(null as java.security.KeyStore?)
             f.trustManagers.filterIsInstance<X509TrustManager>().first()
         }
+
+        private val onAndroid: Boolean =
+            System.getProperty("java.vm.name").orEmpty().contains("Dalvik", ignoreCase = true) ||
+                System.getProperty("java.vendor").orEmpty().contains("Android", ignoreCase = true)
+
+        /**
+         * Whether the system's trusted authorities vouch for [chain] as [host]. On Android the
+         * hostname-aware check is required: with this app's network security config (a
+         * domain-config for 127.0.0.1), the plain checkServerTrusted(chain, authType) always throws
+         * "Domain specific configurations require that hostname aware checkServerTrusted…".
+         */
+        internal fun authorityTrusts(chain: Array<X509Certificate>, authType: String, host: String): Boolean =
+            runCatching {
+                if (onAndroid) android.net.http.X509TrustManagerExtensions(systemTrust).checkServerTrusted(chain, authType, host)
+                else systemTrust.checkServerTrusted(chain, authType)
+            }.onFailure { if (onAndroid) android.util.Log.w("ElectrumClient", "authority check failed for $host: $it") }.isSuccess
         private const val READ_TIMEOUT_MS = 60_000
         /** Through Tor (an onion, or every server with [throughTor]): as long as the node's RPC over Tor waits, and more to read. */
         private const val TOR_CONNECT_TIMEOUT_MS = 60_000
@@ -194,7 +210,7 @@ class ElectrumClient(
                     // authority (Let's Encrypt, renewed every few months) instead of the pinned
                     // self-signed one: accepted only if it really is signed by one, for this name.
                     if (caAllowed && certificateNames(chain[0]).any { nameMatches(it, target.host) } &&
-                        runCatching { systemTrust.checkServerTrusted(chain, authType) }.isSuccess) {
+                        authorityTrusts(chain, authType, target.host)) {
                         caVerified = true
                         return
                     }
