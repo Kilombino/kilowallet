@@ -37,8 +37,35 @@ class ServerTrustTest {
         assertNotEquals(v.getString("txid"), TxParse.txid(TxParse.parse(bad)))
     }
 
-    @Test fun aChangedCertificateIsRefusedBeforeAnythingIsSent() {
+    @Test fun theDefaultServerConnectsWithTheBuiltInPinAfterMovingToLetsEncrypt() {
+        // Every installed copy holds the old self-signed pin; the server now shows a
+        // Let's Encrypt certificate. It must still connect, through the authority check.
         val ep = NodeEndpoint.default(Chain.BLAKE2B)
+        val pin = com.kilombino.pyblockwatch.data.Store.BUILT_IN_PINS["${ep.host}:${ep.port}"]
+        val probe = runCatching { ElectrumClient(ep, null).also { it.connect(); it.close() } }
+        assumeTrue("needs the network", probe.isSuccess)
+        val c = ElectrumClient(ep, pin)
+        c.connect()
+        try {
+            if (!pin.equals(c.serverFingerprint, ignoreCase = true)) assertTrue(c.caVerified)
+        } finally { c.close() }
+    }
+
+    @Test fun aCertificateNameMatchesLikeABrowser() {
+        assertTrue(ElectrumClient.nameMatches("fulcrum.kilombino.com", "FULCRUM.kilombino.com"))
+        assertTrue(ElectrumClient.nameMatches("*.kilombino.com", "fulcrum.kilombino.com"))
+        assertTrue(!ElectrumClient.nameMatches("*.kilombino.com", "a.fulcrum.kilombino.com"))
+        assertTrue(!ElectrumClient.nameMatches("*.kilombino.com", "kilombino.com"))
+        assertTrue(!ElectrumClient.nameMatches("fulcrum.kilombino.com.evil.net", "fulcrum.kilombino.com"))
+    }
+
+    @Test fun aChangedCertificateIsRefusedBeforeAnythingIsSent() {
+        // The same server by its address: not on the list of names an authority may vouch for,
+        // so only the pin counts there.
+        val def = NodeEndpoint.default(Chain.BLAKE2B)
+        val ip = runCatching { java.net.InetAddress.getByName(def.host).hostAddress }.getOrNull()
+        assumeTrue("needs the network", ip != null)
+        val ep = def.copy(host = ip!!)
         val ok = runCatching { ElectrumClient(ep, null).also { it.connect(); it.close() } }
         assumeTrue("needs the network", ok.isSuccess)
         val wrongPin = "00".repeat(32)

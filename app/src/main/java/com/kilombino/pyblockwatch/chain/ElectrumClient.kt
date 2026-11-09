@@ -56,8 +56,39 @@ class ElectrumClient(
     var endpoint: NodeEndpoint = requested
         private set
 
+    /** True when this connection's certificate was taken because a trusted authority signed it (not the pin). */
+    var caVerified: Boolean = false
+        private set
+
     companion object {
         private const val CONNECT_TIMEOUT_MS = 20_000
+
+        /**
+         * Pinned servers that may instead show a certificate from a trusted authority for
+         * their name: fulcrum.kilombino.com moved to Let's Encrypt on 2026-11-08. The pin
+         * of its old self-signed certificate keeps working too.
+         */
+        val CA_VERIFIED_PINNED = setOf("fulcrum.kilombino.com:17717")
+
+        /** The DNS names a certificate is for (its subjectAltName entries). */
+        internal fun certificateNames(c: X509Certificate): List<String> =
+            runCatching { c.subjectAlternativeNames }.getOrNull().orEmpty()
+                .filter { it.size >= 2 && it[0] == 2 }.mapNotNull { it[1] as? String }
+
+        /** A browser's name rule: exact, or "*." standing for exactly one leftmost label. */
+        internal fun nameMatches(pattern: String, host: String): Boolean {
+            val p = pattern.lowercase().trimEnd('.'); val h = host.lowercase().trimEnd('.')
+            if (!p.startsWith("*.")) return p == h
+            val rest = p.substring(1) // ".example.com"
+            return h.endsWith(rest) && h.length > rest.length && '.' !in h.substring(0, h.length - rest.length)
+        }
+
+        /** The system's trusted authorities, as a browser would check them. */
+        private val systemTrust: X509TrustManager by lazy {
+            val f = javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm())
+            f.init(null as java.security.KeyStore?)
+            f.trustManagers.filterIsInstance<X509TrustManager>().first()
+        }
         private const val READ_TIMEOUT_MS = 60_000
         /** Through Tor (an onion, or every server with [throughTor]): as long as the node's RPC over Tor waits, and more to read. */
         private const val TOR_CONNECT_TIMEOUT_MS = 60_000
@@ -142,7 +173,9 @@ class ElectrumClient(
     private fun connectTo(target: NodeEndpoint, public: Boolean) {
         endpoint = target
         fingerprintChanged = false
+        caVerified = false
         if (public) return connectPublic()
+        val caAllowed = "${target.host.lowercase()}:${target.port}" in CA_VERIFIED_PINNED
         // An onion that answered in plain TCP before: that way first (TLS is tried again if it fails).
         // So is Fulcrum's usual plain port (50001), the one most onions publish.
         if (isOnion(target.host) && ("${target.host}:${target.port}" in plainOnions || target.port == 50001)) {
@@ -157,6 +190,14 @@ class ElectrumClient(
                 val fp = Hashes.sha256(chain[0].encoded).toHex()
                 serverFingerprint = fp
                 if (pinnedFingerprint != null && !pinnedFingerprint.equals(fp, ignoreCase = true)) {
+                    // Our own default server may also show a certificate from a trusted
+                    // authority (Let's Encrypt, renewed every few months) instead of the pinned
+                    // self-signed one: accepted only if it really is signed by one, for this name.
+                    if (caAllowed && certificateNames(chain[0]).any { nameMatches(it, target.host) } &&
+                        runCatching { systemTrust.checkServerTrusted(chain, authType) }.isSuccess) {
+                        caVerified = true
+                        return
+                    }
                     // The pin is enforced: nothing at all is said to a server whose certificate
                     // changed until the user has checked and accepted the new one.
                     fingerprintChanged = true
