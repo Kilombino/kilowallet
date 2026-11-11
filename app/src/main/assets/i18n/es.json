@@ -2475,5 +2475,6 @@
 "the pool reached its final time": "el pool llegó a su hora final",
 "signed, waiting: the others' signatures, or a coin moving": "firmado, esperando: las firmas de los demás, o que se mueva una moneda",
 "a coin of the round was spent elsewhere: its transaction can never confirm, and your coins are free": "una moneda de la ronda se gastó en otro sitio: su transacción ya no puede confirmarse, y tus monedas quedan libres",
-"the pool's terms are not the ones it announced": "las condiciones del pool no son las que anunció"
+"the pool's terms are not the ones it announced": "las condiciones del pool no son las que anunció",
+"A coin you picked is now being signed in a coinjoin round. Pick other coins.": "Una moneda que elegiste se está firmando ahora en una ronda de coinjoin. Elige otras monedas."
 }

@@ -1585,7 +1585,9 @@ internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, v
     var bumping by remember { mutableStateOf<Pair<String, BumpMode>?>(null) }
     bumping?.let { (txid, mode) -> BumpDialog(vm, txid, accent, explorer, mode) { bumping = null; vm.resetSend() } }
     val site = explorer.removePrefix("https://").removePrefix("http://")
-    asking?.let { t ->
+    // The current state of that movement, not the copy taken when it was tapped: it may confirm
+    // (or be replaced) while the dialog is open.
+    asking?.let { tapped -> txs.firstOrNull { it.txid == tapped.txid } ?: tapped }?.let { t ->
         TxDetailDialog(t.txid, accent, explorer,
             status = if (t.pending) "in mempool · 0 confirmations" else "${t.confirmations} confirmation" + if (t.confirmations == 1) "" else "s",
             onSpeedUp = if (t.pending && isHot) ({ asking = null; bumping = t.txid to (if ((t.amount ?: 0) > 0) BumpMode.CPFP else BumpMode.RBF) }) else null,

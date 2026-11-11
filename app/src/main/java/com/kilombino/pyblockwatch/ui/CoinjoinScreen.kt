@@ -76,6 +76,8 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
     var pools by remember { mutableStateOf<List<Protocol.Terms>?>(null) }
     var loadingPools by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+    // The relay's own state, recomputed on every look: it never covers a join or round error.
+    var relayError by remember { mutableStateOf<String?>(null) }
     var joining by remember { mutableStateOf<Protocol.Terms?>(null) }
     // Another seat in one of our pools: the seat it is for.
     var extraFor by remember { mutableStateOf<PoolSession.State?>(null) }
@@ -103,7 +105,7 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
             val r = withContext(Dispatchers.IO) { runCatching { CoinjoinHub.fetchPools() } }
             // A failed look keeps the list it had: an empty screen would read as "no pools".
             r.getOrNull()?.let { pools = it }; loadingPools = false
-            r.exceptionOrNull()?.let { message = "Could not reach the relay: ${it.message}" }
+            relayError = r.exceptionOrNull()?.let { "Could not reach the relay: ${it.message}" }
         }
     }
 
@@ -180,11 +182,8 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
         }
     }
 
-    message?.let { m ->
-        Panel(accent = Warn) {
-            Text(m, color = Warn, style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = { message = null }) { Text("ok", color = TextSoft) }
-        }
+    relayError?.let { m ->
+        Panel(accent = Warn) { Text(m, color = Warn, style = MaterialTheme.typography.bodySmall) }
     }
 
     val finishedPhases = setOf(PoolSession.Phase.CONFIRMED, PoolSession.Phase.ABORTED, PoolSession.Phase.REJECTED)

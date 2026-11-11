@@ -2463,5 +2463,6 @@
 "the pool reached its final time": "池已到达其结束时间",
 "signed, waiting: the others' signatures, or a coin moving": "已签名，等待中：其他人的签名，或某个币发生移动",
 "a coin of the round was spent elsewhere: its transaction can never confirm, and your coins are free": "本轮的一个币在别处被花费：其交易永远无法确认，你的币已释放",
-"the pool's terms are not the ones it announced": "池的条款与其公布的不一致"
+"the pool's terms are not the ones it announced": "池的条款与其公布的不一致",
+"A coin you picked is now being signed in a coinjoin round. Pick other coins.": "你选择的一枚币正在 coinjoin 轮次中签名。请选择其他币。"
 }
