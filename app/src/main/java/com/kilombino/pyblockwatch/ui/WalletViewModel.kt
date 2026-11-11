@@ -1693,6 +1693,11 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
                 val chosen: List<com.kilombino.pyblockwatch.data.Scanner.SpendableUtxo>
                 var sum: Long
                 if (selected.isNotEmpty()) {
+                    // The list was filtered when coin control opened; a pool may have reached its
+                    // closing step since. Say it here, before the fee and the review, not at signing.
+                    check(notInCoinjoin(chain, selected).size == selected.size) {
+                        "A coin you picked is now being signed in a coinjoin round. Pick other coins."
+                    }
                     chosen = selected
                     sum = selected.sumOf { it.value }
                 } else {
