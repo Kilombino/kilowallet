@@ -2476,5 +2476,17 @@
 "signed, waiting: the others' signatures, or a coin moving": "signiert, warte: auf die Signaturen der anderen oder darauf, dass sich eine Münze bewegt",
 "a coin of the round was spent elsewhere: its transaction can never confirm, and your coins are free": "eine Münze der Runde wurde anderswo ausgegeben: ihre Transaktion kann nie bestätigt werden, und deine Münzen sind frei",
 "the pool's terms are not the ones it announced": "die Bedingungen des Pools sind nicht die angekündigten",
-"A coin you picked is now being signed in a coinjoin round. Pick other coins.": "Eine von dir gewählte Münze wird gerade in einer Coinjoin-Runde signiert. Wähle andere Münzen."
+"A coin you picked is now being signed in a coinjoin round. Pick other coins.": "Eine von dir gewählte Münze wird gerade in einer Coinjoin-Runde signiert. Wähle andere Münzen.",
+"Reading the JoinBlaket market…": "JoinBlaket-Markt wird gelesen…",
+"The JoinBlaket market can't be read right now.": "Der JoinBlaket-Markt lässt sich gerade nicht lesen.",
+"No makers with a fidelity bond right now.": "Gerade keine Maker mit Fidelity Bond.",
+"{0} maker with a fidelity bond": "{0} Maker mit Fidelity Bond",
+"{0} makers with a fidelity bond": "{0} Maker mit Fidelity Bond",
+"minimum {0} sats": "Minimum {0} sats",
+"maximum {0} sats": "Maximum {0} sats",
+"No maker takes {0} sats: it has to be between the minimum and the maximum.": "Kein Maker nimmt {0} sats: Der Betrag muss zwischen Minimum und Maximum liegen.",
+"For {0} sats with {1} maker: {2} to the makers + about {3} mining fee = about {4} sats": "Für {0} sats mit {1} Maker: {2} an die Maker + etwa {3} Mining-Gebühr = etwa {4} sats",
+"For {0} sats with {1} makers: {2} to the makers + about {3} mining fee = about {4} sats": "Für {0} sats mit {1} Makern: {2} an die Maker + etwa {3} Mining-Gebühr = etwa {4} sats",
+"With a single maker, that maker can link your coin to your payment.": "Mit nur einem Maker kann dieser Maker deine Münze mit deiner Zahlung verknüpfen.",
+"🔀 PAY THROUGH JOINBLAKET (coming in the next beta)": "🔀 ÜBER JOINBLAKET ZAHLEN (in der nächsten Beta)"
 }

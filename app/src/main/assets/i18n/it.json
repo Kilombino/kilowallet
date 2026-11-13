@@ -2476,5 +2476,17 @@
 "signed, waiting: the others' signatures, or a coin moving": "firmato, in attesa: le firme degli altri, o che una moneta si muova",
 "a coin of the round was spent elsewhere: its transaction can never confirm, and your coins are free": "una moneta del round è stata spesa altrove: la sua transazione non potrà mai confermarsi, e le tue monete sono libere",
 "the pool's terms are not the ones it announced": "le condizioni del pool non sono quelle che ha annunciato",
-"A coin you picked is now being signed in a coinjoin round. Pick other coins.": "Una moneta scelta è ora in firma in un turno di coinjoin. Scegli altre monete."
+"A coin you picked is now being signed in a coinjoin round. Pick other coins.": "Una moneta scelta è ora in firma in un turno di coinjoin. Scegli altre monete.",
+"Reading the JoinBlaket market…": "Lettura del mercato JoinBlaket…",
+"The JoinBlaket market can't be read right now.": "Al momento non si può leggere il mercato JoinBlaket.",
+"No makers with a fidelity bond right now.": "Al momento nessun maker con fidelity bond.",
+"{0} maker with a fidelity bond": "{0} maker con fidelity bond",
+"{0} makers with a fidelity bond": "{0} maker con fidelity bond",
+"minimum {0} sats": "minimo {0} sats",
+"maximum {0} sats": "massimo {0} sats",
+"No maker takes {0} sats: it has to be between the minimum and the maximum.": "Nessun maker accetta {0} sats: l'importo deve essere tra il minimo e il massimo.",
+"For {0} sats with {1} maker: {2} to the makers + about {3} mining fee = about {4} sats": "Per {0} sats con {1} maker: {2} ai maker + circa {3} di commissione di mining = circa {4} sats",
+"For {0} sats with {1} makers: {2} to the makers + about {3} mining fee = about {4} sats": "Per {0} sats con {1} maker: {2} ai maker + circa {3} di commissione di mining = circa {4} sats",
+"With a single maker, that maker can link your coin to your payment.": "Con un solo maker, quel maker può collegare la tua moneta al tuo pagamento.",
+"🔀 PAY THROUGH JOINBLAKET (coming in the next beta)": "🔀 PAGA TRAMITE JOINBLAKET (nella prossima beta)"
 }

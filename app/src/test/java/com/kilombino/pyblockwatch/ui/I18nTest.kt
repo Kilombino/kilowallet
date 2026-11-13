@@ -41,6 +41,28 @@ class I18nTest {
         I18n.lang.value = I18n.ES
     }
 
+    /** The JoinBlaket market on the send screen: every text in every language, as the code builds it. */
+    @Test fun joinBlaketMarketTexts() {
+        val keys = listOf("Reading the JoinBlaket market…", "The JoinBlaket market can't be read right now.",
+            "No makers with a fidelity bond right now.", "{0} maker with a fidelity bond", "{0} makers with a fidelity bond",
+            "minimum {0} sats", "maximum {0} sats", "No maker takes {0} sats: it has to be between the minimum and the maximum.",
+            "For {0} sats with {1} maker: {2} to the makers + about {3} mining fee = about {4} sats",
+            "For {0} sats with {1} makers: {2} to the makers + about {3} mining fee = about {4} sats",
+            "With a single maker, that maker can link your coin to your payment.",
+            "🔀 PAY THROUGH JOINBLAKET (coming in the next beta)")
+        for (l in I18n.LANGUAGES.map { it.first }.filter { it != I18n.EN }) {
+            val o = JSONObject(File(dir, "$l.json").readText())
+            keys.forEach { k -> assertTrue("$l lacks \"$k\"", o.has(k) && o.getString(k) != k) }
+        }
+        I18n.lang.value = I18n.ES
+        assertEquals("1 maker con fidelity bond · mínimo 100 000 sats · máximo 12 312 375 sats",
+            I18n.tr("1 maker with a fidelity bond · minimum 100 000 sats · maximum 12 312 375 sats"))
+        assertEquals("Por 200 000 sats con 1 maker: 4 para los makers + unos 542 de comisión de minería = unos 546 sats",
+            I18n.tr("For 200 000 sats with 1 maker: 4 to the makers + about 542 mining fee = about 546 sats"))
+        assertEquals("Ningún maker acepta 50 000 sats: tiene que estar entre el mínimo y el máximo.",
+            I18n.tr("No maker takes 50 000 sats: it has to be between the minimum and the maximum."))
+    }
+
     /** Spending a bond with SeedSigner: every text in every language, as the code builds it. */
     @Test fun bondSpendTexts() {
         val keys = listOf("SPEND WITH SEEDSIGNER", "Spend fidelity bond · SeedSigner", "Unlocked since {0} · {1}",

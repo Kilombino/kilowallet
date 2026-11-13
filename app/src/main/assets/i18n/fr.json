@@ -2476,5 +2476,17 @@
 "signed, waiting: the others' signatures, or a coin moving": "signé, en attente : les signatures des autres, ou qu'une pièce bouge",
 "a coin of the round was spent elsewhere: its transaction can never confirm, and your coins are free": "une pièce du tour a été dépensée ailleurs : sa transaction ne pourra jamais être confirmée, et tes pièces sont libres",
 "the pool's terms are not the ones it announced": "les conditions du pool ne sont pas celles qu'il a annoncées",
-"A coin you picked is now being signed in a coinjoin round. Pick other coins.": "Une pièce choisie est en cours de signature dans un tour de coinjoin. Choisissez d'autres pièces."
+"A coin you picked is now being signed in a coinjoin round. Pick other coins.": "Une pièce choisie est en cours de signature dans un tour de coinjoin. Choisissez d'autres pièces.",
+"Reading the JoinBlaket market…": "Lecture du marché JoinBlaket…",
+"The JoinBlaket market can't be read right now.": "Impossible de lire le marché JoinBlaket pour le moment.",
+"No makers with a fidelity bond right now.": "Aucun maker avec fidelity bond pour le moment.",
+"{0} maker with a fidelity bond": "{0} maker avec fidelity bond",
+"{0} makers with a fidelity bond": "{0} makers avec fidelity bond",
+"minimum {0} sats": "au moins {0} sats",
+"maximum {0} sats": "au plus {0} sats",
+"No maker takes {0} sats: it has to be between the minimum and the maximum.": "Aucun maker n'accepte {0} sats : le montant doit être entre le minimum et le maximum.",
+"For {0} sats with {1} maker: {2} to the makers + about {3} mining fee = about {4} sats": "Pour {0} sats avec {1} maker : {2} pour les makers + environ {3} de frais de minage = environ {4} sats",
+"For {0} sats with {1} makers: {2} to the makers + about {3} mining fee = about {4} sats": "Pour {0} sats avec {1} makers : {2} pour les makers + environ {3} de frais de minage = environ {4} sats",
+"With a single maker, that maker can link your coin to your payment.": "Avec un seul maker, ce maker peut relier votre pièce à votre paiement.",
+"🔀 PAY THROUGH JOINBLAKET (coming in the next beta)": "🔀 PAYER VIA JOINBLAKET (dans la prochaine bêta)"
 }

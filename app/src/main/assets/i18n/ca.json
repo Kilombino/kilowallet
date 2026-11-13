@@ -2476,5 +2476,17 @@
 "signed, waiting: the others' signatures, or a coin moving": "signat, esperant: les signatures dels altres, o que es mogui una moneda",
 "a coin of the round was spent elsewhere: its transaction can never confirm, and your coins are free": "una moneda de la ronda s'ha gastat en un altre lloc: la seva transacció ja no es pot confirmar, i les teves monedes queden lliures",
 "the pool's terms are not the ones it announced": "les condicions del pool no són les que va anunciar",
-"A coin you picked is now being signed in a coinjoin round. Pick other coins.": "Una moneda que vas triar s'està signant ara en una ronda de coinjoin. Tria'n d'altres."
+"A coin you picked is now being signed in a coinjoin round. Pick other coins.": "Una moneda que vas triar s'està signant ara en una ronda de coinjoin. Tria'n d'altres.",
+"Reading the JoinBlaket market…": "Llegint el mercat de JoinBlaket…",
+"The JoinBlaket market can't be read right now.": "Ara mateix no es pot llegir el mercat de JoinBlaket.",
+"No makers with a fidelity bond right now.": "Ara mateix no hi ha makers amb fidelity bond.",
+"{0} maker with a fidelity bond": "{0} maker amb fidelity bond",
+"{0} makers with a fidelity bond": "{0} makers amb fidelity bond",
+"minimum {0} sats": "mínim {0} sats",
+"maximum {0} sats": "màxim {0} sats",
+"No maker takes {0} sats: it has to be between the minimum and the maximum.": "Cap maker accepta {0} sats: ha d'estar entre el mínim i el màxim.",
+"For {0} sats with {1} maker: {2} to the makers + about {3} mining fee = about {4} sats": "Per {0} sats amb {1} maker: {2} per als makers + uns {3} de comissió de mineria = uns {4} sats",
+"For {0} sats with {1} makers: {2} to the makers + about {3} mining fee = about {4} sats": "Per {0} sats amb {1} makers: {2} per als makers + uns {3} de comissió de mineria = uns {4} sats",
+"With a single maker, that maker can link your coin to your payment.": "Amb un sol maker, aquest maker pot relacionar la teva moneda amb el teu pagament.",
+"🔀 PAY THROUGH JOINBLAKET (coming in the next beta)": "🔀 PAGAR AMB JOINBLAKET (a la propera beta)"
 }

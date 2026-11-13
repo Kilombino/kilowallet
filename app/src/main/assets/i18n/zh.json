@@ -2464,5 +2464,17 @@
 "signed, waiting: the others' signatures, or a coin moving": "已签名，等待中：其他人的签名，或某个币发生移动",
 "a coin of the round was spent elsewhere: its transaction can never confirm, and your coins are free": "本轮的一个币在别处被花费：其交易永远无法确认，你的币已释放",
 "the pool's terms are not the ones it announced": "池的条款与其公布的不一致",
-"A coin you picked is now being signed in a coinjoin round. Pick other coins.": "你选择的一枚币正在 coinjoin 轮次中签名。请选择其他币。"
+"A coin you picked is now being signed in a coinjoin round. Pick other coins.": "你选择的一枚币正在 coinjoin 轮次中签名。请选择其他币。",
+"Reading the JoinBlaket market…": "正在读取 JoinBlaket 市场…",
+"The JoinBlaket market can't be read right now.": "暂时无法读取 JoinBlaket 市场。",
+"No makers with a fidelity bond right now.": "目前没有带忠诚保证金的 maker。",
+"{0} maker with a fidelity bond": "{0} 个带忠诚保证金的 maker",
+"{0} makers with a fidelity bond": "{0} 个带忠诚保证金的 maker",
+"minimum {0} sats": "最少 {0} sats",
+"maximum {0} sats": "最多 {0} sats",
+"No maker takes {0} sats: it has to be between the minimum and the maximum.": "没有 maker 接受 {0} sats：金额必须在最小值和最大值之间。",
+"For {0} sats with {1} maker: {2} to the makers + about {3} mining fee = about {4} sats": "{0} sats，{1} 个 maker：给 maker {2} + 约 {3} 矿工费 = 约 {4} sats",
+"For {0} sats with {1} makers: {2} to the makers + about {3} mining fee = about {4} sats": "{0} sats，{1} 个 maker：给 maker {2} + 约 {3} 矿工费 = 约 {4} sats",
+"With a single maker, that maker can link your coin to your payment.": "只有一个 maker 时，该 maker 能把你的币和你的付款联系起来。",
+"🔀 PAY THROUGH JOINBLAKET (coming in the next beta)": "🔀 通过 JOINBLAKET 支付（下一个测试版）"
 }

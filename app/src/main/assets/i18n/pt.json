@@ -2476,5 +2476,17 @@
 "signed, waiting: the others' signatures, or a coin moving": "assinado, esperando: as assinaturas dos outros, ou que uma moeda se mova",
 "a coin of the round was spent elsewhere: its transaction can never confirm, and your coins are free": "uma moeda da rodada foi gasta em outro lugar: a transação dela nunca poderá ser confirmada, e suas moedas estão livres",
 "the pool's terms are not the ones it announced": "as condições da pool não são as que ela anunciou",
-"A coin you picked is now being signed in a coinjoin round. Pick other coins.": "Uma moeda escolhida está agora a ser assinada numa ronda de coinjoin. Escolha outras moedas."
+"A coin you picked is now being signed in a coinjoin round. Pick other coins.": "Uma moeda escolhida está agora a ser assinada numa ronda de coinjoin. Escolha outras moedas.",
+"Reading the JoinBlaket market…": "A ler o mercado JoinBlaket…",
+"The JoinBlaket market can't be read right now.": "Agora não é possível ler o mercado JoinBlaket.",
+"No makers with a fidelity bond right now.": "Agora não há makers com fidelity bond.",
+"{0} maker with a fidelity bond": "{0} maker com fidelity bond",
+"{0} makers with a fidelity bond": "{0} makers com fidelity bond",
+"minimum {0} sats": "mínimo {0} sats",
+"maximum {0} sats": "máximo {0} sats",
+"No maker takes {0} sats: it has to be between the minimum and the maximum.": "Nenhum maker aceita {0} sats: o valor tem de estar entre o mínimo e o máximo.",
+"For {0} sats with {1} maker: {2} to the makers + about {3} mining fee = about {4} sats": "Por {0} sats com {1} maker: {2} para os makers + cerca de {3} de taxa de mineração = cerca de {4} sats",
+"For {0} sats with {1} makers: {2} to the makers + about {3} mining fee = about {4} sats": "Por {0} sats com {1} makers: {2} para os makers + cerca de {3} de taxa de mineração = cerca de {4} sats",
+"With a single maker, that maker can link your coin to your payment.": "Com um só maker, esse maker pode ligar a tua moeda ao teu pagamento.",
+"🔀 PAY THROUGH JOINBLAKET (coming in the next beta)": "🔀 PAGAR VIA JOINBLAKET (na próxima beta)"
 }
