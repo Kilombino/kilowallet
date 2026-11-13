@@ -2551,5 +2551,15 @@
 "Total cost: {0} sats": "Gesamtkosten: {0} sats",
 "Transaction: {0} vB · whole mining fee {1} sats ({2} sat/vB)": "Transaktion: {0} vB · gesamte Mining-Gebühr {1} sats ({2} sat/vB)",
 "Broadcast by a maker.": "Von einem Maker verbreitet.",
-"Broadcast by your server.": "Von deinem Server verbreitet."
+"Broadcast by your server.": "Von deinem Server verbreitet.",
+"Movements of this jar": "Bewegungen dieses Topfs",
+"Earns": "Einnahmen",
+"No coins in this jar.": "Keine Münzen in diesem Topf.",
+"Not every transaction is at hand yet: pull down to refresh.": "Noch sind nicht alle Transaktionen da: zum Aktualisieren nach unten ziehen.",
+"confirmations: {0}": "Bestätigungen: {0}",
+"output {0}": "Ausgang {0}",
+"🔒 Fidelity bond": "🔒 Fidelity Bond (Treuepfand)",
+"1 CoinJoin as a maker": "1 Coinjoin als Maker",
+"{0} CoinJoins as a maker": "{0} Coinjoins als Maker",
+"In each CoinJoin where you were a maker: what came back to you over what you put in (the maker's fee less your part of the mining fee). Each one counts in the jar its coins came from.": "In jedem Coinjoin, in dem du Maker warst: was mehr zurückkam, als du eingesetzt hast (die Maker-Gebühr abzüglich deines Anteils an der Mining-Gebühr). Jeder zählt in dem Topf, aus dem seine Münzen kamen."
 }

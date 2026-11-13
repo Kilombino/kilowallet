@@ -2552,5 +2552,15 @@
 "Transaction: {0} vB · whole mining fee {1} sats ({2} sat/vB)": "Transação: {0} vB · taxa de mineração total {1} sats ({2} sat/vB)",
 "Broadcast by a maker.": "Difundida por um maker.",
 "Broadcast by your server.": "Difundida pelo teu servidor.",
-"🔎 EXPLORER": "🔎 EXPLORADOR"
+"🔎 EXPLORER": "🔎 EXPLORADOR",
+"Movements of this jar": "Movimentos deste pote",
+"Earns": "Ganhos",
+"No coins in this jar.": "Não há moedas neste pote.",
+"Not every transaction is at hand yet: pull down to refresh.": "Ainda não estão todas as transações: puxe para baixo para atualizar.",
+"confirmations: {0}": "confirmações: {0}",
+"output {0}": "saída {0}",
+"🔒 Fidelity bond": "🔒 Fidelity bond (garantia de fidelidade)",
+"1 CoinJoin as a maker": "1 coinjoin como maker",
+"{0} CoinJoins as a maker": "{0} coinjoins como maker",
+"In each CoinJoin where you were a maker: what came back to you over what you put in (the maker's fee less your part of the mining fee). Each one counts in the jar its coins came from.": "Em cada coinjoin em que foi maker: o que lhe voltou acima do que pôs (a taxa do maker menos a sua parte da taxa de mineração). Cada um conta no pote de onde saíram as suas moedas."
 }

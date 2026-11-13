@@ -38,7 +38,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.kilombino.pyblockwatch.chain.Chain
+import com.kilombino.pyblockwatch.data.JamLedger
 import com.kilombino.pyblockwatch.data.JoinMarket
+import com.kilombino.pyblockwatch.data.TxConf
 import com.kilombino.pyblockwatch.ui.i18n.Text
 
 /** The JoinMarket wallet's colour: Jam's jars, between the watch-only orange and the BTC purple. */
@@ -46,7 +48,8 @@ val JamTeal = Color(0xFF2EC4B6)
 
 /**
  * The third wallet: a JoinMarket (Jam) wallet, watched from Jam's read-only export. Its five jars
- * with their balances and movements, and its fidelity bonds with their state. No SEND, on
+ * with their balances (an open jar shows its coins, its movements and what it earned as a maker),
+ * what the wallet earned as a maker, and its fidelity bonds with their state. No SEND, on
  * purpose: this wallet has no keys, and spending (bonds included) happens in Jam.
  */
 @Composable
@@ -58,6 +61,10 @@ fun JamScreen(vm: WalletViewModel, jvm: JamViewModel, onToggleNotifications: (Bo
     var reimport by remember { mutableStateOf(false) }
     var askForget by remember { mutableStateOf(false) }
     var openJar by remember { mutableStateOf<Int?>(null) }
+    val explorer = vm.explorerFor(Chain.BLAKE2B)
+    // A coin tapped (in a jar, or a bond's): its details, copy the txid, the explorer.
+    var coinOpen by remember { mutableStateOf<JamLedger.Coin?>(null) }
+    coinOpen?.let { c -> CoinDialog(js.coins.coins.firstOrNull { it.txid == c.txid && it.vout == c.vout } ?: c, accent, explorer, vm) { coinOpen = null } }
 
     // One person, one node: nothing connects to the default server until the user says so.
     val mayRead = jvm.hasOwnServer() || vm.btcConsented()
@@ -164,7 +171,6 @@ fun JamScreen(vm: WalletViewModel, jvm: JamViewModel, onToggleNotifications: (Bo
             SectionLabel("Jars", accent)
             Spacer(Modifier.height(6.dp))
             JoinMarket.JARS.forEachIndexed { jar, name ->
-                val rows = js.jarRows(jar)
                 Row(Modifier.fillMaxWidth().clickable { openJar = if (openJar == jar) null else jar }.padding(vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Text(if (openJar == jar) "▾" else "▸", color = TextFaint, style = MaterialTheme.typography.bodySmall)
@@ -177,39 +183,110 @@ fun JamScreen(vm: WalletViewModel, jvm: JamViewModel, onToggleNotifications: (Bo
                     Text(street(groupSats(js.jarTotal(jar)) + " sats"), style = MaterialTheme.typography.bodyMedium,
                         color = if (js.jarTotal(jar) > 0) TextMain else TextFaint)
                 }
+                // Open: its coins (each opens its details), then its movements, then what it earned as a maker.
                 if (openJar == jar) Column(Modifier.padding(start = 20.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    val moves = js.txs.mapNotNull { t -> js.jarNets[t.txid]?.get(jar)?.let { t to it } }
-                    Text("${rows.size} addresses used", style = MaterialTheme.typography.bodySmall, color = TextSoft)
+                    JarCoins(js, jar) { coinOpen = it }
+                    Spacer(Modifier.height(8.dp))
+                    Text("Movements of this jar", style = MaterialTheme.typography.labelSmall, color = accent)
+                    val moves = js.jarMoves(jar)
                     if (moves.isEmpty()) Text("No movements yet.", style = MaterialTheme.typography.bodySmall, color = TextFaint)
-                    moves.take(10).forEach { (t, a) ->
-                        Row {
-                            Text(street((if (a >= 0) "+" else "−") + groupSats(kotlin.math.abs(a)) + " sats"),
-                                style = MaterialTheme.typography.bodySmall, color = if (a >= 0) Good else TextMain, modifier = Modifier.weight(1f))
-                            Text(if (t.pending) "in mempool · 0 conf" else "${t.confirmations} conf",
-                                style = MaterialTheme.typography.bodySmall, color = if (t.pending) Warn else TextFaint)
-                        }
-                    }
-                    rows.filter { it.total > 0 }.take(8).forEach { r ->
-                        Text("${shortAddress(r.address)}  ·  ${r.path}  ·  " + street(groupSats(r.total)),
-                            style = MaterialTheme.typography.bodySmall, color = TextFaint)
-                    }
+                    else MovementList(moves, accent, explorer, vm, isHot = false, balance = js.jarTotal(jar))
+                    Spacer(Modifier.height(8.dp))
+                    Text("Earns", style = MaterialTheme.typography.labelSmall, color = accent)
+                    EarnsLine(js.earnings.forJar(jar))
                 }
             }
         }
 
-        BondsCard(js, jvm, accent)
-        BondSpendDialog(jvm, accent)
+        EarnsCard(js, accent, explorer, vm)
 
-        if (js.txs.isNotEmpty()) MovementsCard(js.txs, accent, vm.explorerFor(Chain.BLAKE2B), vm, isHot = false, balance = js.total)
+        BondsCard(js, jvm, accent) { coinOpen = it }
+        BondSpendDialog(jvm, accent)
 
         Spacer(Modifier.height(30.dp))
     }
     }
 }
 
+/** A jar's coins, largest first: amount and depth, the address and its path; tap for the details. */
+@Composable
+private fun JarCoins(js: JamUi, jar: Int, onOpen: (JamLedger.Coin) -> Unit) {
+    val coins = js.jarCoins(jar)
+    if (coins.isEmpty()) Text("No coins in this jar.", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+    coins.forEach { c ->
+        Row(Modifier.fillMaxWidth().clickable { onOpen(c) }.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(street(groupSats(c.value) + " sats"), style = MaterialTheme.typography.bodyMedium, color = TextMain)
+                Text("${shortAddress(c.address)}  ·  ${c.path}", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+            }
+            Text(if (c.pending) "in mempool · 0 conf" else "${c.confirmations} conf",
+                style = MaterialTheme.typography.bodySmall, color = if (c.pending) Warn else TextSoft)
+        }
+    }
+    // Some transaction was not at hand: the list may be short (or keep a coin already spent).
+    if (!js.coins.complete || coins.sumOf { it.value } != js.jarTotal(jar))
+        Text("Not every transaction is at hand yet: pull down to refresh.", style = MaterialTheme.typography.bodySmall, color = Warn)
+}
+
+/** A coin's details, the watch-only wallet's way: the txid to copy, the explorer, and what the coin is. */
+@Composable
+private fun CoinDialog(c: JamLedger.Coin, accent: Color, explorer: String, vm: WalletViewModel, onClose: () -> Unit) {
+    TxDetailDialog(c.txid, accent, explorer,
+        status = if (c.pending) "in mempool · 0 confirmations" else "confirmations: ${c.confirmations}",
+        onSpeedUp = null, onClose = onClose, vm = vm, chain = Chain.BLAKE2B, pending = c.pending,
+        extra = {
+            Text(street(groupSats(c.value) + " sats") + " · output ${c.vout}", style = MaterialTheme.typography.bodyMedium, color = TextMain)
+            if (c.bond) Text("🔒 Fidelity bond", style = MaterialTheme.typography.bodySmall, color = accent)
+            else c.jar?.let { j -> Text("${JoinMarket.JARS.getOrNull(j) ?: ""} · jar #$j · " + if (c.chainIndex == 0) "receive" else "change",
+                style = MaterialTheme.typography.bodySmall, color = TextSoft) }
+            androidx.compose.foundation.text.selection.SelectionContainer {
+                Column {
+                    androidx.compose.material3.Text(c.address, style = MaterialTheme.typography.bodySmall, color = TextSoft,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                    androidx.compose.material3.Text(c.path, style = MaterialTheme.typography.bodySmall, color = TextFaint,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                    androidx.compose.material3.Text("${c.txid}:${c.vout}", style = MaterialTheme.typography.bodySmall, color = TextFaint,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                }
+            }
+        })
+}
+
+/** What some CoinJoins earned as a maker, in one line; "-" when none. */
+@Composable
+private fun EarnsLine(e: JamLedger.Earnings) {
+    if (e.count == 0) { Text("-", style = MaterialTheme.typography.bodySmall, color = TextFaint); return }
+    Text(street(groupSats(e.total) + " sats") + " · " + if (e.count == 1) "1 CoinJoin as a maker" else "${e.count} CoinJoins as a maker",
+        style = MaterialTheme.typography.bodySmall, color = Good)
+}
+
+/**
+ * Earns: what the wallet earned as a maker, worked out from its own transactions (Jam is not
+ * asked: this wallet only watches). "-" when it never was a maker. Each CoinJoin opens its details.
+ */
+@Composable
+private fun EarnsCard(js: JamUi, accent: Color, explorer: String, vm: WalletViewModel) {
+    val e = js.earnings
+    Panel(accent = accent) {
+        SectionLabel("Earns", accent)
+        Spacer(Modifier.height(6.dp))
+        if (e.count == 0) {
+            Text("-", style = MaterialTheme.typography.headlineMedium, color = TextFaint)
+            return@Panel
+        }
+        Text(street("+" + groupSats(e.total) + " sats"), style = MaterialTheme.typography.headlineMedium, color = Good)
+        Text(if (e.count == 1) "1 CoinJoin as a maker" else "${e.count} CoinJoins as a maker",
+            style = MaterialTheme.typography.bodySmall, color = TextSoft)
+        Explain("In each CoinJoin where you were a maker: what came back to you over what you put in " +
+            "(the maker's fee less your part of the mining fee). Each one counts in the jar its coins came from.")
+        Spacer(Modifier.height(4.dp))
+        MovementList(e.joins.map { TxConf(it.txid, it.confirmations, it.pending, it.earned) }, accent, explorer, vm, isHot = false)
+    }
+}
+
 /** Every bond of the export: amount, unlock date and what to do about it. */
 @Composable
-private fun BondsCard(js: JamUi, jvm: JamViewModel, accent: Color) {
+private fun BondsCard(js: JamUi, jvm: JamViewModel, accent: Color, onOpenCoin: (JamLedger.Coin) -> Unit) {
     Panel(accent = accent) {
         SectionLabel("Fidelity bonds", accent)
         Spacer(Modifier.height(6.dp))
@@ -252,7 +329,12 @@ private fun BondsCard(js: JamUi, jvm: JamViewModel, accent: Color) {
             }
             if ((st?.extraValue ?: 0) > 0) Text(street("Plus ${groupSats(st!!.extraValue)} sats sent again to the same address: locked too, but they add nothing to the bond."),
                 style = MaterialTheme.typography.bodySmall, color = Warn)
-            Text("${shortAddress(s.address)}  ·  ${s.path}", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+            // The bond's coin opens its details, like a jar's.
+            val coin = js.coins.coins.firstOrNull { it.bond && it.address == s.address && "${it.txid}:${it.vout}" == st?.txid }
+                ?: js.coins.coins.firstOrNull { it.bond && it.address == s.address }
+            Text("${shortAddress(s.address)}  ·  ${s.path}", style = MaterialTheme.typography.bodySmall,
+                color = if (coin != null) accent else TextFaint,
+                modifier = if (coin != null) Modifier.clickable { onOpenCoin(coin) } else Modifier)
             if (st != null && jvm.canSpend(st, now) && (status == JoinMarket.Status.UNLOCKED || status == JoinMarket.Status.VALUE_ZERO))
                 TextButton(onClick = { jvm.startBondSpend(st) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
                     Text("SPEND WITH SEEDSIGNER", color = accent, style = MaterialTheme.typography.bodySmall)

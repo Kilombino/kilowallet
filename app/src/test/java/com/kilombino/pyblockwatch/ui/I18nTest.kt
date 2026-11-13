@@ -41,6 +41,28 @@ class I18nTest {
         I18n.lang.value = I18n.ES
     }
 
+    /** The JoinMarket tab's open jar (coins, its movements, Earns) and the Earns section: every text in every language. */
+    @Test fun joinMarketJarTexts() {
+        val keys = listOf("Movements of this jar", "Earns", "No coins in this jar.", "Not every transaction is at hand yet: pull down to refresh.",
+            "confirmations: {0}", "output {0}", "🔒 Fidelity bond", "1 CoinJoin as a maker", "{0} CoinJoins as a maker",
+            "In each CoinJoin where you were a maker: what came back to you over what you put in " +
+                "(the maker's fee less your part of the mining fee). Each one counts in the jar its coins came from.")
+        for (l in I18n.LANGUAGES.map { it.first }.filter { it != I18n.EN }) {
+            val o = JSONObject(File(dir, "$l.json").readText())
+            keys.forEach { k -> assertTrue("$l lacks \"$k\"", o.has(k) && o.getString(k) != k) }
+        }
+        I18n.lang.value = I18n.ES
+        assertEquals("GANANCIAS", I18n.tr("EARNS"))
+        assertEquals("12 345 sats · 3 coinjoins como maker", I18n.tr("12 345 sats · 3 CoinJoins as a maker"))
+        assertEquals("1 coinjoin como maker", I18n.tr("1 CoinJoin as a maker"))
+        assertEquals("50 250 sats · salida 3", I18n.tr("50 250 sats · output 3"))
+        assertEquals("confirmaciones: 12", I18n.tr("confirmations: 12"))
+        assertEquals("Apricot · bote #0 · cambio", I18n.tr("Apricot · jar #0 · change"))
+        I18n.lang.value = I18n.ZH
+        assertEquals("作为做市方参与 2 次 CoinJoin", I18n.tr("2 CoinJoins as a maker"))
+        I18n.lang.value = I18n.ES
+    }
+
     /** JoinBlaket's result: details, copy and explorer. */
     @Test fun joinBlaketResultTexts() {
         val keys = listOf("Total cost: {0} sats", "Transaction: {0} vB · whole mining fee {1} sats ({2} sat/vB)",

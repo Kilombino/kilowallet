@@ -2552,5 +2552,15 @@
 "Transaction: {0} vB · whole mining fee {1} sats ({2} sat/vB)": "Transacció: {0} vB · comissió de mineria total {1} sats ({2} sat/vB)",
 "Broadcast by a maker.": "La va difondre un maker.",
 "Broadcast by your server.": "La va difondre el teu servidor.",
-"🔎 EXPLORER": "🔎 EXPLORADOR"
+"🔎 EXPLORER": "🔎 EXPLORADOR",
+"Movements of this jar": "Moviments d'aquest pot",
+"Earns": "Guanys",
+"No coins in this jar.": "No hi ha monedes en aquest pot.",
+"Not every transaction is at hand yet: pull down to refresh.": "Encara no hi són totes les transaccions: llisca cap avall per actualitzar.",
+"confirmations: {0}": "confirmacions: {0}",
+"output {0}": "sortida {0}",
+"🔒 Fidelity bond": "🔒 Fidelity bond (bo de fidelitat)",
+"1 CoinJoin as a maker": "1 coinjoin com a maker",
+"{0} CoinJoins as a maker": "{0} coinjoins com a maker",
+"In each CoinJoin where you were a maker: what came back to you over what you put in (the maker's fee less your part of the mining fee). Each one counts in the jar its coins came from.": "A cada coinjoin en què vas ser maker: el que et va tornar per sobre del que hi vas posar (la comissió del maker menys la teva part de la comissió de mineria). Cadascun compta al pot d'on van sortir les seves monedes."
 }

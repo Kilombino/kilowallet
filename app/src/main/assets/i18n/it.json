@@ -2551,5 +2551,15 @@
 "Total cost: {0} sats": "Costo totale: {0} sats",
 "Transaction: {0} vB · whole mining fee {1} sats ({2} sat/vB)": "Transazione: {0} vB · commissione di mining totale {1} sats ({2} sat/vB)",
 "Broadcast by a maker.": "Diffusa da un maker.",
-"Broadcast by your server.": "Diffusa dal tuo server."
+"Broadcast by your server.": "Diffusa dal tuo server.",
+"Movements of this jar": "Movimenti di questo barattolo",
+"Earns": "Guadagni",
+"No coins in this jar.": "Nessuna moneta in questo barattolo.",
+"Not every transaction is at hand yet: pull down to refresh.": "Non tutte le transazioni sono ancora disponibili: scorri verso il basso per aggiornare.",
+"confirmations: {0}": "conferme: {0}",
+"output {0}": "output n. {0}",
+"🔒 Fidelity bond": "🔒 Fidelity bond (vincolo di fedeltà)",
+"1 CoinJoin as a maker": "1 coinjoin come maker",
+"{0} CoinJoins as a maker": "{0} coinjoin come maker",
+"In each CoinJoin where you were a maker: what came back to you over what you put in (the maker's fee less your part of the mining fee). Each one counts in the jar its coins came from.": "In ogni coinjoin in cui eri maker: quanto ti è tornato oltre a quanto hai messo (la commissione del maker meno la tua parte della commissione di mining). Ognuno conta nel barattolo da cui sono uscite le sue monete."
 }
