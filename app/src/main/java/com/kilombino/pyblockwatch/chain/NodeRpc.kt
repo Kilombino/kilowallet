@@ -213,6 +213,16 @@ class NodeRpcBackend(private val node: RpcNode) {
      * everything about it, read once.
      */
     fun connect(progress: (String) -> Unit = {}) {
+        connectChain()
+        ensureWallet(progress)
+        load()
+    }
+
+    /**
+     * Only the first connection that answers, checked to be on the BLAKE2b chain: enough for
+     * node-level calls ([rpc], [broadcast]) without the wallet (JoinBlaket's chain lookups).
+     */
+    fun connectChain() {
         var last: Exception? = null
         for (c in node.conns) {
             try {
@@ -228,8 +238,6 @@ class NodeRpcBackend(private val node: RpcNode) {
             } catch (e: Exception) { last = e }
         }
         if (conn == null) throw (last as? ElectrumException ?: NodeException(last?.message ?: "No connection to the node answered."))
-        ensureWallet(progress)
-        load()
     }
 
     private fun ensureWallet(progress: (String) -> Unit) {
