@@ -128,9 +128,12 @@ object JamWatch {
         }
     }
 
-    /** Each movement split by jar (bonds count in Apricot), from the transactions a look fetched. */
+    /**
+     * Each movement split by jar, from the transactions a look fetched. The bonds are left out, as
+     * in the jars' totals: coins put into a bond leave their jar (and show in the bonds' section).
+     */
     fun jarNets(txs: List<TxConf>, rows: List<AddressRow>): Map<String, Map<Int, Long>> {
-        val byJar = rows.filter { it.jar != null }.groupBy { it.jar!! }.mapValues { (_, rs) -> rs.map { it.scriptHash }.toSet() }
+        val byJar = rows.filter { it.jar != null && it.chainIndex != JoinMarket.BOND_BRANCH }.groupBy { it.jar!! }.mapValues { (_, rs) -> rs.map { it.scriptHash }.toSet() }
         return txs.associate { t ->
             t.txid to byJar.mapNotNull { (jar, scripts) -> Scanner.cachedNet(t.txid, scripts)?.takeIf { it != 0L }?.let { jar to it } }.toMap()
         }
