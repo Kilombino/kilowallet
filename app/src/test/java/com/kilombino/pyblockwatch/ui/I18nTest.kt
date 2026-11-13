@@ -41,6 +41,19 @@ class I18nTest {
         I18n.lang.value = I18n.ES
     }
 
+    /** JoinBlaket's result: details, copy and explorer. */
+    @Test fun joinBlaketResultTexts() {
+        val keys = listOf("Total cost: {0} sats", "Transaction: {0} vB · whole mining fee {1} sats ({2} sat/vB)",
+            "Broadcast by a maker.", "Broadcast by your server.")
+        for (l in I18n.LANGUAGES.map { it.first }.filter { it != I18n.EN }) {
+            val o = JSONObject(File(dir, "$l.json").readText())
+            keys.forEach { k -> assertTrue("$l lacks \"$k\"", o.has(k) && o.getString(k) != k) }
+        }
+        I18n.lang.value = I18n.ES
+        assertEquals("Transacción: 270 vB · comisión de minería total 323 sats (1.20 sat/vB)",
+            I18n.tr("Transaction: 270 vB · whole mining fee 323 sats (1.20 sat/vB)"))
+    }
+
     /** JoinBlaket's coin check before unlocking: every text in every language. */
     @Test fun joinBlaketCoinCheckTexts() {
         val keys = listOf(

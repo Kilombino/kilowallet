@@ -342,7 +342,7 @@ class MainActivity : FragmentActivity() {
                         }
                     }
                     // A JoinBlaket payment going (or just ended): its sheet over whatever is on screen.
-                    JoinBlaketSheet(Good)
+                    JoinBlaketSheet(Good, vm.explorerFor(com.kilombino.pyblockwatch.chain.Chain.BLAKE2B))
                     if (state.jamView && !state.setupMode) {
                         // The JoinMarket wallet (Jam, read-only): its own screen, no simple mode.
                         val jvm: JamViewModel = viewModel()

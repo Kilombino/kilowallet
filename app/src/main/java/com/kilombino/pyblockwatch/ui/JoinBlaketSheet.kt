@@ -18,6 +18,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -36,7 +39,7 @@ import com.kilombino.pyblockwatch.ui.i18n.Text
  * the phone yet), and how it ended. HIDE leaves it running under its notification.
  */
 @Composable
-fun JoinBlaketSheet(accent: Color) {
+fun JoinBlaketSheet(accent: Color, explorer: String) {
     val v by JoinBlaketPay.state.collectAsState()
     val visible by JoinBlaketPay.sheetVisible.collectAsState()
     val view = v ?: return
@@ -56,7 +59,7 @@ fun JoinBlaketSheet(accent: Color) {
             val result = view.result
             when {
                 plan != null -> PlanDetails(plan, accent)
-                result != null -> ResultDetails(result)
+                result != null -> ResultDetails(result, accent, explorer)
                 else -> {
                     Text(JoinBlaketService.line(view), color = TextSoft, style = small)
                     androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth(), color = accent)
@@ -104,17 +107,35 @@ private fun PlanDetails(p: TakerPlan, accent: Color) {
 }
 
 @Composable
-private fun ResultDetails(r: TakerResult) {
+private fun ResultDetails(r: TakerResult, accent: Color, explorer: String) {
     val small = MaterialTheme.typography.bodySmall
     when (r) {
         is TakerResult.Sent -> {
             Text(if (r.seen) "Done: the CoinJoin was broadcast." else "Sent to the makers; your server doesn't show it yet.",
                 color = Good, style = MaterialTheme.typography.bodyMedium)
             Text("${r.makers} maker(s) · makers' fees ${groupSats(r.makerFees)} sats · mining fee ${groupSats(r.txFee)} sats", color = TextSoft, style = small)
+            Text("Total cost: ${groupSats(r.makerFees + r.txFee)} sats", color = TextSoft, style = small)
             if (r.change > 0) Text("Change back to you: ${groupSats(r.change)} sats", color = TextSoft, style = small)
+            val vbytes = remember(r.rawHex) {
+                runCatching { com.kilombino.pyblockwatch.crypto.TxParse.vsize(r.rawHex) }.getOrNull()
+            }
+            if (vbytes != null) Text("Transaction: $vbytes vB · whole mining fee ${groupSats(r.minerFee)} sats " +
+                "(${"%.2f".format(java.util.Locale.ROOT, r.minerFee.toDouble() / vbytes)} sat/vB)", color = TextFaint, style = small)
+            Text(if (r.viaMaker) "Broadcast by a maker." else "Broadcast by your server.", color = TextFaint, style = small)
             androidx.compose.foundation.text.selection.SelectionContainer {
                 androidx.compose.material3.Text(r.txid, color = TextFaint, style = small,
                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+            }
+            val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+            val uri = androidx.compose.ui.platform.LocalUriHandler.current
+            var copied by remember { mutableStateOf(false) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.TextButton(onClick = {
+                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(r.txid)); copied = true
+                }) { Text(if (copied) "COPIED ✓" else "📋 COPY TXID", color = accent) }
+                androidx.compose.material3.TextButton(onClick = {
+                    runCatching { uri.openUri("${explorer.trimEnd('/')}/tx/${r.txid}") }
+                }) { Text("🔎 EXPLORER", color = accent) }
             }
         }
         is TakerResult.Failed -> {

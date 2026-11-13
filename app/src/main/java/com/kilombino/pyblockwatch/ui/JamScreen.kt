@@ -88,6 +88,13 @@ fun JamScreen(vm: WalletViewModel, jvm: JamViewModel, onToggleNotifications: (Bo
     val scroll = rememberScrollState()
     LaunchedEffect(showSettings) { scroll.scrollTo(0) }
     androidx.activity.compose.BackHandler(enabled = showSettings) { showSettings = false }
+    // Pull down to look again at the jars and the bonds (the same as ↻).
+    @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+        isRefreshing = js.refreshing,
+        onRefresh = { jvm.refresh() },
+        modifier = Modifier.fillMaxSize(),
+    ) {
     Column(
         Modifier.fillMaxSize().imePadding().verticalScroll(scroll).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -196,6 +203,7 @@ fun JamScreen(vm: WalletViewModel, jvm: JamViewModel, onToggleNotifications: (Bo
         if (js.txs.isNotEmpty()) MovementsCard(js.txs, accent, vm.explorerFor(Chain.BLAKE2B), vm, isHot = false, balance = js.total)
 
         Spacer(Modifier.height(30.dp))
+    }
     }
 }
 

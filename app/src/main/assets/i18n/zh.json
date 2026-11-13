@@ -2535,5 +2535,10 @@
 "Your BTC server could not be reached or its data did not verify. Nothing was sent.": "无法连接你的 BTC 服务器，或其数据未通过验证。没有发送任何东西。",
 "None of these coins has 5 confirmations yet: makers only accept one that has. The first will in about {0} blocks (~{1} min).": "这些币都还没有 5 个确认：maker 只接受已有 5 个确认的币。第一枚大约还需 {0} 个区块（约 {1} 分钟）。",
 "Your coin is still unconfirmed: it needs {0} confirmations before it can open a CoinJoin (~{1} min).": "你的币还未确认：需要 {0} 个确认才能发起 coinjoin（约 {1} 分钟）。",
-"None of these coins can open this CoinJoin: one needs at least {0} sats (20% of the amount).": "这些币都无法发起这次 coinjoin：需要一枚至少 {0} sats 的币（金额的 20%）。"
+"None of these coins can open this CoinJoin: one needs at least {0} sats (20% of the amount).": "这些币都无法发起这次 coinjoin：需要一枚至少 {0} sats 的币（金额的 20%）。",
+"Total cost: {0} sats": "总费用：{0} sats",
+"Transaction: {0} vB · whole mining fee {1} sats ({2} sat/vB)": "交易：{0} vB · 总矿工费 {1} sats（{2} sat/vB）",
+"Broadcast by a maker.": "由一个 maker 广播。",
+"Broadcast by your server.": "由你的服务器广播。",
+"🔎 EXPLORER": "🔎 区块浏览器"
 }

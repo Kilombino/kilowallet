@@ -2547,5 +2547,9 @@
 "Your BTC server could not be reached or its data did not verify. Nothing was sent.": "Il tuo server BTC non era raggiungibile o i suoi dati non si verificavano. Non è stato inviato nulla.",
 "None of these coins has 5 confirmations yet: makers only accept one that has. The first will in about {0} blocks (~{1} min).": "Nessuna di queste monete ha ancora 5 conferme: i maker accettano solo una che le abbia. La prima le avrà tra circa {0} blocchi (~{1} min).",
 "Your coin is still unconfirmed: it needs {0} confirmations before it can open a CoinJoin (~{1} min).": "La tua moneta non è ancora confermata: servono {0} conferme prima che possa aprire un coinjoin (~{1} min).",
-"None of these coins can open this CoinJoin: one needs at least {0} sats (20% of the amount).": "Nessuna di queste monete può aprire questo coinjoin: ne serve una di almeno {0} sats (il 20% dell'importo)."
+"None of these coins can open this CoinJoin: one needs at least {0} sats (20% of the amount).": "Nessuna di queste monete può aprire questo coinjoin: ne serve una di almeno {0} sats (il 20% dell'importo).",
+"Total cost: {0} sats": "Costo totale: {0} sats",
+"Transaction: {0} vB · whole mining fee {1} sats ({2} sat/vB)": "Transazione: {0} vB · commissione di mining totale {1} sats ({2} sat/vB)",
+"Broadcast by a maker.": "Diffusa da un maker.",
+"Broadcast by your server.": "Diffusa dal tuo server."
 }
