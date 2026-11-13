@@ -24,6 +24,8 @@ object OpenTab {
     const val COINJOIN_ROUNDS = "coinjoin:rounds"
     /** …or HISTORY (a round confirmed or cancelled). */
     const val COINJOIN_HISTORY = "coinjoin:history"
+    /** Not a tab: the PAY THROUGH JOINBLAKET sheet, over whatever is on screen. */
+    const val JOINBLAKET = "joinblaket"
     /** Not a tab: a newer release was found in the background; the app offers it on opening. */
     const val UPDATE = "update"
     /** Set by settings' CHECK NOW: say so when there is nothing newer. */
@@ -43,7 +45,7 @@ object OpenTab {
     val wallet = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 
     private val TABS = listOf(BTC, SPAMCOIN, ARK, COINJOIN, LIGHTNING, UPDATE, BTC_HOT, BTC_WATCH,
-        COINJOIN_POOLS, COINJOIN_ROUNDS, COINJOIN_HISTORY)
+        COINJOIN_POOLS, COINJOIN_ROUNDS, COINJOIN_HISTORY, JOINBLAKET)
 
     fun pending(ctx: Context, tab: String): PendingIntent {
         val i = Intent(ctx, com.kilombino.pyblockwatch.ui.MainActivity::class.java)
@@ -73,6 +75,7 @@ object OpenTab {
                 wallet.value = if (tab == BTC_WATCH) Store.WATCH else Store.HOT
                 flow.value = BTC
             }
+            JOINBLAKET -> com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.showSheet()
             else -> flow.value = tab
         }
     }
