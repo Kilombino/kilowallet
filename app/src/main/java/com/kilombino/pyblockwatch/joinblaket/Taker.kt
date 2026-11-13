@@ -165,7 +165,10 @@ object TakerText {
     const val NOT_BROADCAST = "The CoinJoin was signed but could not be broadcast. It may still go out: wait before spending these coins."
     const val INVALID_REQUEST = "This payment can't go through JoinBlaket: {0}"
 
-    fun fill(t: String, vararg v: Any): String = v.foldIndexed(t) { i, s, x -> s.replace("{$i}", x.toString()) }
+    /** [t] with its `{i}` placeholders filled; sat amounts ([Long]) grouped by thousands as the app shows them. */
+    fun fill(t: String, vararg v: Any): String = v.foldIndexed(t) { i, s, x -> s.replace("{$i}", if (x is Long) group(x) else x.toString()) }
+
+    private fun group(n: Long): String = n.toString().reversed().chunked(3).joinToString("\u202F").reversed()
 }
 
 /**
