@@ -1,6 +1,5 @@
 package com.kilombino.pyblockwatch.joinblaket
 
-import com.kilombino.pyblockwatch.crypto.Address
 import com.kilombino.pyblockwatch.crypto.Hashes.toHex
 import java.util.Base64
 
@@ -117,12 +116,13 @@ object IoauthCheck {
      * [maxMakerUtxos] inputs; no duplicate; each exists unspent with confirmations > 0 ([lookup]
      * returns null for spent/missing and throws if the backend is unavailable); no outpoint in
      * [taken] (ours and other makers'); change `inputs - cj_amount - txfee + cjfee >= 27300`;
-     * `P2WPKH(auth_pub)` is one of the inputs; both addresses decode on our network.
+     * `P2WPKH(auth_pub)` is one of the inputs; both addresses decode on [network].
      */
     fun check(
         io: Session.IoAuth, makerNaclPublic: ByteArray, nick: String, cjAmount: Long,
         offerTxfee: Long, cjfee: Long, taken: Set<Pair<String, Long>>,
         lookup: (txid: String, vout: Long) -> ChainUtxo?, maxMakerUtxos: Int = MAX_MAKER_UTXOS,
+        network: JbNetwork = JbNetwork.MAINNET,
     ): Result {
         val authPub = runCatching { Wire.hex(io.authPub) }.getOrNull()
             ?: return Result.Fail("auth pubkey is not hex")
@@ -146,7 +146,7 @@ object IoauthCheck {
         if (authPub.size != 33 || utxos.none { it.scriptPubKey.contentEquals(TakerTx.p2wpkh(authPub)) }) {
             return Result.Fail("authentication key matches no declared UTXO")
         }
-        if (listOf(io.cjAddress, io.changeAddress).any { runCatching { Address.decodeToScriptPubKey(it) }.isFailure }) {
+        if (listOf(io.cjAddress, io.changeAddress).any { runCatching { network.scriptPubKey(it) }.isFailure }) {
             return Result.Fail("invalid output address")
         }
         return Result.Ok(TakerTx.MakerPart(nick, utxos, io.cjAddress, io.changeAddress, cjfee, offerTxfee), io.authPub)

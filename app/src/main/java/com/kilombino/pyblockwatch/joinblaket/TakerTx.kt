@@ -1,6 +1,5 @@
 package com.kilombino.pyblockwatch.joinblaket
 
-import com.kilombino.pyblockwatch.crypto.Address
 import com.kilombino.pyblockwatch.crypto.Hashes
 import com.kilombino.pyblockwatch.crypto.Hashes.toHex
 import com.kilombino.pyblockwatch.crypto.Secp256k1
@@ -83,20 +82,20 @@ object TakerTx {
     /**
      * `build_coinjoin_tx`: inputs = ours then each maker's (in [makers] order); outputs = our cj,
      * makers' cj, our change (only if > 2730 and [takerChangeAddress] is set), makers' change
-     * (only if >= 27300); then [shuffler] reorders inputs and outputs. Throws if a maker's
-     * change is negative.
+     * (only if >= 27300); then [shuffler] reorders inputs and outputs. Addresses decode for
+     * [network]. Throws if a maker's change is negative.
      */
     fun build(
         takerUtxos: List<Utxo>, takerCjAddress: String, takerChangeAddress: String?,
         makers: List<MakerPart>, cjAmount: Long, txFee: Long, locktime: Long,
-        shuffler: Shuffler = Shuffler.Secure,
+        shuffler: Shuffler = Shuffler.Secure, network: JbNetwork = JbNetwork.MAINNET,
     ): Unsigned {
         val ins = ArrayList<Pair<Utxo, String>>()
         takerUtxos.forEach { ins.add(it to "taker") }
         makers.forEach { m -> m.utxos.forEach { ins.add(it to m.nick) } }
 
         val outs = ArrayList<Pair<TxBuilder.Output, OutputOwner>>()
-        fun out(addr: String, value: Long) = TxBuilder.Output(Address.decodeToScriptPubKey(addr), value)
+        fun out(addr: String, value: Long) = TxBuilder.Output(network.scriptPubKey(addr), value)
         outs.add(out(takerCjAddress, cjAmount) to OutputOwner("taker", "cj"))
         makers.forEach { outs.add(out(it.cjAddress, cjAmount) to OutputOwner(it.nick, "cj")) }
         val takerChange = Fees.takerChange(takerUtxos.sumOf { it.value }, cjAmount, makers.map { it.cjfee }, txFee)
