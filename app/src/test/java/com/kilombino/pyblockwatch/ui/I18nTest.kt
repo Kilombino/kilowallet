@@ -41,6 +41,23 @@ class I18nTest {
         I18n.lang.value = I18n.ES
     }
 
+    /** JoinBlaket's coin check before unlocking: every text in every language. */
+    @Test fun joinBlaketCoinCheckTexts() {
+        val keys = listOf(
+            "None of these coins has 5 confirmations yet: makers only accept one that has. The first will in about {0} blocks (~{1} min).",
+            "Your coin is still unconfirmed: it needs {0} confirmations before it can open a CoinJoin (~{1} min).",
+            "None of these coins can open this CoinJoin: one needs at least {0} sats (20% of the amount).")
+        for (l in I18n.LANGUAGES.map { it.first }.filter { it != I18n.EN }) {
+            val o = JSONObject(File(dir, "$l.json").readText())
+            keys.forEach { k -> assertTrue("$l lacks \"$k\"", o.has(k) && o.getString(k) != k) }
+        }
+        I18n.lang.value = I18n.ES
+        assertEquals("Ninguna de estas monedas tiene aún 5 confirmaciones: los makers solo aceptan una que las tenga. La primera las tendrá en unos 3 bloques (~30 min).",
+            I18n.tr("None of these coins has 5 confirmations yet: makers only accept one that has. The first will in about 3 blocks (~30 min)."))
+        assertEquals("Ninguna de estas monedas puede abrir este coinjoin: hace falta una de al menos 30 000 sats (el 20 % del importe).",
+            I18n.tr("None of these coins can open this CoinJoin: one needs at least 30 000 sats (20% of the amount)."))
+    }
+
     /** The JoinBlaket market on the send screen: every text in every language, as the code builds it. */
     @Test fun joinBlaketMarketTexts() {
         val keys = listOf("Reading the JoinBlaket market…", "The JoinBlaket market can't be read right now.",

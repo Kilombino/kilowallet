@@ -989,7 +989,33 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                         val rate = feeRate.toDoubleOrNull() ?: 1.0
                         jbScope.launch {
                             val coins = runCatching { vm.joinBlaketCoins(ticked) }.getOrDefault(emptyList())
-                            if (coins.isEmpty()) { jbError = "No confirmed bc1q coins to pay from."; return@launch }
+                            // Before unlocking anything: makers only take a PoDLE from a coin with 5 confirmations
+                            // and at least 20% of the amount. Say so here, and when one will be ready, instead of
+                            // failing inside the round.
+                            val need = jbAmount * 20 / 100
+                            val pool = if (coinControl) ticked else (state.utxos ?: emptyList())
+                            val pendingBig = pool.filter { it.height <= 0 && it.value >= need }
+                            if (coins.isEmpty()) {
+                                jbError = if (pendingBig.isNotEmpty())
+                                    com.kilombino.pyblockwatch.joinblaket.TakerText.fill(JB_WAIT_UNCONFIRMED, 5, 50)
+                                else "No confirmed bc1q coins to pay from."
+                                return@launch
+                            }
+                            val tip = m?.height
+                            if (tip != null) {
+                                fun confs(c: com.kilombino.pyblockwatch.data.Scanner.SpendableUtxo) = if (c.height > 0) tip - c.height + 1 else 0
+                                if (coins.none { confs(it) >= 5 && it.value >= need }) {
+                                    val big = coins.filter { it.value >= need }
+                                    jbError = if (big.isEmpty() && pendingBig.isEmpty())
+                                        com.kilombino.pyblockwatch.joinblaket.TakerText.fill(JB_NO_BIG_COIN, groupSats(need))
+                                    else {
+                                        val wait = (big.map { 5 - confs(it) } + if (pendingBig.isNotEmpty()) listOf(5) else emptyList())
+                                            .min().coerceAtLeast(1)
+                                        com.kilombino.pyblockwatch.joinblaket.TakerText.fill(JB_WAIT_CONFIRMATIONS, wait, wait * 10)
+                                    }
+                                    return@launch
+                                }
+                            }
                             val cipher = vm.seedCipherOrToast() ?: return@launch
                             Biometric.authenticate(activity, com.kilombino.pyblockwatch.ui.i18n.I18n.tr("Pay through JoinBlaket"),
                                 com.kilombino.pyblockwatch.ui.i18n.I18n.tr("Unlock to let the CoinJoin use your coins"), cipher,
@@ -1416,3 +1442,11 @@ fun SweepSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
 
 /** The scroll of the screen a sheet is in (advanced and simple mode), to bring a sheet's top into view. */
 val LocalScreenScroll = androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.foundation.ScrollState?> { null }
+
+/** JoinBlaket's PoDLE needs a coin with 5 confirmations and 20% of the amount: said before unlocking. */
+private const val JB_WAIT_CONFIRMATIONS =
+    "None of these coins has 5 confirmations yet: makers only accept one that has. The first will in about {0} blocks (~{1} min)."
+private const val JB_WAIT_UNCONFIRMED =
+    "Your coin is still unconfirmed: it needs {0} confirmations before it can open a CoinJoin (~{1} min)."
+private const val JB_NO_BIG_COIN =
+    "None of these coins can open this CoinJoin: one needs at least {0} sats (20% of the amount)."

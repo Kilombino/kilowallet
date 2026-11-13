@@ -2544,5 +2544,8 @@
 "only native SegWit (bc1q) addresses look like the makers' outputs": "només les adreces SegWit natives (bc1q) s'assemblen a les sortides dels makers",
 "the change address is not valid": "l'adreça de canvi no és vàlida",
 "Tor can't run on this phone, and the JoinBlaket directory is reached only through Tor.": "Tor no pot funcionar en aquest telèfon, i al directori de JoinBlaket només s'hi arriba per Tor.",
-"Your BTC server could not be reached or its data did not verify. Nothing was sent.": "No s'ha pogut arribar al teu servidor de BTC o les seves dades no s'han pogut verificar. No s'ha enviat res."
+"Your BTC server could not be reached or its data did not verify. Nothing was sent.": "No s'ha pogut arribar al teu servidor de BTC o les seves dades no s'han pogut verificar. No s'ha enviat res.",
+"None of these coins has 5 confirmations yet: makers only accept one that has. The first will in about {0} blocks (~{1} min).": "Cap d'aquestes monedes té encara 5 confirmacions: els makers només n'accepten una que les tingui. La primera les tindrà d'aquí a uns {0} blocs (~{1} min).",
+"Your coin is still unconfirmed: it needs {0} confirmations before it can open a CoinJoin (~{1} min).": "La teva moneda encara no està confirmada: necessita {0} confirmacions abans de poder obrir un coinjoin (~{1} min).",
+"None of these coins can open this CoinJoin: one needs at least {0} sats (20% of the amount).": "Cap d'aquestes monedes pot obrir aquest coinjoin: cal una d'almenys {0} sats (el 20 % de l'import)."
 }

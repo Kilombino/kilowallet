@@ -2544,5 +2544,8 @@
 "only native SegWit (bc1q) addresses look like the makers' outputs": "nur native SegWit-Adressen (bc1q) sehen aus wie die Ausgaben der Maker",
 "the change address is not valid": "die Wechselgeldadresse ist ungültig",
 "Tor can't run on this phone, and the JoinBlaket directory is reached only through Tor.": "Tor kann auf diesem Telefon nicht laufen, und das JoinBlaket-Verzeichnis ist nur über Tor erreichbar.",
-"Your BTC server could not be reached or its data did not verify. Nothing was sent.": "Dein BTC-Server war nicht erreichbar oder seine Daten ließen sich nicht prüfen. Nichts wurde gesendet."
+"Your BTC server could not be reached or its data did not verify. Nothing was sent.": "Dein BTC-Server war nicht erreichbar oder seine Daten ließen sich nicht prüfen. Nichts wurde gesendet.",
+"None of these coins has 5 confirmations yet: makers only accept one that has. The first will in about {0} blocks (~{1} min).": "Keine dieser Münzen hat schon 5 Bestätigungen: Maker nehmen nur eine, die sie hat. Die erste hat sie in etwa {0} Blöcken (~{1} Min.).",
+"Your coin is still unconfirmed: it needs {0} confirmations before it can open a CoinJoin (~{1} min).": "Deine Münze ist noch unbestätigt: Sie braucht {0} Bestätigungen, bevor sie einen CoinJoin eröffnen kann (~{1} Min.).",
+"None of these coins can open this CoinJoin: one needs at least {0} sats (20% of the amount).": "Keine dieser Münzen kann diesen CoinJoin eröffnen: Es braucht eine mit mindestens {0} sats (20 % des Betrags)."
 }
