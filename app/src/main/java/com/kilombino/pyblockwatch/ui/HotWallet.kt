@@ -930,12 +930,17 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                     var jbFailed by remember { mutableStateOf(false) }
                     var jbError by remember { mutableStateOf<String?>(null) }
                     val jbScope = androidx.compose.runtime.rememberCoroutineScope()
+                    // Read again every 30 s while the screen is open (the summary itself refreshes every 30 s):
+                    // makers come and go, and one read at opening could keep showing a market that changed.
                     LaunchedEffect(Unit) {
-                        runCatching {
-                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                com.kilombino.pyblockwatch.coinjoin.JoinBlaketMarket.fetch()
-                            }
-                        }.onSuccess { jbMarket = it }.onFailure { jbFailed = true }
+                        while (true) {
+                            runCatching {
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    com.kilombino.pyblockwatch.coinjoin.JoinBlaketMarket.fetch()
+                                }
+                            }.onSuccess { jbMarket = it; jbFailed = false }.onFailure { if (jbMarket == null) jbFailed = true }
+                            kotlinx.coroutines.delay(30_000)
+                        }
                     }
                     Spacer(Modifier.height(8.dp))
                     Text("🔀 JoinBlaket", color = accent, style = MaterialTheme.typography.bodyMedium)
