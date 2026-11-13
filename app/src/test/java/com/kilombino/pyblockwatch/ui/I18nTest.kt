@@ -49,7 +49,7 @@ class I18nTest {
             "For {0} sats with {1} maker: {2} to the makers + about {3} mining fee = about {4} sats",
             "For {0} sats with {1} makers: {2} to the makers + about {3} mining fee = about {4} sats",
             "With a single maker, that maker can link your coin to your payment.",
-            "🔀 PAY THROUGH JOINBLAKET (coming in the next beta)")
+            "🔀 PAY THROUGH JOINBLAKET")
         for (l in I18n.LANGUAGES.map { it.first }.filter { it != I18n.EN }) {
             val o = JSONObject(File(dir, "$l.json").readText())
             keys.forEach { k -> assertTrue("$l lacks \"$k\"", o.has(k) && o.getString(k) != k) }
@@ -61,6 +61,49 @@ class I18nTest {
             I18n.tr("For 200 000 sats with 1 maker: 4 to the makers + about 542 mining fee = about 546 sats"))
         assertEquals("Ningún maker acepta 50 000 sats: tiene que estar entre el mínimo y el máximo.",
             I18n.tr("No maker takes 50 000 sats: it has to be between the minimum and the maximum."))
+    }
+
+    /** PAY THROUGH JOINBLAKET (send screen, sheet, notification, the round's reasons): every text in every language. */
+    @Test fun joinBlaketTakerTexts() {
+        val T = com.kilombino.pyblockwatch.joinblaket.TakerText
+        val reasons = listOf(T.DIRECTORY, T.CONNECTION_LOST, T.NO_MAKERS, T.NO_PODLE_COIN, T.NO_FRESH_COMMITMENT, T.NOT_ENOUGH_COINS,
+            T.FEE_CAP, T.CANCELLED, T.NOT_CONFIRMED, T.TOO_FEW, T.ABOVE_CEILING, T.BAD_TX, T.NO_SIGNATURE, T.BAD_SIGNATURE,
+            T.INPUT_SPENT, T.NOT_BROADCAST, T.INVALID_REQUEST,
+            com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.NO_TOR, com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.CHAIN)
+        val keys = reasons + listOf("🔀 PAY THROUGH JOINBLAKET", "No confirmed bc1q coins to pay from.", "Pay through JoinBlaket",
+            "Unlock to let the CoinJoin use your coins", "Another JoinBlaket payment is going: wait for it to end.",
+            "One recipient only: JoinBlaket pays one address per CoinJoin.", "Only plain bc1q addresses can be paid through JoinBlaket.",
+            "JoinBlaket needs a spending wallet with native SegWit (bc1q) addresses.",
+            "You confirm the makers' fees and the mining fee before anything is signed. It takes a few minutes, over Tor.",
+            "🔀 Pay through JoinBlaket", "Paying {0} sats to {1}", "CLOSE", "HIDE", "CANCEL", "CONFIRM & SIGN", "Confirm the CoinJoin",
+            "maker {0}: fee {1} sats", "Makers' fees: {0} sats", "Mining fee: about {0} sats, at most {1} sats ({2} sat/vB)",
+            "Total cost: about {0} sats, at most {1} sats", "From {0} coin(s) of yours ({1} sats); the change comes back to this wallet.",
+            "Nothing about your coins has left the phone yet. If a maker drops out, another may take its place within these fees.",
+            "Done: the CoinJoin was broadcast.", "Sent to the makers; your server doesn't show it yet.", "{0} maker(s)",
+            "makers' fees {0} sats", "mining fee {0} sats", "Change back to you: {0} sats",
+            "Connecting to JoinBlaket through Tor…", "Reading the makers' offers…", "Checking the makers' fidelity bonds…",
+            "Confirm the CoinJoin: open the app.", "Waiting for the makers: {0} of {1} ready", "Collecting the makers' signatures…",
+            "Signing and broadcasting…", "the amount must be above zero", "no coins to pay from", "the number of makers is wrong",
+            "the address is not valid", "only native SegWit (bc1q) addresses look like the makers' outputs",
+            "the change address is not valid", "the same coin twice")
+        for (l in I18n.LANGUAGES.map { it.first }.filter { it != I18n.EN }) {
+            val o = JSONObject(File(dir, "$l.json").readText())
+            keys.forEach { k -> assertTrue("$l lacks \"$k\"", o.has(k) && o.getString(k) != k) }
+            assertTrue("$l still has the old button", !o.has("🔀 PAY THROUGH JOINBLAKET (coming in the next beta)"))
+        }
+        I18n.lang.value = I18n.ES
+        assertEquals("Esperando a los makers: 1 de 2 listos", I18n.tr("Waiting for the makers: 1 of 2 ready"))
+        assertEquals("makers: 1 · comisiones de los makers 10 000 sats · comisión de minería 925 sats",
+            I18n.tr("1 maker(s) · makers' fees 10 000 sats · mining fee 925 sats"))
+        assertEquals("Ahora mismo ningún maker con fidelity bond acepta 10\u202F000\u202F000 sats. No se ha enviado nada.",
+            I18n.tr(T.fill(T.NO_MAKERS, 10_000_000L)))
+        assertEquals("Han respondido muy pocos makers (1 de los 2 necesarios). No se ha enviado nada.", I18n.tr(T.fill(T.TOO_FEW, 1, 2)))
+        assertEquals("Este pago no puede ir por JoinBlaket: la dirección no es válida", I18n.tr(T.fill(T.INVALID_REQUEST, "the address is not valid")))
+        assertEquals("Comisión de minería: unos 771 sats, como mucho 1 235 sats (2,27 sat/vB)",
+            I18n.tr("Mining fee: about 771 sats, at most 1 235 sats (2,27 sat/vB)"))
+        I18n.lang.value = I18n.ZH
+        assertEquals("确认 CoinJoin", I18n.tr("Confirm the CoinJoin"))
+        I18n.lang.value = I18n.ES
     }
 
     /** Spending a bond with SeedSigner: every text in every language, as the code builds it. */

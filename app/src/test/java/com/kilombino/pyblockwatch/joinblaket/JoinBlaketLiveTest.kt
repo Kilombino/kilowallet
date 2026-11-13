@@ -96,8 +96,8 @@ class JoinBlaketLiveTest {
     @Test fun mainnetOrderbookReadOnly() {
         assumeTrue(env("JB_MAINNET_ORDERBOOK") == "1")
         val (sh, sp) = (env("JB_SOCKS") ?: "127.0.0.1:9050").split(":")
-        val onion = "f3tfzgk5ilwfapx427yx5ckeh7ptuvskfxnfnicfo747jyq5mgzdtvad.onion"
-        fun client() = DirectoryClient(onion, 5222, NickIdentity.random(), "xbt", "$onion:5222",
+        fun client() = DirectoryClient(JoinBlaketDirectory.HOST, JoinBlaketDirectory.PORT, NickIdentity.random(),
+            JoinBlaketDirectory.NETWORK.wire, JoinBlaketDirectory.ID,
             proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress(sh, sp.toInt())))
         val ep = NodeEndpoint.default(Chain.BLAKE2B)
         runBlocking {
