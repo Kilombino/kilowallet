@@ -341,6 +341,8 @@ class MainActivity : FragmentActivity() {
                                 onLookOnly = { vm.answerCoinjoin(true, notify = false); askCoinjoin = false })
                         }
                     }
+                    // A JoinBlaket payment going (or just ended): its sheet over whatever is on screen.
+                    JoinBlaketSheet(Good)
                     if (state.jamView && !state.setupMode) {
                         // The JoinMarket wallet (Jam, read-only): its own screen, no simple mode.
                         val jvm: JamViewModel = viewModel()
