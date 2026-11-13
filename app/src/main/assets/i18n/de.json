@@ -2561,5 +2561,6 @@
 "🔒 Fidelity bond": "🔒 Fidelity Bond (Treuepfand)",
 "1 CoinJoin as a maker": "1 Coinjoin als Maker",
 "{0} CoinJoins as a maker": "{0} Coinjoins als Maker",
-"In each CoinJoin where you were a maker: what came back to you over what you put in (the maker's fee less your part of the mining fee). Each one counts in the jar its coins came from.": "In jedem Coinjoin, in dem du Maker warst: was mehr zurückkam, als du eingesetzt hast (die Maker-Gebühr abzüglich deines Anteils an der Mining-Gebühr). Jeder zählt in dem Topf, aus dem seine Münzen kamen."
+"In each CoinJoin where you were a maker: what came back to you over what you put in (the maker's fee less your part of the mining fee). Each one counts in the jar its coins came from.": "In jedem Coinjoin, in dem du Maker warst: was mehr zurückkam, als du eingesetzt hast (die Maker-Gebühr abzüglich deines Anteils an der Mining-Gebühr). Jeder zählt in dem Topf, aus dem seine Münzen kamen.",
+"Movements": "Bewegungen"
 }

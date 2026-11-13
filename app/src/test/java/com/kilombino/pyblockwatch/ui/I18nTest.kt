@@ -63,6 +63,12 @@ class I18nTest {
         I18n.lang.value = I18n.ES
     }
 
+    /** The open jars' movements card: "Movements · <jar names>", the names left as Jam shows them. */
+    @Test fun jarMovementsCardTitle() {
+        I18n.lang.value = I18n.ES
+        assertEquals("Movimientos · Apricot, Blueberry", I18n.tr("Movements · Apricot, Blueberry"))
+    }
+
     /** JoinBlaket's result: details, copy and explorer. */
     @Test fun joinBlaketResultTexts() {
         val keys = listOf("Total cost: {0} sats", "Transaction: {0} vB · whole mining fee {1} sats ({2} sat/vB)",

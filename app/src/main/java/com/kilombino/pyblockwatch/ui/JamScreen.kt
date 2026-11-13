@@ -60,7 +60,8 @@ fun JamScreen(vm: WalletViewModel, jvm: JamViewModel, onToggleNotifications: (Bo
     var showSettings by remember { mutableStateOf(false) }
     var reimport by remember { mutableStateOf(false) }
     var askForget by remember { mutableStateOf(false) }
-    var openJar by remember { mutableStateOf<Int?>(null) }
+    // Jars can be open together: each shows its coins, and their movements interleave in one card below.
+    var openJars by remember { mutableStateOf<Set<Int>>(emptySet()) }
     val explorer = vm.explorerFor(Chain.BLAKE2B)
     // A coin tapped (in a jar, or a bond's): its details, copy the txid, the explorer.
     var coinOpen by remember { mutableStateOf<JamLedger.Coin?>(null) }
@@ -171,9 +172,9 @@ fun JamScreen(vm: WalletViewModel, jvm: JamViewModel, onToggleNotifications: (Bo
             SectionLabel("Jars", accent)
             Spacer(Modifier.height(6.dp))
             JoinMarket.JARS.forEachIndexed { jar, name ->
-                Row(Modifier.fillMaxWidth().clickable { openJar = if (openJar == jar) null else jar }.padding(vertical = 6.dp),
+                Row(Modifier.fillMaxWidth().clickable { openJars = if (jar in openJars) openJars - jar else openJars + jar }.padding(vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (openJar == jar) "▾" else "▸", color = TextFaint, style = MaterialTheme.typography.bodySmall)
+                    Text(if (jar in openJars) "▾" else "▸", color = TextFaint, style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
                         // JoinMarket's own names for the jars: never translated (Jam shows them as they are).
@@ -183,19 +184,21 @@ fun JamScreen(vm: WalletViewModel, jvm: JamViewModel, onToggleNotifications: (Bo
                     Text(street(groupSats(js.jarTotal(jar)) + " sats"), style = MaterialTheme.typography.bodyMedium,
                         color = if (js.jarTotal(jar) > 0) TextMain else TextFaint)
                 }
-                // Open: its coins (each opens its details), then its movements, then what it earned as a maker.
-                if (openJar == jar) Column(Modifier.padding(start = 20.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                // Open: only its coins (each opens its details). Its movements go to the card below.
+                if (jar in openJars) Column(Modifier.padding(start = 20.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     JarCoins(js, jar) { coinOpen = it }
-                    Spacer(Modifier.height(8.dp))
-                    Text("Movements of this jar", style = MaterialTheme.typography.labelSmall, color = accent)
-                    val moves = js.jarMoves(jar)
-                    if (moves.isEmpty()) Text("No movements yet.", style = MaterialTheme.typography.bodySmall, color = TextFaint)
-                    else MovementList(moves, accent, explorer, vm, isHot = false, balance = js.jarTotal(jar))
-                    Spacer(Modifier.height(8.dp))
-                    Text("Earns", style = MaterialTheme.typography.labelSmall, color = accent)
-                    EarnsLine(js.earnings.forJar(jar))
                 }
             }
+        }
+
+        // The movements of the open jars, in a card of their own, interleaved in the wallet's order.
+        if (openJars.isNotEmpty()) Panel(accent = accent) {
+            val names = openJars.sorted().joinToString(", ") { JoinMarket.JARS[it] }
+            SectionLabel("Movements · $names", accent)
+            Spacer(Modifier.height(6.dp))
+            val moves = js.jarsMoves(openJars)
+            if (moves.isEmpty()) Text("No movements yet.", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+            else MovementList(moves, accent, explorer, vm, isHot = false, balance = openJars.sumOf { js.jarTotal(it) })
         }
 
         EarnsCard(js, accent, explorer, vm)

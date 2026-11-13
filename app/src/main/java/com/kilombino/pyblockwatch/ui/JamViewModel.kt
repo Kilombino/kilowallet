@@ -58,6 +58,15 @@ data class JamUi(
     fun jarCoins(jar: Int) = coins.coins.filter { it.jar == jar && !it.bond }
     /** A jar's movements, each with what it did to that jar (+ in, − out) as its amount. */
     fun jarMoves(jar: Int) = txs.mapNotNull { t -> jarNets[t.txid]?.get(jar)?.let { t.copy(amount = it) } }
+    /**
+     * The movements of several jars in one list, in the wallet's order (so they interleave): each
+     * transaction once, with what it did to those jars together (a move between two of them nets out).
+     */
+    fun jarsMoves(jars: Set<Int>) = txs.mapNotNull { t ->
+        val nets = jarNets[t.txid] ?: return@mapNotNull null
+        val mine = nets.filterKeys { it in jars }
+        if (mine.isEmpty()) null else t.copy(amount = mine.values.sum())
+    }
     val bondTotal: Long get() = rows.filter { it.chainIndex == JoinMarket.BOND_BRANCH }.sumOf { it.total }
 }
 
