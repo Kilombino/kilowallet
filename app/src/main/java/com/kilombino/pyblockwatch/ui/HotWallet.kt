@@ -921,6 +921,50 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                         color = TextFaint, style = MaterialTheme.typography.bodySmall)
                 }
 
+                // JoinBlaket (JoinMarket on BTC): the market as start10's orderbook watcher sees it, so the user
+                // knows before sending how many makers there are, what amounts they take and what it would cost.
+                // Paying through it comes in a later beta (Kilowallet as a JoinMarket taker).
+                if (multi && state.isHot) {
+                    var jbMarket by remember { mutableStateOf<com.kilombino.pyblockwatch.coinjoin.JoinBlaketMarket.Market?>(null) }
+                    var jbFailed by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) {
+                        runCatching {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                com.kilombino.pyblockwatch.coinjoin.JoinBlaketMarket.fetch()
+                            }
+                        }.onSuccess { jbMarket = it }.onFailure { jbFailed = true }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text("🔀 JoinBlaket", color = accent, style = MaterialTheme.typography.bodyMedium)
+                    val m = jbMarket
+                    val small = MaterialTheme.typography.bodySmall
+                    when {
+                        m == null && !jbFailed -> Text("Reading the JoinBlaket market…", color = TextFaint, style = small)
+                        m == null -> Text("The JoinBlaket market can't be read right now.", color = TextFaint, style = small)
+                        m.makers == 0 || m.minAmount == null || m.maxAmount == null ->
+                            Text("No makers with a fidelity bond right now.", color = TextFaint, style = small)
+                        else -> {
+                            Text("${m.makers} maker${if (m.makers == 1) "" else "s"} with a fidelity bond · " +
+                                "minimum ${groupSats(m.minAmount)} sats · maximum ${groupSats(m.maxAmount)} sats",
+                                color = TextFaint, style = small)
+                            val amt = amount.toLongOrNull() ?: 0L
+                            if (amt > 0 && extraTo.isEmpty()) {
+                                val e = com.kilombino.pyblockwatch.coinjoin.JoinBlaketMarket.estimate(m, amt, feeRate.toDoubleOrNull() ?: 1.0)
+                                if (e == null) Text("No maker takes ${groupSats(amt)} sats: it has to be between the minimum and the maximum.",
+                                    color = Warn, style = small)
+                                else Text("For ${groupSats(amt)} sats with ${e.makers} maker${if (e.makers == 1) "" else "s"}: " +
+                                    "${groupSats(e.makerFees)} to the makers + about ${groupSats(e.miningFee)} mining fee " +
+                                    "= about ${groupSats(e.total)} sats", color = TextFaint, style = small)
+                            }
+                            if (m.makers == 1) Text("With a single maker, that maker can link your coin to your payment.",
+                                color = Warn, style = small)
+                        }
+                    }
+                    androidx.compose.material3.OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
+                        Text("🔀 PAY THROUGH JOINBLAKET (coming in the next beta)", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+
                 Spacer(Modifier.height(10.dp))
                 Button(
                     onClick = {
