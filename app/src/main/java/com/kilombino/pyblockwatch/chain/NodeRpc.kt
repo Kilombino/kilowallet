@@ -193,6 +193,9 @@ class NodeRpcBackend(private val node: RpcNode) {
     private fun call(method: String, vararg params: Any?, wallet: String? = null, timeoutMs: Int = 60_000): Any? =
         call(conn ?: throw NodeException("not connected"), method, *params, wallet = wallet, timeoutMs = timeoutMs)
 
+    /** One node-level RPC call on the connection [connect] chose (JoinBlaket's chain lookups: gettxout and the like). */
+    fun rpc(method: String, params: List<Any?>): Any? = call(method, *params.toTypedArray())
+
     private fun desc(branch: Int): String = when (node.type) {
         ScriptType.P2WPKH -> "wpkh($descKey/$branch/*)"
         ScriptType.P2SH_P2WPKH -> "sh(wpkh($descKey/$branch/*))"
