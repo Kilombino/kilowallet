@@ -42,6 +42,18 @@ class FileCommitmentStore(private val file: File) : CommitmentStore {
         if (!tmp.renameTo(file)) { file.delete(); check(tmp.renameTo(file)) { "could not save the used commitments" } }
     }
 
+    /** The file's JSON for a backup, or null when nothing was used yet. */
+    fun export(): String? = synchronized(lock) { if (file.exists()) file.readText() else null }
+
+    /**
+     * Adds the used commitments of a backup ([json], the same format) to these: a restore never
+     * forgets one already used here, and never brings back an index the backup had burned.
+     */
+    fun mergeFrom(json: String) = synchronized(lock) {
+        val a = JSONObject(json).optJSONArray("used") ?: JSONArray()
+        (0 until a.length()).forEach { markUsed(a.getString(it)) }
+    }
+
     /** How many commitments were used: for tests and the backup summary. */
     fun count(): Int = synchronized(lock) { read().size }
 }
