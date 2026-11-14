@@ -54,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import kotlinx.coroutines.launch
 import com.kilombino.pyblockwatch.crypto.Bip39
 import java.security.SecureRandom
 
@@ -921,6 +922,130 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                         color = TextFaint, style = MaterialTheme.typography.bodySmall)
                 }
 
+                // JoinBlaket (JoinMarket on BTC): the market as start10's orderbook watcher sees it, so the user
+                // knows before sending how many makers there are, what amounts they take and what it would cost;
+                // then PAY THROUGH JOINBLAKET runs the CoinJoin as a JoinMarket taker (JoinBlaketPay).
+                if (multi && state.isHot) {
+                    var jbMarket by remember { mutableStateOf<com.kilombino.pyblockwatch.coinjoin.JoinBlaketMarket.Market?>(null) }
+                    var jbFailed by remember { mutableStateOf(false) }
+                    var jbError by remember { mutableStateOf<String?>(null) }
+                    val jbScope = androidx.compose.runtime.rememberCoroutineScope()
+                    // Read again every 30 s while the screen is open (the summary itself refreshes every 30 s):
+                    // makers come and go, and one read at opening could keep showing a market that changed.
+                    LaunchedEffect(Unit) {
+                        while (true) {
+                            runCatching {
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    com.kilombino.pyblockwatch.coinjoin.JoinBlaketMarket.fetch()
+                                }
+                            }.onSuccess { jbMarket = it; jbFailed = false }.onFailure { if (jbMarket == null) jbFailed = true }
+                            kotlinx.coroutines.delay(30_000)
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text("🔀 JoinBlaket", color = accent, style = MaterialTheme.typography.bodyMedium)
+                    val m = jbMarket
+                    // Some maker with a bond takes this amount (one recipient only).
+                    val jbTakes = m != null && extraTo.isEmpty() && (amount.toLongOrNull() ?: 0L).let { a ->
+                        a > 0 && com.kilombino.pyblockwatch.coinjoin.JoinBlaketMarket.estimate(m, a, 1.0) != null }
+                    val small = MaterialTheme.typography.bodySmall
+                    when {
+                        m == null && !jbFailed -> Text("Reading the JoinBlaket market…", color = TextFaint, style = small)
+                        m == null -> Text("The JoinBlaket market can't be read right now.", color = TextFaint, style = small)
+                        m.makers == 0 || m.minAmount == null || m.maxAmount == null ->
+                            Text("No makers with a fidelity bond right now.", color = TextFaint, style = small)
+                        else -> {
+                            Text("${m.makers} maker${if (m.makers == 1) "" else "s"} with a fidelity bond · " +
+                                "minimum ${groupSats(m.minAmount)} sats · maximum ${groupSats(m.maxAmount)} sats",
+                                color = TextFaint, style = small)
+                            val amt = amount.toLongOrNull() ?: 0L
+                            if (amt > 0 && extraTo.isEmpty()) {
+                                val e = com.kilombino.pyblockwatch.coinjoin.JoinBlaketMarket.estimate(m, amt, feeRate.toDoubleOrNull() ?: 1.0)
+                                if (e == null) Text("No maker takes ${groupSats(amt)} sats: it has to be between the minimum and the maximum.",
+                                    color = Warn, style = small)
+                                else Text("For ${groupSats(amt)} sats with ${e.makers} maker${if (e.makers == 1) "" else "s"}: " +
+                                    "${groupSats(e.makerFees)} to the makers + about ${groupSats(e.miningFee)} mining fee " +
+                                    "= about ${groupSats(e.total)} sats", color = TextFaint, style = small)
+                            }
+                            if (m.makers == 1) Text("With a single maker, that maker can link your coin to your payment.",
+                                color = Warn, style = small)
+                        }
+                    }
+                    // One recipient, a bc1q address (the CoinJoin's equal outputs are all native SegWit), an amount the
+                    // makers take, and no other JoinBlaket payment going.
+                    val jbTo = to.trim()
+                    val jbAmount = amount.toLongOrNull() ?: 0L
+                    val jbRecipientOk = remember(jbTo) {
+                        runCatching { com.kilombino.pyblockwatch.crypto.Address.decodeToScriptPubKey(jbTo) }.getOrNull()
+                            ?.let { it.size == 22 && it[0] == 0.toByte() } == true
+                    }
+                    val jbBusy by com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.state.collectAsState()
+                    val jbRunning = jbBusy?.finished == false
+                    val jbReady = m != null && jbTakes && extraTo.isEmpty() && jbAmount > 0 && jbRecipientOk &&
+                        vm.coinjoinSupported() && !jbRunning && (!coinControl || selectedOutpoints.isNotEmpty())
+                    androidx.compose.material3.OutlinedButton(onClick = {
+                        jbError = null
+                        val ticked = if (coinControl) (state.utxos ?: emptyList()).filter { "${it.txid}:${it.vout}" in selectedOutpoints } else emptyList()
+                        val rate = feeRate.toDoubleOrNull() ?: 1.0
+                        jbScope.launch {
+                            val coins = runCatching { vm.joinBlaketCoins(ticked) }.getOrDefault(emptyList())
+                            // Before unlocking anything: makers only take a PoDLE from a coin with 5 confirmations
+                            // and at least 20% of the amount. Say so here, and when one will be ready, instead of
+                            // failing inside the round.
+                            val need = jbAmount * 20 / 100
+                            val pool = if (coinControl) ticked else (state.utxos ?: emptyList())
+                            val pendingBig = pool.filter { it.height <= 0 && it.value >= need }
+                            if (coins.isEmpty()) {
+                                jbError = if (pendingBig.isNotEmpty())
+                                    com.kilombino.pyblockwatch.joinblaket.TakerText.fill(JB_WAIT_UNCONFIRMED, 5, 50)
+                                else "No confirmed bc1q coins to pay from."
+                                return@launch
+                            }
+                            val tip = m?.height
+                            if (tip != null) {
+                                fun confs(c: com.kilombino.pyblockwatch.data.Scanner.SpendableUtxo) = if (c.height > 0) tip - c.height + 1 else 0
+                                if (coins.none { confs(it) >= 5 && it.value >= need }) {
+                                    val big = coins.filter { it.value >= need }
+                                    jbError = if (big.isEmpty() && pendingBig.isEmpty())
+                                        com.kilombino.pyblockwatch.joinblaket.TakerText.fill(JB_NO_BIG_COIN, groupSats(need))
+                                    else {
+                                        val wait = (big.map { 5 - confs(it) } + if (pendingBig.isNotEmpty()) listOf(5) else emptyList())
+                                            .min().coerceAtLeast(1)
+                                        com.kilombino.pyblockwatch.joinblaket.TakerText.fill(JB_WAIT_CONFIRMATIONS, wait, wait * 10)
+                                    }
+                                    return@launch
+                                }
+                            }
+                            val cipher = vm.seedCipherOrToast() ?: return@launch
+                            Biometric.authenticate(activity, com.kilombino.pyblockwatch.ui.i18n.I18n.tr("Pay through JoinBlaket"),
+                                com.kilombino.pyblockwatch.ui.i18n.I18n.tr("Unlock to let the CoinJoin use your coins"), cipher,
+                                onSuccess = { authed ->
+                                    jbScope.launch {
+                                        runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                                            vm.joinBlaketRequest(authed, coins, jbTo, jbAmount, rate)
+                                        } }.onSuccess { req ->
+                                            if (com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.start(context, req)) { vm.resetSend(); onClose() }
+                                            else jbError = "Another JoinBlaket payment is going: wait for it to end."
+                                        }.onFailure { jbError = it.message ?: "could not unlock" }
+                                    }
+                                },
+                                onError = { jbError = it })
+                        }
+                    }, enabled = jbReady, modifier = Modifier.fillMaxWidth()) {
+                        Text("🔀 PAY THROUGH JOINBLAKET", color = if (jbReady) accent else TextFaint, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    val jbWhy = when {
+                        m == null || !jbTakes || jbAmount <= 0 -> null
+                        extraTo.isNotEmpty() -> "One recipient only: JoinBlaket pays one address per CoinJoin."
+                        !jbRecipientOk -> "Only plain bc1q addresses can be paid through JoinBlaket."
+                        !vm.coinjoinSupported() -> "JoinBlaket needs a spending wallet with native SegWit (bc1q) addresses."
+                        jbRunning -> "Another JoinBlaket payment is going: wait for it to end."
+                        else -> "You confirm the makers' fees and the mining fee before anything is signed. It takes a few minutes, over Tor."
+                    }
+                    jbWhy?.let { Text(it, color = TextFaint, style = small) }
+                    jbError?.let { Text(it, color = Bad, style = small) }
+                }
+
                 Spacer(Modifier.height(10.dp))
                 Button(
                     onClick = {
@@ -1317,3 +1442,11 @@ fun SweepSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
 
 /** The scroll of the screen a sheet is in (advanced and simple mode), to bring a sheet's top into view. */
 val LocalScreenScroll = androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.foundation.ScrollState?> { null }
+
+/** JoinBlaket's PoDLE needs a coin with 5 confirmations and 20% of the amount: said before unlocking. */
+private const val JB_WAIT_CONFIRMATIONS =
+    "None of these coins has 5 confirmations yet: makers only accept one that has. The first will in about {0} blocks (~{1} min)."
+private const val JB_WAIT_UNCONFIRMED =
+    "Your coin is still unconfirmed: it needs {0} confirmations before it can open a CoinJoin (~{1} min)."
+private const val JB_NO_BIG_COIN =
+    "None of these coins can open this CoinJoin: one needs at least {0} sats (20% of the amount)."

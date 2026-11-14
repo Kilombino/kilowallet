@@ -94,5 +94,14 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Keeps the user's coinjoin round going (answering the other participants and signing as the user allowed) until the round ends, then stops." />
         </service>
+        <!-- Keeps a PAY THROUGH JOINBLAKET round (a few minutes over Tor) going; stops when it ends. -->
+        <service
+            android:name=".coinjoin.JoinBlaketService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the payment the user started through JoinBlaket (a JoinMarket CoinJoin with makers, over Tor) going until it is sent or fails, then stops." />
+        </service>
     </application>
 </manifest>

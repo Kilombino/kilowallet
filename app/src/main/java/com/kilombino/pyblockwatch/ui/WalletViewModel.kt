@@ -2024,6 +2024,9 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
             }
             .flatMap { if (chainIndex == 0) it.mixScripts else listOfNotNull(it.seat.changeScript) }
             .map { it.toList() }.toMutableSet()
+        // A JoinBlaket payment's change address (native SegWit).
+        if (chainIndex == 1 && type == ScriptType.P2WPKH)
+            com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.heldChangeScripts().forEach { scripts += it.toList() }
         // A perpetual coin's first pool opens again with the same addresses: they stay held meanwhile.
         com.kilombino.pyblockwatch.coinjoin.Perpetual.list.value.mapNotNull { it.first }
             .filter { f -> f.coins.firstOrNull()?.type == type }
@@ -2311,8 +2314,44 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     /** Coins waiting in a coinjoin round are not offered to a normal send. */
     private fun notInCoinjoin(chain: Chain, u: List<Scanner.SpendableUtxo>): List<Scanner.SpendableUtxo> {
         if (chain != Chain.BLAKE2B) return u
-        val locked = com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.lockedOutpoints(getApplication())
+        // A JoinBlaket payment going holds its coins too, until it is sent or fails.
+        val locked = com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.lockedOutpoints(getApplication()) +
+            com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.lockedOutpoints()
         return u.filterNot { "${it.txid}:${it.vout}" in locked }
+    }
+
+    /**
+     * The coins PAY THROUGH JOINBLAKET may use: the ones ticked with coin control ([ticked], when
+     * any) or every coin a pool could take ([coinjoinCoins]: confirmed, native SegWit, not seated
+     * elsewhere). The round itself picks among them.
+     */
+    suspend fun joinBlaketCoins(ticked: List<Scanner.SpendableUtxo>): List<Scanner.SpendableUtxo> {
+        val all = coinjoinCoins(null)
+        if (ticked.isEmpty()) return all
+        val keys = ticked.map { "${it.txid}:${it.vout}" }.toSet()
+        return all.filter { "${it.txid}:${it.vout}" in keys }
+    }
+
+    /**
+     * A JoinBlaket payment from the seed unlocked by [decryptCipher]: the keys of [coins] and a
+     * fresh change address of this wallet (held by the round, [coinjoinReservedTop]). [recipient]
+     * must be a bc1q address: the CoinJoin's equal outputs are all native SegWit.
+     */
+    fun joinBlaketRequest(decryptCipher: javax.crypto.Cipher, coins: List<Scanner.SpendableUtxo>, recipient: String, amount: Long,
+                          feeRate: Double): com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.Request {
+        require(coins.isNotEmpty()) { "No confirmed bc1q coins to pay from." }
+        val to = com.kilombino.pyblockwatch.crypto.Address.decodeToScriptPubKey(recipient.trim())
+        val pick = coinjoinPick(decryptCipher, coins, 1, listOf(to))
+        val takerCoins = pick.coins.map { c ->
+            val u = coins.first { it.txid == c.txid && it.vout == c.vout }
+            com.kilombino.pyblockwatch.joinblaket.TakerCoin(c.txid, c.vout.toLong(), c.value, c.coinKey.key, u.height).also {
+                // Each key must spend its coin's address: a mismatch would only fail later, at the makers.
+                check(it.scriptPubKey.contentEquals(coinScript(u))) { "the wallet's keys do not match its addresses" }
+            }
+        }
+        val change = pick.changeScript
+        return com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.Request(recipient.trim(), amount, feeRate, takerCoins,
+            com.kilombino.pyblockwatch.joinblaket.JbNetwork.MAINNET.p2wpkhAddress(change), change)
     }
 
     /** Can this wallet take part: a spending wallet with native SegWit (bc1q) addresses. */

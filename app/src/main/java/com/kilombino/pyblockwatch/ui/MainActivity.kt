@@ -341,6 +341,8 @@ class MainActivity : FragmentActivity() {
                                 onLookOnly = { vm.answerCoinjoin(true, notify = false); askCoinjoin = false })
                         }
                     }
+                    // A JoinBlaket payment going (or just ended): its sheet over whatever is on screen.
+                    JoinBlaketSheet(Good, vm.explorerFor(com.kilombino.pyblockwatch.chain.Chain.BLAKE2B))
                     if (state.jamView && !state.setupMode) {
                         // The JoinMarket wallet (Jam, read-only): its own screen, no simple mode.
                         val jvm: JamViewModel = viewModel()
@@ -1577,6 +1579,24 @@ private fun DerivationSelector(current: ScriptType?, accent: Color, onSelect: (S
 @Composable
 internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, vm: WalletViewModel, isHot: Boolean, unit: String = "sats",
                            balance: Long? = null) {
+    val site = explorer.removePrefix("https://").removePrefix("http://")
+    Panel(accent = accent) {
+        SectionLabel("movements · confirmations", accent)
+        Spacer(Modifier.height(8.dp))
+        Text("tap a movement for its details: copy the txid or open it on $site", style = MaterialTheme.typography.bodySmall, color = TextFaint)
+        Spacer(Modifier.height(4.dp))
+        MovementList(txs, accent, explorer, vm, isHot, unit, balance)
+    }
+}
+
+/**
+ * The movements themselves, newest first (at most 15), each opening its details (copy the txid,
+ * the explorer; speed up or cancel a pending send of the hot wallet). [balance]: today's, to show
+ * what was left after each one. Also used inside an open JoinMarket jar, with that jar's movements.
+ */
+@Composable
+internal fun MovementList(txs: List<TxConf>, accent: Color, explorer: String, vm: WalletViewModel, isHot: Boolean, unit: String = "sats",
+                          balance: Long? = null) {
     val chain = if (unit == "sats") Chain.BLAKE2B else Chain.SHA256
     // Tapping a movement asks before leaving the app: opening it reveals the txid (and so
     // which addresses are yours) to whoever runs that explorer.
@@ -1584,7 +1604,6 @@ internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, v
     // A stuck send is replaced (RBF) or cancelled (RBF back to us); a stuck payment TO this wallet is pulled along (CPFP).
     var bumping by remember { mutableStateOf<Pair<String, BumpMode>?>(null) }
     bumping?.let { (txid, mode) -> BumpDialog(vm, txid, accent, explorer, mode) { bumping = null; vm.resetSend() } }
-    val site = explorer.removePrefix("https://").removePrefix("http://")
     // The current state of that movement, not the copy taken when it was tapped: it may confirm
     // (or be replaced) while the dialog is open.
     asking?.let { tapped -> txs.firstOrNull { it.txid == tapped.txid } ?: tapped }?.let { t ->
@@ -1596,11 +1615,7 @@ internal fun MovementsCard(txs: List<TxConf>, accent: Color, explorer: String, v
             onCancel = if (t.pending && isHot && (t.amount ?: 0) <= 0) ({ asking = null; bumping = t.txid to BumpMode.CANCEL }) else null,
             onClose = { asking = null }, vm = vm, chain = chain, pending = t.pending)
     }
-    Panel(accent = accent) {
-        SectionLabel("movements · confirmations", accent)
-        Spacer(Modifier.height(8.dp))
-        Text("tap a movement for its details: copy the txid or open it on $site", style = MaterialTheme.typography.bodySmall, color = TextFaint)
-        Spacer(Modifier.height(4.dp))
+    run {
         // What was left after each movement: today's balance (mempool included, as at the top),
         // walking back one movement at a time. Unknown from the first movement without an amount.
         val after = HashMap<String, Long>()

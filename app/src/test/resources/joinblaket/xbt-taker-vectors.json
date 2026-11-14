@@ -1,0 +1,620 @@
+{
+  "version": 1,
+  "source": "JoinBlaket v0.43.0-xbt4 (scripts/xbt/taker_vectors.py)",
+  "nick": {
+    "_comment": "nick = 'J5' + base58(sha256(ascii_hex(compressed_pubkey))[:10]) right-padded with 'O' to 14 chars. Privmsg signature: DER ECDSA (RFC6979, no low-R grinding) over bitcoin_message_hash(data + 'onion-network'), base64; appended as '<data> <pubkey_hex> <sig_b64>'. The command is NOT signed.",
+    "private_key": "56220c9e8c12ecb376eb15dee26d88f8f8d22ea67afe1845d6188441ce75f178",
+    "pubkey": "02c8fc47afa0dd01f5f414e350e6237df150b72501843988be9c4ab66f107a1083",
+    "pubkey_hex_ascii_sha256": "0179960ca4687c1e2c16d4fb4c81e636dc0b7948a4ae0509f254591606e40446",
+    "nick": "J55okyxqwaYhyq7O",
+    "nick_from_pubkey": "J55okyxqwaYhyq7O",
+    "maker_nick": "J5CmDejLa1bhfAso",
+    "signed_data": "0 30000000 1111111111111111111111111111111111111111111111111111111111111111 P2222222222222222222222222222222222222222222222222222222222222222",
+    "hostid": "onion-network",
+    "message_hash": "126b47646cd4a2c591f200fed013ede0b0aa9d37e49a3d641221d3438960605e",
+    "signature_b64": "MEUCIQDsvBksmIQpVUr+hqbNUa7VMrVvdW0XiVRaAMhxupF0tQIgbu0G78aN+5Rbx3ZCnz0aP727HASrBZTAnb5v+vbUwWU=",
+    "signed_suffix": "0 30000000 1111111111111111111111111111111111111111111111111111111111111111 P2222222222222222222222222222222222222222222222222222222222222222 02c8fc47afa0dd01f5f414e350e6237df150b72501843988be9c4ab66f107a1083 MEUCIQDsvBksmIQpVUr+hqbNUa7VMrVvdW0XiVRaAMhxupF0tQIgbu0G78aN+5Rbx3ZCnz0aP727HASrBZTAnb5v+vbUwWU=",
+    "privmsg_line": "J55okyxqwaYhyq7O!J5CmDejLa1bhfAso!fill 0 30000000 1111111111111111111111111111111111111111111111111111111111111111 P2222222222222222222222222222222222222222222222222222222222222222 02c8fc47afa0dd01f5f414e350e6237df150b72501843988be9c4ab66f107a1083 MEUCIQDsvBksmIQpVUr+hqbNUa7VMrVvdW0XiVRaAMhxupF0tQIgbu0G78aN+5Rbx3ZCnz0aP727HASrBZTAnb5v+vbUwWU=",
+    "verify_signed_privmsg": {
+      "ok": true,
+      "command": "fill",
+      "data": "0 30000000 1111111111111111111111111111111111111111111111111111111111111111 P2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  },
+  "handshake": {
+    "_comment": "Taker -> directory. Each frame is one JSON object + '\\r\\n'. 'line' of the HANDSHAKE (793) is itself a JSON string; nick-auth hashes exactly that string (UTF-8) with SHA-256. Signed message = ascii('nick-auth|<challenge>|<directory-id>|<handshake-sha256>|<nick>|<pubkey>') + b'nick-auth-v1', hashed with the Bitcoin signed-message hash, signed by the nick key; signature = canonical base64 DER, low-S.",
+    "nick": "J55okyxqwaYhyq7O",
+    "directory_id": "f3tfzgk5ilwfapx427yx5ckeh7ptuvskfxnfnicfo747jyq5mgzdtvad.onion:5222",
+    "handshake_envelope": "{\"type\": 793, \"line\": \"{\\\"app-name\\\": \\\"joinmarket\\\", \\\"directory\\\": false, \\\"location-string\\\": \\\"NOT-SERVING-ONION\\\", \\\"proto-ver\\\": 5, \\\"features\\\": {\\\"neutrino_compat\\\": true, \\\"nick_auth\\\": true, \\\"peerlist_features\\\": true, \\\"ping\\\": true}, \\\"nick\\\": \\\"J55okyxqwaYhyq7O\\\", \\\"network\\\": \\\"xbt\\\"}\"}",
+    "handshake_line": "{\"app-name\": \"joinmarket\", \"directory\": false, \"location-string\": \"NOT-SERVING-ONION\", \"proto-ver\": 5, \"features\": {\"neutrino_compat\": true, \"nick_auth\": true, \"peerlist_features\": true, \"ping\": true}, \"nick\": \"J55okyxqwaYhyq7O\", \"network\": \"xbt\"}",
+    "handshake_line_sha256": "788ac8aa02fb227f9e2bafbf2855c8263de1cfe8726aec145c23ce94236a6421",
+    "directory_reply_dn_handshake": "{\"type\": 795, \"line\": \"{\\\"app-name\\\": \\\"joinmarket\\\", \\\"directory\\\": true, \\\"proto-ver-min\\\": 5, \\\"proto-ver-max\\\": 5, \\\"features\\\": {\\\"nick_auth\\\": true, \\\"peerlist_features\\\": true, \\\"ping\\\": true}, \\\"accepted\\\": true, \\\"nick\\\": \\\"J5DirectoryNickOO\\\", \\\"network\\\": \\\"xbt\\\", \\\"motd\\\": \\\"JoinMarket Directory Server\\\"}\"}",
+    "directory_reply_challenge": "{\"type\": 803, \"line\": \"{\\\"challenge\\\":\\\"e834d76978957b32d82550eeb41f928f617bb1101a293fe1ba2ab8eb60b849da\\\",\\\"directory-id\\\":\\\"f3tfzgk5ilwfapx427yx5ckeh7ptuvskfxnfnicfo747jyq5mgzdtvad.onion:5222\\\"}\"}",
+    "nick_auth_signed_message_hex": "6e69636b2d617574687c653833346437363937383935376233326438323535306565623431663932386636313762623131303161323933666531626132616238656236306238343964617c663374667a676b35696c7766617078343237797835636b65683770747576736b66786e666e6963666f3734376a7971356d677a64747661642e6f6e696f6e3a353232327c373838616338616130326662323237663965326261666266323835356338323633646531636665383732366165633134356332336365393432333661363432317c4a35356f6b797871776159687971374f7c3032633866633437616661306464303166356634313465333530653632333764663135306237323530313834333938386265396334616236366631303761313038336e69636b2d617574682d7631",
+    "nick_auth_message_hash": "48597f4c45ee0851026d2ca459d7094f96f907599d188ee307bfe20f71b9a323",
+    "nick_auth_proof_envelope": "{\"type\": 805, \"line\": \"{\\\"pubkey\\\":\\\"02c8fc47afa0dd01f5f414e350e6237df150b72501843988be9c4ab66f107a1083\\\",\\\"signature\\\":\\\"MEUCIQDnlF03iRxpHNy3wUiUpatUBLplJbls5NNSNAC6aLQnbAIgCUMYhsBAmso23uKNPeRWvfEdih+jhSNdARHM4wubgmY=\\\"}\"}",
+    "nick_auth_proof": {
+      "pubkey": "02c8fc47afa0dd01f5f414e350e6237df150b72501843988be9c4ab66f107a1083",
+      "signature": "MEUCIQDnlF03iRxpHNy3wUiUpatUBLplJbls5NNSNAC6aLQnbAIgCUMYhsBAmso23uKNPeRWvfEdih+jhSNdARHM4wubgmY="
+    },
+    "directory_reply_result": "{\"type\": 807, \"line\": \"{\\\"code\\\":\\\"ok\\\",\\\"verified\\\":true}\"}",
+    "authenticated": true,
+    "challenge": "e834d76978957b32d82550eeb41f928f617bb1101a293fe1ba2ab8eb60b849da",
+    "orderbook_request_envelope": "{\"type\": 687, \"line\": \"J55okyxqwaYhyq7O!PUBLIC!orderbook\"}"
+  },
+  "encryption": {
+    "_comment": "NaCl crypto_box (X25519 + HSalsa20 key, XSalsa20-Poly1305). NaCl private keys are raw 32-byte X25519 scalars (clamped by libsodium). Wire = base64(nonce24 || MAC16 || ciphertext); nonce is random per message in production. One taker keypair per CoinJoin round, shared by all makers (!fill carries its public key hex).",
+    "taker_private": "e0146193aa59495022b4196b5e322f31fceb27edd558c6d716268a8c995c2c1b",
+    "taker_public": "f81f63aa4045dea5aa61aa95529f551e1303fab637a1bf30ac145a566fc70415",
+    "maker_private": "f504fdd3ced6d8e994ba99b0130f9a0ad7f3039337b434b785e37029e765d3fd",
+    "maker_public": "3379342372a46236e4fdb4f4460aeac164aea469a5d93db987f3791865a2e258",
+    "shared_key": "c04569319aa23f7b45e7658f1b6667e6f0e5856c1a49561f2a45d9a419404dba",
+    "shared_key_maker_side": "c04569319aa23f7b45e7658f1b6667e6f0e5856c1a49561f2a45d9a419404dba",
+    "plaintext": "hello maker, this is the taker",
+    "nonce": "5ba6f30bb863c3502ba09d1e1296bfa88a8ed1890ff81b66",
+    "wire_b64": "W6bzC7hjw1AroJ0eEpa/qIqO0YkP+BtmHNI5SPE2cHbQ5q6YuLe6ZBw7TnFE1w8clgi4qUtNcg7m+SiIF9x3R+H4Pjr2tA==",
+    "decrypted_by_maker": "hello maker, this is the taker",
+    "reply_plaintext": "and this is the maker",
+    "reply_nonce": "132167c34d7cecd3ce2343a1c7a2238c09406075cdbc8ab9",
+    "reply_wire_b64": "EyFnw0187NPOI0Ohx6IjjAlAYHXNvIq5kI93WX/MN0SzWIR6+XF9Drg9fKHM/WIxjGr1Sp8riHZzcoEDNA=="
+  },
+  "podle": {
+    "_comment": "J_i = first valid point 02||sha256(G_ser || i || ctr) trying G compressed then G uncompressed, ctr 0..255. P = kG, P2 = kJ, commitment = sha256(P2) (wire: 'P'+hex). e = sha256(KG||KJ||P||P2) (all compressed), s = k_nonce + e*key mod n. The nonce is RFC6979-HMAC-SHA256(key, sha256('JoinMarket/PoDLE/nonce/v1' || be32(len(utxo)) || utxo || u8(index) || P || P2)); any nonce verifies, this one makes vectors reproducible. Makers accept indices 0..taker_utxo_retries-1 (default 3).",
+    "private_key": "80d970f014a1d4fa3be3c3ab1637209750921ed390517d5119a594efdec208c9",
+    "utxo": "e2aabbcd6e966a907a1ce38d95120cf32fa1e14e2ec29fecd8cffcc232a37143:1",
+    "nums_points": {
+      "0": "0296f47ec8e6d6a9c3379c2ce983a6752bcfa88d46f2a6ffe0dd12c9ae76d01a1f",
+      "1": "023f9976b86d3f1426638da600348d96dc1f1eb0bd5614cc50db9e9a067c0464a2",
+      "2": "023745b000f6db094a794d9ee08637d714393cd009f86087438ac3804e929bfe89",
+      "3": "023346660dcb1f8d56e44d23f93c3ad79761cdd5f4972a638e9e15517832f6a165",
+      "4": "02ec91c86964dcbb077c8193156f3cfa91476d5adfcfcf64913a4b082c75d5bca7",
+      "5": "02bbc5c4393395a38446e2bd4d638b7bfd864afb5ffaf4bed4caf797df0e657434",
+      "6": "02967efd39dc59e6f060bf3bd0080e8ecf4a22b9d1754924572b3e51ce2cde2096",
+      "7": "02cfce8a7f9b8a1735c4d827cd84e3f2a444de1d1f7ed419d23c88d72de341357f",
+      "8": "0206d6d6b1d88936bb6013ae835716f554d864954ea336e3e0141fefb2175b82f9",
+      "9": "021b739f21b981c2dcbaf9af4d89223a282939a92aee079e94a46c273759e5b42e"
+    },
+    "proofs": [
+      {
+        "index": 0,
+        "J": "0296f47ec8e6d6a9c3379c2ce983a6752bcfa88d46f2a6ffe0dd12c9ae76d01a1f",
+        "P": "0269c0aa70590d21e5bcf835dfbfb63cd31cf60eee8904e4298f1d8338ac9c5d7e",
+        "P2": "0204a63686196ee32a9a057472640d0497aaad81426c8bc40ce0af83a71880f396",
+        "commitment": "004903c65c16f0aeae75a640806959cf07acb87000134c9bdb6ddd3f66bc7596",
+        "commitment_wire": "P004903c65c16f0aeae75a640806959cf07acb87000134c9bdb6ddd3f66bc7596",
+        "nonce_k": "b7599f4b41e9cf007010813df844bde6714e6de91154e290906886b574785617",
+        "KG": "035ac8c06dea14fe7d6c1fba96562ec3b4c4e03eadf54d4b0c20dff29d27252643",
+        "KJ": "02c99b30e477c4bcfc787baf0c0917453f029efddce49a49d620982baf2b1dceea",
+        "e": "f09e46d6e18fb9447d330797d76e76be14dfe7b5d92a4c92f263ef2a06e03ce9",
+        "s": "4a76ea99dc8a0c2f72ece1894881952f974fe98acfc50a91ff1f4c1beda9a4eb",
+        "verify": true,
+        "verify_error": ""
+      },
+      {
+        "index": 1,
+        "J": "023f9976b86d3f1426638da600348d96dc1f1eb0bd5614cc50db9e9a067c0464a2",
+        "P": "0269c0aa70590d21e5bcf835dfbfb63cd31cf60eee8904e4298f1d8338ac9c5d7e",
+        "P2": "028e203c027c0307c80478733d4f42fcbd3408cea63ace0e976bc234b40e6f2784",
+        "commitment": "277ea1e9eda8ec3a863cd5e2580f3248c4e4ddbbba5bf2ec6ab6d7c98c091737",
+        "commitment_wire": "P277ea1e9eda8ec3a863cd5e2580f3248c4e4ddbbba5bf2ec6ab6d7c98c091737",
+        "nonce_k": "012d922879ac8ac632a80aaa9d61359bc1f9983a67a80c40043e9c600342a48c",
+        "KG": "0251ac7c7c05db739528d9c9643dbed92f321c698ef5bf60b90177a44fb5ae7088",
+        "KJ": "0382f29188d12535be165b2b9069f5d244012fc7a7ab7c171745c14b7d59c8362c",
+        "e": "ff0fd3a26c648e75115ceae07f87cb730af6796283300a20908e186c41ff03ca",
+        "s": "0160552716dea5e01b55854da17b0dabe31c1d6782f7eb2639b51d230a8133ea",
+        "verify": true,
+        "verify_error": ""
+      },
+      {
+        "index": 2,
+        "J": "023745b000f6db094a794d9ee08637d714393cd009f86087438ac3804e929bfe89",
+        "P": "0269c0aa70590d21e5bcf835dfbfb63cd31cf60eee8904e4298f1d8338ac9c5d7e",
+        "P2": "03ce849ced96db2ba9a356e57ff7cfb9602dab8c4b9a953e7b579824f907cab42c",
+        "commitment": "f52ef04781dafbf785da120a7402421d133ce62fa99e77ea9db93a74c1cd057e",
+        "commitment_wire": "Pf52ef04781dafbf785da120a7402421d133ce62fa99e77ea9db93a74c1cd057e",
+        "nonce_k": "b164f01bfbf60bf3fe716b9393e083419d400828076ab637a995d054d22b9c61",
+        "KG": "023122a7319965186e254973a0309cb9f11f4b1911abab6187f1e302409f7dd274",
+        "KJ": "0247e46604075d43bdd5ed0198b92e2aa25fc4d93eddbec969fcf2d82b4198441f",
+        "e": "431d5ffe03bb04fcf3aa8fba717b8d30d80642be70d8065706efd05ff352df83",
+        "s": "89e27beca6b3e20a379b0a6290f5cd8721b88f684a077b1962ae354f989a694f",
+        "verify": true,
+        "verify_error": ""
+      }
+    ],
+    "p2wpkh_scriptpubkey": "0014932fdc08133004ce96cee5727a38daf73f644fe1",
+    "binding_ok": true,
+    "revelation_legacy": "e2aabbcd6e966a907a1ce38d95120cf32fa1e14e2ec29fecd8cffcc232a37143:1|0269c0aa70590d21e5bcf835dfbfb63cd31cf60eee8904e4298f1d8338ac9c5d7e|0204a63686196ee32a9a057472640d0497aaad81426c8bc40ce0af83a71880f396|4a76ea99dc8a0c2f72ece1894881952f974fe98acfc50a91ff1f4c1beda9a4eb|f09e46d6e18fb9447d330797d76e76be14dfe7b5d92a4c92f263ef2a06e03ce9",
+    "revelation_extended": "e2aabbcd6e966a907a1ce38d95120cf32fa1e14e2ec29fecd8cffcc232a37143:1:0014932fdc08133004ce96cee5727a38daf73f644fe1:961650|0269c0aa70590d21e5bcf835dfbfb63cd31cf60eee8904e4298f1d8338ac9c5d7e|0204a63686196ee32a9a057472640d0497aaad81426c8bc40ce0af83a71880f396|4a76ea99dc8a0c2f72ece1894881952f974fe98acfc50a91ff1f4c1beda9a4eb|f09e46d6e18fb9447d330797d76e76be14dfe7b5d92a4c92f263ef2a06e03ce9"
+  },
+  "fees": {
+    "_comment": "Relative fee = int((Decimal(cjfee) * Decimal(amount)).quantize(Decimal(1))) i.e. ROUND_HALF_EVEN; absolute fee = int(cjfee). Taker change = sum(taker inputs) - cj_amount - sum(maker fees) - tx_fee (no output if <= 2730). Maker change = sum(maker inputs) - cj_amount - offer.txfee + cjfee (maker dropped if < 27300). vsize estimate = 68*in + 31*out + 11; tx_fee = ceil(vsize * randomized_rate).",
+    "relative_fee_cases": [
+      {
+        "amount": 30000000,
+        "cjfee": "0.0002",
+        "fee": 6000
+      },
+      {
+        "amount": 9994243,
+        "cjfee": "0.000022",
+        "fee": 220
+      },
+      {
+        "amount": 12345,
+        "cjfee": "0.0002",
+        "fee": 2
+      },
+      {
+        "amount": 12500,
+        "cjfee": "0.0002",
+        "fee": 2
+      },
+      {
+        "amount": 17500,
+        "cjfee": "0.0002",
+        "fee": 4
+      },
+      {
+        "amount": 100000000,
+        "cjfee": "0.001",
+        "fee": 100000
+      },
+      {
+        "amount": 50000000,
+        "cjfee": "1E-5",
+        "fee": 500
+      }
+    ],
+    "cj_amount": 30000000,
+    "offers": [
+      {
+        "nick": "J5makerRelativeOO",
+        "ordertype": "sw0reloffer",
+        "cjfee": "0.0002",
+        "txfee": 0,
+        "fee": 6000,
+        "fee_rounded_up": 6000,
+        "quantized": true,
+        "within_default_limits": true
+      },
+      {
+        "nick": "J5makerAbsoluteOO",
+        "ordertype": "sw0absoffer",
+        "cjfee": "500",
+        "txfee": 150,
+        "fee": 500,
+        "fee_rounded_up": 500,
+        "quantized": true,
+        "within_default_limits": true
+      },
+      {
+        "nick": "J5makerOffGridOOO",
+        "ordertype": "sw0reloffer",
+        "cjfee": "0.00025",
+        "txfee": 0,
+        "fee": 7500,
+        "fee_rounded_up": 15000,
+        "quantized": false,
+        "within_default_limits": true
+      }
+    ],
+    "fee_plan": {
+      "J5makerRelativeOO": 6000,
+      "J5makerAbsoluteOO": 500
+    },
+    "fee_plan_equalized": {
+      "J5makerRelativeOO": 6000,
+      "J5makerAbsoluteOO": 6000
+    },
+    "quant_rel_grid": [
+      "0.00002",
+      "0.00005",
+      "0.0001",
+      "0.0002",
+      "0.0005",
+      "0.001",
+      "0.002",
+      "0.005",
+      "0.01",
+      "0.02",
+      "0.05",
+      "0.1"
+    ],
+    "quant_abs_grid": [
+      0,
+      100,
+      200,
+      500,
+      1000,
+      2000,
+      5000,
+      10000
+    ],
+    "quantize_abs_up_150": 200,
+    "default_max_cj_fee": {
+      "abs_fee": 500,
+      "rel_fee": "0.001"
+    },
+    "fee_rate_base": 1.0,
+    "fee_rate_randomized": 1.137,
+    "shapes": [
+      {
+        "inputs": 2,
+        "outputs": 4,
+        "vsize_estimate": 271,
+        "fee_at_randomized_rate": 309,
+        "fee_at_base_rate": 271
+      },
+      {
+        "inputs": 3,
+        "outputs": 5,
+        "vsize_estimate": 370,
+        "fee_at_randomized_rate": 421,
+        "fee_at_base_rate": 370
+      },
+      {
+        "inputs": 5,
+        "outputs": 9,
+        "vsize_estimate": 630,
+        "fee_at_randomized_rate": 717,
+        "fee_at_base_rate": 630
+      }
+    ],
+    "sweep": {
+      "available": 50000000,
+      "relative_fees": [
+        "0.0002",
+        "0.00005"
+      ],
+      "cj_amount": 49987503
+    }
+  },
+  "transaction": {
+    "_comment": "build_coinjoin_tx with the shuffle disabled (production shuffles inputs and outputs with a CSPRNG; order here = taker inputs, maker inputs by nick insertion order; outputs = taker cj, maker cj..., taker change, maker change...). version 2, no witness in the unsigned serialization, nSequence 0xfffffffe when nLockTime != 0 (0xffffffff when 0). Unified preimage = 0x00 epoch || hashtype || version LE4 || locktime LE5 || sha256(prevouts) || sha256(amounts LE8) || sha256(compactsize||spk for each spent output) || sha256(sequences LE4) || sha256(outputs) || 0x01 script type || input index LE4 || compactsize||scriptCode; sighash = TaggedHash('UnifiedSighash', preimage). Signature = DER || 0x21. Witness = [sig, pubkey].",
+    "network": "mainnet",
+    "cj_amount": 30000000,
+    "fee_rate_randomized": 1.137,
+    "tx_fee": 534,
+    "maker_fee_plan": {
+      "J5maker1OOOOOOOO": 6000,
+      "J5maker2OOOOOOOO": 500
+    },
+    "offers": [
+      {
+        "nick": "J5maker1OOOOOOOO",
+        "ordertype": "sw0reloffer",
+        "cjfee": "0.0002",
+        "txfee": 0
+      },
+      {
+        "nick": "J5maker2OOOOOOOO",
+        "ordertype": "sw0absoffer",
+        "cjfee": 500,
+        "txfee": 150
+      }
+    ],
+    "taker": {
+      "utxos": [
+        {
+          "txid": "e2aabbcd6e966a907a1ce38d95120cf32fa1e14e2ec29fecd8cffcc232a37143",
+          "vout": 1,
+          "value": 45000000,
+          "scriptpubkey": "0014932fdc08133004ce96cee5727a38daf73f644fe1"
+        }
+      ],
+      "cj_address": "bc1qacxs7hln7fy7yse8vl6gj5mqvl8w68jrczq6xy",
+      "change_address": "bc1q7lgcsr6eqnwjazmll78sa9pzhvfjpamukq4970"
+    },
+    "makers": {
+      "J5maker1OOOOOOOO": {
+        "utxos": [
+          {
+            "txid": "d7d7a211c8219bd8e7aa2e5ef6838b90a0f651733275e138f3f1ce499cab0004",
+            "vout": 0,
+            "value": 20000000,
+            "scriptpubkey": "00140457a07952f20ecbfa1f4ac58e18ebf3a80f2259"
+          },
+          {
+            "txid": "37da15e8ee7b12172301c268ee7602f4d1f8424a833ab1ee5fe07634dd18fe30",
+            "vout": 3,
+            "value": 15000000,
+            "scriptpubkey": "001498f30399b7eda8b5a105ca4a417a9b67b99b8bd7"
+          }
+        ],
+        "cj_addr": "bc1qkw3fk3nr780h7lwcqvmn7drrwvxedc63g9mfm7",
+        "change_addr": "bc1q74ltlhggwrqxdjze6fcadjuvqp2jeduvye6u40",
+        "cjfee": 6000,
+        "txfee": 0
+      },
+      "J5maker2OOOOOOOO": {
+        "utxos": [
+          {
+            "txid": "beac7f907f7331993978825671a4e6885186315ec7df15451e9ba847e0a39433",
+            "vout": 2,
+            "value": 31000000,
+            "scriptpubkey": "0014cb92413b09710e72b5b08be72b7ca7581bd10d97"
+          }
+        ],
+        "cj_addr": "bc1qxsdv23t3ts2pkk0wqp7f42y5gueryd8z7rveau",
+        "change_addr": "bc1qgxxjxfczdx7vm34vktsa0r56tqk3rpvy4na5wh",
+        "cjfee": 500,
+        "txfee": 150
+      }
+    },
+    "locktime_cases": {
+      "height_961700_rng_[3]": 961700,
+      "height_961700_rng_[0,37]": 961663,
+      "height_0": 0
+    },
+    "locktime": 961700,
+    "unsigned_tx": "02000000044371a332c2fccfd8ec9fc22e4ee1a12ff30c12958de31c7a906a966ecdbbaae20100000000feffffff0400ab9c49cef1f338e175327351f6a0908b83f65e2eaae7d89b21c811a2d7d70000000000feffffff30fe18dd3476e05feeb13a834a42f8d1f40276ee68c2012317127beee815da370300000000feffffff3394a3e047a89b1e4515dfc75e31865188e6a471568278399931737f907facbe0200000000feffffff0680c3c90100000000160014ee0d0f5ff3f249e2432767f489536067ceed1e4380c3c90100000000160014b3a29b4663f1df7f7dd803373f3463730d96e35180c3c90100000000160014341ac545715c141b59ee007c9aa89447323234e246c6e40000000000160014f7d1880f5904dd2e8b7fff8f0e9422bb1320f77cb0624c0000000000160014f57ebfdd0870c066c859d271d6cb8c00552cb78c9e430f0000000000160014418d23270269bccdc6acb2e1d78e9a582d118584a4ac0e00",
+    "unsigned_tx_b64": "AgAAAARDcaMywvzP2Oyfwi5O4aEv8wwSlY3jHHqQapZuzbuq4gEAAAAA/v///wQAq5xJzvHzOOF1MnNR9qCQi4P2Xi6q59ibIcgRotfXAAAAAAD+////MP4Y3TR24F/usTqDSkL40fQCdu5owgEjFxJ77ugV2jcDAAAAAP7///8zlKPgR6ibHkUV38deMYZRiOakcVaCeDmZMXN/kH+svgIAAAAA/v///waAw8kBAAAAABYAFO4ND1/z8kniQydn9IlTYGfO7R5DgMPJAQAAAAAWABSzoptGY/Hff33YAzc/NGNzDZbjUYDDyQEAAAAAFgAUNBrFRXFcFBtZ7gB8mqiURzIyNOJGxuQAAAAAABYAFPfRiA9ZBN0ui3//jw6UIrsTIPd8sGJMAAAAAAAWABT1fr/dCHDAZshZ0nHWy4wAVSy3jJ5DDwAAAAAAFgAUQY0jJwJpvM3GrLLh146aWC0RhYSkrA4A",
+    "metadata": {
+      "input_owners": [
+        "taker",
+        "J5maker1OOOOOOOO",
+        "J5maker1OOOOOOOO",
+        "J5maker2OOOOOOOO"
+      ],
+      "output_owners": [
+        [
+          "taker",
+          "cj"
+        ],
+        [
+          "J5maker1OOOOOOOO",
+          "cj"
+        ],
+        [
+          "J5maker2OOOOOOOO",
+          "cj"
+        ],
+        [
+          "taker",
+          "change"
+        ],
+        [
+          "J5maker1OOOOOOOO",
+          "change"
+        ],
+        [
+          "J5maker2OOOOOOOO",
+          "change"
+        ]
+      ]
+    },
+    "outputs": [
+      {
+        "value": 30000000,
+        "scriptpubkey": "0014ee0d0f5ff3f249e2432767f489536067ceed1e43"
+      },
+      {
+        "value": 30000000,
+        "scriptpubkey": "0014b3a29b4663f1df7f7dd803373f3463730d96e351"
+      },
+      {
+        "value": 30000000,
+        "scriptpubkey": "0014341ac545715c141b59ee007c9aa89447323234e2"
+      },
+      {
+        "value": 14992966,
+        "scriptpubkey": "0014f7d1880f5904dd2e8b7fff8f0e9422bb1320f77c"
+      },
+      {
+        "value": 5006000,
+        "scriptpubkey": "0014f57ebfdd0870c066c859d271d6cb8c00552cb78c"
+      },
+      {
+        "value": 1000350,
+        "scriptpubkey": "0014418d23270269bccdc6acb2e1d78e9a582d118584"
+      }
+    ],
+    "inputs": [
+      {
+        "index": 0,
+        "owner": "taker",
+        "txid": "e2aabbcd6e966a907a1ce38d95120cf32fa1e14e2ec29fecd8cffcc232a37143",
+        "vout": 1,
+        "value": 45000000,
+        "scriptpubkey": "0014932fdc08133004ce96cee5727a38daf73f644fe1",
+        "private_key": "80d970f014a1d4fa3be3c3ab1637209750921ed390517d5119a594efdec208c9",
+        "pubkey": "0269c0aa70590d21e5bcf835dfbfb63cd31cf60eee8904e4298f1d8338ac9c5d7e",
+        "script_code": "76a914932fdc08133004ce96cee5727a38daf73f644fe188ac",
+        "unified_preimage": "002102000000a4ac0e0000260a25aec4e89349e95b2900f841ad1de506897b4add53b2b04350763cd338f2f6eedc6cc4a212b1b2f30a2d06011f514e8b29c072a1a76be54bb32e5b31a822222674ae18401b484db8840b7d0741134be5ecf992d64345df1adaa0ef23f8ae981e9f87cdac46b3672df4852116bf4875172a57d92dc068889f4354f27568703ef683edc908892160e429fcd778e9477069bb277813ef635f362b412e4ca6ef01000000001976a914932fdc08133004ce96cee5727a38daf73f644fe188ac",
+        "unified_sighash": "cf2eb43e6c66e9ffdf0986f84ba67476f25ab817ab0cdc75608cd9531c50730e",
+        "bip143_sighash_0x01_for_contrast": "0c4de134f6312027dd7e22722942aa4820c473f23975b97d5fc7fd5c17e0fe40",
+        "signature": "30450221008148a066aae9b30646c726b2835e82e43541f945b54c57dcd93551e87831cb7d02204d4c3f72e0a27ae3e7fdebd5f6e319f36f1f4fe80769f0d5f51d5113ba76b8e621",
+        "witness": [
+          "30450221008148a066aae9b30646c726b2835e82e43541f945b54c57dcd93551e87831cb7d02204d4c3f72e0a27ae3e7fdebd5f6e319f36f1f4fe80769f0d5f51d5113ba76b8e621",
+          "0269c0aa70590d21e5bcf835dfbfb63cd31cf60eee8904e4298f1d8338ac9c5d7e"
+        ],
+        "verify_0x21": true,
+        "verify_same_der_with_0x01_byte": false,
+        "sig_wire_b64": "SDBFAiEAgUigZqrpswZGxyayg16C5DVB+UW1TFfc2TVR6Hgxy30CIE1MP3Lgonrj5/3r1fbjGfNvH0/oB2nw1fUdURO6drjmISECacCqcFkNIeW8+DXfv7Y80xz2Du6JBOQpjx2DOKycXX4="
+      },
+      {
+        "index": 1,
+        "owner": "J5maker1OOOOOOOO",
+        "txid": "d7d7a211c8219bd8e7aa2e5ef6838b90a0f651733275e138f3f1ce499cab0004",
+        "vout": 0,
+        "value": 20000000,
+        "scriptpubkey": "00140457a07952f20ecbfa1f4ac58e18ebf3a80f2259",
+        "private_key": "745f6069ee87cdd27868cc85d5de1d875bc7fad728a95d843585a52aafbdf468",
+        "pubkey": "033d1a63fba974247440c776a3915e4425dc544630b09e690d0013cfea640e17cc",
+        "script_code": "76a9140457a07952f20ecbfa1f4ac58e18ebf3a80f225988ac",
+        "unified_preimage": "002102000000a4ac0e0000260a25aec4e89349e95b2900f841ad1de506897b4add53b2b04350763cd338f2f6eedc6cc4a212b1b2f30a2d06011f514e8b29c072a1a76be54bb32e5b31a822222674ae18401b484db8840b7d0741134be5ecf992d64345df1adaa0ef23f8ae981e9f87cdac46b3672df4852116bf4875172a57d92dc068889f4354f27568703ef683edc908892160e429fcd778e9477069bb277813ef635f362b412e4ca6ef01010000001976a9140457a07952f20ecbfa1f4ac58e18ebf3a80f225988ac",
+        "unified_sighash": "90fed1cb0e65a2c061770717035e37d1bb389479eb07cab9395f8fd46b9e9535",
+        "bip143_sighash_0x01_for_contrast": "68f4a3db4110c44b33d8410786360188fbced1ac94ea703e03d26f4517ec439f",
+        "signature": "3044022029393b450b0846318c2ce5e78f8b7993b1132245632269b340ce9e797ea0f4a302201ec61eba7ffc8908a9c8536b9b1038cbd310a042b8e465756ac49b37863823c621",
+        "witness": [
+          "3044022029393b450b0846318c2ce5e78f8b7993b1132245632269b340ce9e797ea0f4a302201ec61eba7ffc8908a9c8536b9b1038cbd310a042b8e465756ac49b37863823c621",
+          "033d1a63fba974247440c776a3915e4425dc544630b09e690d0013cfea640e17cc"
+        ],
+        "verify_0x21": true,
+        "verify_same_der_with_0x01_byte": false,
+        "sig_wire_b64": "RzBEAiApOTtFCwhGMYws5eePi3mTsRMiRWMiabNAzp55fqD0owIgHsYeun/8iQipyFNrmxA4y9MQoEK45GV1asSbN4Y4I8YhIQM9GmP7qXQkdEDHdqORXkQl3FRGMLCeaQ0AE8/qZA4XzA=="
+      },
+      {
+        "index": 2,
+        "owner": "J5maker1OOOOOOOO",
+        "txid": "37da15e8ee7b12172301c268ee7602f4d1f8424a833ab1ee5fe07634dd18fe30",
+        "vout": 3,
+        "value": 15000000,
+        "scriptpubkey": "001498f30399b7eda8b5a105ca4a417a9b67b99b8bd7",
+        "private_key": "1f3aae19705e7cff975ecebf86663de8b22766e97bae7a1e6771dc051a0723a5",
+        "pubkey": "03e13d279eddbb00fcb92eb538b007c0e40337b42574700a02774c286546dcc148",
+        "script_code": "76a91498f30399b7eda8b5a105ca4a417a9b67b99b8bd788ac",
+        "unified_preimage": "002102000000a4ac0e0000260a25aec4e89349e95b2900f841ad1de506897b4add53b2b04350763cd338f2f6eedc6cc4a212b1b2f30a2d06011f514e8b29c072a1a76be54bb32e5b31a822222674ae18401b484db8840b7d0741134be5ecf992d64345df1adaa0ef23f8ae981e9f87cdac46b3672df4852116bf4875172a57d92dc068889f4354f27568703ef683edc908892160e429fcd778e9477069bb277813ef635f362b412e4ca6ef01020000001976a91498f30399b7eda8b5a105ca4a417a9b67b99b8bd788ac",
+        "unified_sighash": "25bea3c855c2bae4e579e54dbccc0883c82ece4f5a580a3d4a6890ec157a6da4",
+        "bip143_sighash_0x01_for_contrast": "160ca50496dcf7e1ec660c76454c45dbb1f55ba675e4cba692f09f7c1a729872",
+        "signature": "304402203e63c7d9576a4d1a70ccd081a17b7296c02a7d49cd182a8b409df84ac388cc6e02202543d714a68c340a4e622dfc70f7e2f42f778564c79c3d2a4bdb6815aa416a8321",
+        "witness": [
+          "304402203e63c7d9576a4d1a70ccd081a17b7296c02a7d49cd182a8b409df84ac388cc6e02202543d714a68c340a4e622dfc70f7e2f42f778564c79c3d2a4bdb6815aa416a8321",
+          "03e13d279eddbb00fcb92eb538b007c0e40337b42574700a02774c286546dcc148"
+        ],
+        "verify_0x21": true,
+        "verify_same_der_with_0x01_byte": false,
+        "sig_wire_b64": "RzBEAiA+Y8fZV2pNGnDM0IGhe3KWwCp9Sc0YKotAnfhKw4jMbgIgJUPXFKaMNApOYi38cPfi9C93hWTHnD0qS9toFapBaoMhIQPhPSee3bsA/LkutTiwB8DkAze0JXRwCgJ3TChlRtzBSA=="
+      },
+      {
+        "index": 3,
+        "owner": "J5maker2OOOOOOOO",
+        "txid": "beac7f907f7331993978825671a4e6885186315ec7df15451e9ba847e0a39433",
+        "vout": 2,
+        "value": 31000000,
+        "scriptpubkey": "0014cb92413b09710e72b5b08be72b7ca7581bd10d97",
+        "private_key": "4dfbea0ddb97adf68046b0bb2c01ec9289c4eb38b8aa565dc2573c93ef1a0a84",
+        "pubkey": "0307ebdac0b19950aa6a946ff117957668e9c4881e8d09e1fad61a574a066e541b",
+        "script_code": "76a914cb92413b09710e72b5b08be72b7ca7581bd10d9788ac",
+        "unified_preimage": "002102000000a4ac0e0000260a25aec4e89349e95b2900f841ad1de506897b4add53b2b04350763cd338f2f6eedc6cc4a212b1b2f30a2d06011f514e8b29c072a1a76be54bb32e5b31a822222674ae18401b484db8840b7d0741134be5ecf992d64345df1adaa0ef23f8ae981e9f87cdac46b3672df4852116bf4875172a57d92dc068889f4354f27568703ef683edc908892160e429fcd778e9477069bb277813ef635f362b412e4ca6ef01030000001976a914cb92413b09710e72b5b08be72b7ca7581bd10d9788ac",
+        "unified_sighash": "7ae369cdcd62a58ddb7d0ce4d679c82c35c6c4ee7008bbd356d358f2fd15ddf0",
+        "bip143_sighash_0x01_for_contrast": "b7f09a20c766703804dbd89c2c044fc23c46a71a6aff880c4801a6390788f7ce",
+        "signature": "3045022100fdfb4163a41ab1819667d1d474e9a7b191aac3080ff4803b5d452ea1fecb4c7302204d14f973174e7dce9840fdc95cd3bb21e58a0e8cfabca56c0831c7f4a41f775321",
+        "witness": [
+          "3045022100fdfb4163a41ab1819667d1d474e9a7b191aac3080ff4803b5d452ea1fecb4c7302204d14f973174e7dce9840fdc95cd3bb21e58a0e8cfabca56c0831c7f4a41f775321",
+          "0307ebdac0b19950aa6a946ff117957668e9c4881e8d09e1fad61a574a066e541b"
+        ],
+        "verify_0x21": true,
+        "verify_same_der_with_0x01_byte": false,
+        "sig_wire_b64": "SDBFAiEA/ftBY6QasYGWZ9HUdOmnsZGqwwgP9IA7XUUuof7LTHMCIE0U+XMXTn3OmED9yVzTuyHlig6M+rylbAgxx/SkH3dTISEDB+vawLGZUKpqlG/xF5V2aOnEiB6NCeH61hpXSgZuVBs="
+      }
+    ],
+    "signed_tx": "020000000001044371a332c2fccfd8ec9fc22e4ee1a12ff30c12958de31c7a906a966ecdbbaae20100000000feffffff0400ab9c49cef1f338e175327351f6a0908b83f65e2eaae7d89b21c811a2d7d70000000000feffffff30fe18dd3476e05feeb13a834a42f8d1f40276ee68c2012317127beee815da370300000000feffffff3394a3e047a89b1e4515dfc75e31865188e6a471568278399931737f907facbe0200000000feffffff0680c3c90100000000160014ee0d0f5ff3f249e2432767f489536067ceed1e4380c3c90100000000160014b3a29b4663f1df7f7dd803373f3463730d96e35180c3c90100000000160014341ac545715c141b59ee007c9aa89447323234e246c6e40000000000160014f7d1880f5904dd2e8b7fff8f0e9422bb1320f77cb0624c0000000000160014f57ebfdd0870c066c859d271d6cb8c00552cb78c9e430f0000000000160014418d23270269bccdc6acb2e1d78e9a582d118584024830450221008148a066aae9b30646c726b2835e82e43541f945b54c57dcd93551e87831cb7d02204d4c3f72e0a27ae3e7fdebd5f6e319f36f1f4fe80769f0d5f51d5113ba76b8e621210269c0aa70590d21e5bcf835dfbfb63cd31cf60eee8904e4298f1d8338ac9c5d7e02473044022029393b450b0846318c2ce5e78f8b7993b1132245632269b340ce9e797ea0f4a302201ec61eba7ffc8908a9c8536b9b1038cbd310a042b8e465756ac49b37863823c62121033d1a63fba974247440c776a3915e4425dc544630b09e690d0013cfea640e17cc0247304402203e63c7d9576a4d1a70ccd081a17b7296c02a7d49cd182a8b409df84ac388cc6e02202543d714a68c340a4e622dfc70f7e2f42f778564c79c3d2a4bdb6815aa416a83212103e13d279eddbb00fcb92eb538b007c0e40337b42574700a02774c286546dcc14802483045022100fdfb4163a41ab1819667d1d474e9a7b191aac3080ff4803b5d452ea1fecb4c7302204d14f973174e7dce9840fdc95cd3bb21e58a0e8cfabca56c0831c7f4a41f775321210307ebdac0b19950aa6a946ff117957668e9c4881e8d09e1fad61a574a066e541ba4ac0e00",
+    "txid": "794f0406f11a2c830c2ceaf25ae41727217cfc6671686372a9f1c2e7917783a2"
+  },
+  "offer": {
+    "_comment": "Maker answers '!orderbook' (PUBMSG '<taker>!PUBLIC!orderbook') with one PRIVMSG per offer: '<maker>!<taker>!sw0reloffer <oid> <minsize> <maxsize> <txfee> <cjfee>[!tbond <proof_b64>] <pubkey> <sig>'. Proof = struct '<72s72s33sH33s32sII' (252 bytes): nick_sig (0xff left-padded DER, cert key over '<taker>|<maker>'), cert_sig (0xff left-padded DER, utxo key over 'fidelity-bond-cert|'+cert_pub+'|'+str(expiry), or the hex-cert_pub variant), cert_pub, cert_expiry (uint16 LE, periods of 2016 blocks), utxo_pub, txid (32 bytes, display/big-endian order), vout LE, locktime LE. Both signatures use the Bitcoin signed-message hash.",
+    "maker_nick": "J5CmDejLa1bhfAso",
+    "taker_nick": "J55okyxqwaYhyq7O",
+    "bond_private_key": "c491ab7c4071f3469e7442090895196990582aae57c4156ed40880cdabb997e9",
+    "cert_private_key": "d27d459f414f4eefdbeff29ecfed7e75a169b882543a85d7f8353f7009ae6d5f",
+    "block_height_for_cert": 961700,
+    "proof_b64": "//8wRAIgAhPTULjRGcCZSkYyd7+ZXeUX1t4kIB5A0b7PCkjSYlwCIFbfI64pZOUws8ZigoEmLNo5NpWJc55tt+JNZpHd97eX//8wRAIgBElRtyn33jOQjr2kcbs19QNqqxy8W2yOgoDl4aAV1swCIENRY2tkh1Kb/vuFzekVmkXWtwYSXVwYg70c7yE4nV4jAjZdkgIAcoz6taGtD7uPa7veuHzgyDbkwLEytIbcRHxG3gECsovrdhBnp/AXocD56kdVEMTSVXCraRthG/uSbpcsI0lF7sToH2VKAOy8kuWPsQROfxnY3uIkxTgQeW9RGyK1EAAAAACA7DZr",
+    "proof_fields": {
+      "nick_sig_padded": "ffff304402200213d350b8d119c0994a463277bf995de517d6de24201e40d1becf0a48d2625c022056df23ae2964e530b3c6628281262cda39369589739e6db7e24d6691ddf7b797",
+      "cert_sig_padded": "ffff30440220044951b729f7de33908ebda471bb35f5036aab1cbc5b6c8e8280e5e1a015d6cc02204351636b6487529bfefb85cde9159a45d6b706125d5c1883bd1cef21389d5e23",
+      "cert_pub": "02365d920200728cfab5a1ad0fbb8f6bbbdeb87ce0c836e4c0b132b486dc447c46",
+      "cert_expiry_encoded": 478,
+      "utxo_pub": "02b28beb761067a7f017a1c0f9ea475510c4d25570ab691b611bfb926e972c2349",
+      "txid_display": "45eec4e81f654a00ecbc92e58fb1044e7f19d8dee224c53810796f511b22b510",
+      "vout": 0,
+      "locktime": 1798761600
+    },
+    "privmsg_line": "J5CmDejLa1bhfAso!J55okyxqwaYhyq7O!sw0reloffer 0 27300 2500000000 0 0.0002!tbond //8wRAIgAhPTULjRGcCZSkYyd7+ZXeUX1t4kIB5A0b7PCkjSYlwCIFbfI64pZOUws8ZigoEmLNo5NpWJc55tt+JNZpHd97eX//8wRAIgBElRtyn33jOQjr2kcbs19QNqqxy8W2yOgoDl4aAV1swCIENRY2tkh1Kb/vuFzekVmkXWtwYSXVwYg70c7yE4nV4jAjZdkgIAcoz6taGtD7uPa7veuHzgyDbkwLEytIbcRHxG3gECsovrdhBnp/AXocD56kdVEMTSVXCraRthG/uSbpcsI0lF7sToH2VKAOy8kuWPsQROfxnY3uIkxTgQeW9RGyK1EAAAAACA7DZr 02e2fb42cbd40cd4f386a2ea18ca1d45372bee640feca192514966e5a1ff53828f MEUCIQDnT+hgBAgRlWWoimfLUHacQ98psPyXIqU/VDm8SyvOQAIgUfOiHPkSQCb7hkU0Jo+lqZOVEMNQ8eTPs25PaSu+6Pk=",
+    "parsed_offer": {
+      "counterparty": "J5CmDejLa1bhfAso",
+      "oid": 0,
+      "ordertype": "sw0reloffer",
+      "minsize": 27300,
+      "maxsize": 2500000000,
+      "txfee": 0,
+      "cjfee": "0.0002"
+    },
+    "parsed_bond": {
+      "maker_nick": "J5CmDejLa1bhfAso",
+      "taker_nick": "J55okyxqwaYhyq7O",
+      "utxo_txid": "45eec4e81f654a00ecbc92e58fb1044e7f19d8dee224c53810796f511b22b510",
+      "utxo_vout": 0,
+      "locktime": 1798761600,
+      "utxo_pub": "02b28beb761067a7f017a1c0f9ea475510c4d25570ab691b611bfb926e972c2349",
+      "cert_pub": "02365d920200728cfab5a1ad0fbb8f6bbbdeb87ce0c836e4c0b132b486dc447c46",
+      "cert_expiry": 963648,
+      "redeem_script": "0480ec366bb1752102b28beb761067a7f017a1c0f9ea475510c4d25570ab691b611bfb926e972c2349ac",
+      "p2wsh_script": "0020994718c8e1a585a6703afa1a68d71393dcf657cfe7b976d68d8598c615b5893e"
+    },
+    "verify_fidelity_bond_proof": {
+      "ok": true,
+      "error": "",
+      "cert_expiry_height": 963648
+    },
+    "verify_with_wrong_taker_nick": false,
+    "freeze_script": "0480ec366bb1752102b28beb761067a7f017a1c0f9ea475510c4d25570ab691b611bfb926e972c2349ac",
+    "bond_p2wsh_scriptpubkey": "0020994718c8e1a585a6703afa1a68d71393dcf657cfe7b976d68d8598c615b5893e",
+    "bond_address": "bc1qn9r33j8p5kz6vup6lgdx34cnj0w0v470u7uhd45dskvvv9d43ylqdy53kz",
+    "bond_value_inputs": {
+      "utxo_value": 100000000,
+      "confirmation_time": 1760000000,
+      "locktime": 1798761600,
+      "current_time": 1763000000,
+      "interest_rate": 0.015,
+      "exponent": 1.3
+    },
+    "bond_value": 141327399
+  },
+  "session": {
+    "_comment": "Exact PRIVMSG frames (JSON envelope type 685) for one maker, with fixed NaCl keys and nonces. Plaintext commands: fill, pubkey, push, error. Encrypted (base64 NaCl): auth, ioauth, tx, sig. The maker sends one !sig per maker input.",
+    "taker_nick": "J55okyxqwaYhyq7O",
+    "maker_nick": "J5CmDejLa1bhfAso",
+    "fill": {
+      "data": "0 30000000 f81f63aa4045dea5aa61aa95529f551e1303fab637a1bf30ac145a566fc70415 P004903c65c16f0aeae75a640806959cf07acb87000134c9bdb6ddd3f66bc7596",
+      "frame": "{\"type\": 685, \"line\": \"J55okyxqwaYhyq7O!J5CmDejLa1bhfAso!fill 0 30000000 f81f63aa4045dea5aa61aa95529f551e1303fab637a1bf30ac145a566fc70415 P004903c65c16f0aeae75a640806959cf07acb87000134c9bdb6ddd3f66bc7596 02c8fc47afa0dd01f5f414e350e6237df150b72501843988be9c4ab66f107a1083 MEUCIQC0Kla07PYkbHdHnR+lhMngEacnEhoYaJYHaypSPNCVTwIgPomJFZLeZKb32c/NMIQ8XXJvi1SOUkB67kzswjfdI/w=\"}"
+    },
+    "pubkey": {
+      "data": "3379342372a46236e4fdb4f4460aeac164aea469a5d93db987f3791865a2e258 features=neutrino_compat",
+      "frame": "{\"type\": 685, \"line\": \"J5CmDejLa1bhfAso!J55okyxqwaYhyq7O!pubkey 3379342372a46236e4fdb4f4460aeac164aea469a5d93db987f3791865a2e258 features=neutrino_compat 02e2fb42cbd40cd4f386a2ea18ca1d45372bee640feca192514966e5a1ff53828f MEUCIQDD1io1aZtqvnUNObyuyTxZUELcVyAOSiDa0QVT81nkbQIgYVN86wbnUWPhePN7T8b3TtjuBTuLvCyAYpHzUStmH+0=\"}"
+    },
+    "auth": {
+      "plaintext": "e2aabbcd6e966a907a1ce38d95120cf32fa1e14e2ec29fecd8cffcc232a37143:1:0014932fdc08133004ce96cee5727a38daf73f644fe1:961650|0269c0aa70590d21e5bcf835dfbfb63cd31cf60eee8904e4298f1d8338ac9c5d7e|0204a63686196ee32a9a057472640d0497aaad81426c8bc40ce0af83a71880f396|4a76ea99dc8a0c2f72ece1894881952f974fe98acfc50a91ff1f4c1beda9a4eb|f09e46d6e18fb9447d330797d76e76be14dfe7b5d92a4c92f263ef2a06e03ce9",
+      "nonce": "a9ed0d5b059abef7f28f684b87925359aa7ef839d4be45a4",
+      "ciphertext": "qe0NWwWavvfyj2hLh5JTWap++DnUvkWkYn7YhJDOsv25B1wEt5eJdd2evGQamC3P1upanBP31MJTiz+3O07SN2sKl/CXxGiO+OL6+JHXKaGZI/dIDUWQKlwIgNfbsdeX0Jk9BnS5oCIxFgGZy9K00caj+oAesSZGlm9acs6Nsh7VLy1avBAyA1m/jTZ5CqHEAz6LdEi4Yr0QeAskRYsku6zqi0hQYaTtlUhjMu93wsMhPaGyQhzaCPCYgxKM3D1x0vP1aRZfc1n+nKN9DpC0EDOH6J/NKuFQHv2rFpQAWfjmjSQIeHhFO+c2kwow4AMjW6Tk/bprMrKcaXzVwqFNmJKaVtT7cbAn0YunWUZuqhyxwQ4TWTHsRIlBuaZhZ1UFZutNABaUj1ztWAhasC9hO7XBhdzXay1PV7QMmNVGxw9Adrw3lNUFmV2yaDIy2Qx4uUdUtclr5641Ckd3EzAMrJJBAU70EV7q4e9TA5IntlG2fpv3f/L7w2juKivy0UgegOJB8Wis6iR8Vi9tkRcu5CMNWPFz4T6NzYodrOQSrxfsga+55Ig=",
+      "frame": "{\"type\": 685, \"line\": \"J55okyxqwaYhyq7O!J5CmDejLa1bhfAso!auth qe0NWwWavvfyj2hLh5JTWap++DnUvkWkYn7YhJDOsv25B1wEt5eJdd2evGQamC3P1upanBP31MJTiz+3O07SN2sKl/CXxGiO+OL6+JHXKaGZI/dIDUWQKlwIgNfbsdeX0Jk9BnS5oCIxFgGZy9K00caj+oAesSZGlm9acs6Nsh7VLy1avBAyA1m/jTZ5CqHEAz6LdEi4Yr0QeAskRYsku6zqi0hQYaTtlUhjMu93wsMhPaGyQhzaCPCYgxKM3D1x0vP1aRZfc1n+nKN9DpC0EDOH6J/NKuFQHv2rFpQAWfjmjSQIeHhFO+c2kwow4AMjW6Tk/bprMrKcaXzVwqFNmJKaVtT7cbAn0YunWUZuqhyxwQ4TWTHsRIlBuaZhZ1UFZutNABaUj1ztWAhasC9hO7XBhdzXay1PV7QMmNVGxw9Adrw3lNUFmV2yaDIy2Qx4uUdUtclr5641Ckd3EzAMrJJBAU70EV7q4e9TA5IntlG2fpv3f/L7w2juKivy0UgegOJB8Wis6iR8Vi9tkRcu5CMNWPFz4T6NzYodrOQSrxfsga+55Ig= 02c8fc47afa0dd01f5f414e350e6237df150b72501843988be9c4ab66f107a1083 MEQCICKT85SMJiQr2tyPQ2zu7NRgJlAgk7gj+j2KsjcLAcOcAiAeOrL4c6bdce8mpjFzv64n4ukErnhKbvYV9CRQz5I0Ow==\"}"
+    },
+    "ioauth": {
+      "plaintext": "d7d7a211c8219bd8e7aa2e5ef6838b90a0f651733275e138f3f1ce499cab0004:0:00140457a07952f20ecbfa1f4ac58e18ebf3a80f2259:961600,37da15e8ee7b12172301c268ee7602f4d1f8424a833ab1ee5fe07634dd18fe30:3:001498f30399b7eda8b5a105ca4a417a9b67b99b8bd7:961600 033d1a63fba974247440c776a3915e4425dc544630b09e690d0013cfea640e17cc bc1qkw3fk3nr780h7lwcqvmn7drrwvxedc63g9mfm7 bc1q74ltlhggwrqxdjze6fcadjuvqp2jeduvye6u40 MEQCIEXLNwhdcySdw/gJF4DOVUGYET4DqXjcEM+9qrQPHALmAiBG9wddcLyplNjoQXW3FkRFSYAuYsVjUdyPTwDIOhCBnQ==",
+      "utxo_list": "d7d7a211c8219bd8e7aa2e5ef6838b90a0f651733275e138f3f1ce499cab0004:0:00140457a07952f20ecbfa1f4ac58e18ebf3a80f2259:961600,37da15e8ee7b12172301c268ee7602f4d1f8424a833ab1ee5fe07634dd18fe30:3:001498f30399b7eda8b5a105ca4a417a9b67b99b8bd7:961600",
+      "auth_pub": "033d1a63fba974247440c776a3915e4425dc544630b09e690d0013cfea640e17cc",
+      "btc_sig": "MEQCIEXLNwhdcySdw/gJF4DOVUGYET4DqXjcEM+9qrQPHALmAiBG9wddcLyplNjoQXW3FkRFSYAuYsVjUdyPTwDIOhCBnQ==",
+      "btc_sig_valid": true,
+      "parsed_utxos": [
+        "d7d7a211c8219bd8e7aa2e5ef6838b90a0f651733275e138f3f1ce499cab0004:0:00140457a07952f20ecbfa1f4ac58e18ebf3a80f2259:961600",
+        "37da15e8ee7b12172301c268ee7602f4d1f8424a833ab1ee5fe07634dd18fe30:3:001498f30399b7eda8b5a105ca4a417a9b67b99b8bd7:961600"
+      ],
+      "ciphertext": "1XpZtBm4LfHqRataZvPHns5LPaseDNzINo+3SF+GbvI4fWx4svkw9EeGagD6iZE3OuR2/KF1IR4Hke2TPpea4SyMf3vDqbrsfIy74Gld2SYz4isWy0akJoPkiN8X1c8qjVePLP8vKk7DaIEfT4oU1LDSV8che02k+uXqZVT3Qxfn68k9gexiPcXzWzNZnSGiaVxHCk9miRt4k+H5XorVCX0h9w7mBDXEkA5h2ZoG8fuGBRZycqVNFk65DJD9vpqcY181TanOutvTJwwi1SxHBp7DEkRZhzKQsgbRM8/7grM9sOAR3KCEmyEZ2VRsofgcceoHDuLWtvj2oVc0XepKxsaFVF7UMcVD1cCL6m6zjBt381m1OT6UxzqwAID3eekX88yk64RqDgHpSCFW+FIJu310lMkU/xFa+OESuez7c3+0pV21Y+jvUSV+Hj0L9Wch0SdjBxEh4XuwlL+SXeqYyu3H2TcI1IND68kMNWkftDOy62k4ZEl4R+RQjOLK0pCz9cKmBvzwGW414Yxzc6fzI6CxdFYjvsh1z3gPOCXZlrwDk+RlpD6aQ4RY8ZHPDzVkL3K3RnVUxDgPyYchalzvhJStmyH/ApaFaBWh4zwwRlsoXHRBVB1tLN3Qk/fRD9xo0rFZyC5z/pUJxEK7O0devT2O8e1IL034nSo8poj5lr+pt/JJIh1ie+OcYzh6bJc=",
+      "frame": "{\"type\": 685, \"line\": \"J5CmDejLa1bhfAso!J55okyxqwaYhyq7O!ioauth 1XpZtBm4LfHqRataZvPHns5LPaseDNzINo+3SF+GbvI4fWx4svkw9EeGagD6iZE3OuR2/KF1IR4Hke2TPpea4SyMf3vDqbrsfIy74Gld2SYz4isWy0akJoPkiN8X1c8qjVePLP8vKk7DaIEfT4oU1LDSV8che02k+uXqZVT3Qxfn68k9gexiPcXzWzNZnSGiaVxHCk9miRt4k+H5XorVCX0h9w7mBDXEkA5h2ZoG8fuGBRZycqVNFk65DJD9vpqcY181TanOutvTJwwi1SxHBp7DEkRZhzKQsgbRM8/7grM9sOAR3KCEmyEZ2VRsofgcceoHDuLWtvj2oVc0XepKxsaFVF7UMcVD1cCL6m6zjBt381m1OT6UxzqwAID3eekX88yk64RqDgHpSCFW+FIJu310lMkU/xFa+OESuez7c3+0pV21Y+jvUSV+Hj0L9Wch0SdjBxEh4XuwlL+SXeqYyu3H2TcI1IND68kMNWkftDOy62k4ZEl4R+RQjOLK0pCz9cKmBvzwGW414Yxzc6fzI6CxdFYjvsh1z3gPOCXZlrwDk+RlpD6aQ4RY8ZHPDzVkL3K3RnVUxDgPyYchalzvhJStmyH/ApaFaBWh4zwwRlsoXHRBVB1tLN3Qk/fRD9xo0rFZyC5z/pUJxEK7O0devT2O8e1IL034nSo8poj5lr+pt/JJIh1ie+OcYzh6bJc= 02e2fb42cbd40cd4f386a2ea18ca1d45372bee640feca192514966e5a1ff53828f MEQCIHAtFAVdu2GYKCNz5w3VPnmrm5TD1x1K8OCuktL9PtO+AiAy5MO1+RaS2GEAewJUbhdRX3BrAHIxsnSaxs/u5M3qQg==\"}"
+    },
+    "tx": {
+      "plaintext": "AgAAAARDcaMywvzP2Oyfwi5O4aEv8wwSlY3jHHqQapZuzbuq4gEAAAAA/v///wQAq5xJzvHzOOF1MnNR9qCQi4P2Xi6q59ibIcgRotfXAAAAAAD+////MP4Y3TR24F/usTqDSkL40fQCdu5owgEjFxJ77ugV2jcDAAAAAP7///8zlKPgR6ibHkUV38deMYZRiOakcVaCeDmZMXN/kH+svgIAAAAA/v///waAw8kBAAAAABYAFO4ND1/z8kniQydn9IlTYGfO7R5DgMPJAQAAAAAWABSzoptGY/Hff33YAzc/NGNzDZbjUYDDyQEAAAAAFgAUNBrFRXFcFBtZ7gB8mqiURzIyNOJGxuQAAAAAABYAFPfRiA9ZBN0ui3//jw6UIrsTIPd8sGJMAAAAAAAWABT1fr/dCHDAZshZ0nHWy4wAVSy3jJ5DDwAAAAAAFgAUQY0jJwJpvM3GrLLh146aWC0RhYSkrA4A",
+      "nonce": "b5d2deeee715f2c1f88ab6bdb3eb9b0303d13a434731b0e4",
+      "ciphertext": "tdLe7ucV8sH4ira9s+ubAwPROkNHMbDk4bK0D1OgItNH06EzeW9CQDzbJaELx4IG1poHUXc5BUW/yzJSR08Yc8LZOvNZjrUcZhYPA0WQsc/i3MACP7oRp+Obixuz22D87EOd+9996/NMFf412CGwgdhuS3h/vaN2J0LNEeY4kEm/fR7a8WO3GLny5MRbFlrdWRvr48TVNA17t18BSLXHaOv/qPLpcjvuJaqfUjtAwF+AY4+OOEz5gZg3qhFMa3qmXUwjUQAPZirKZwgTzWjdfWAhQynN1Jz0N7rXx/GvmP40tus4CexTNoWVmPRS6jI1ywP+AzBGyYCM+Bey54O8Rw1SzhwxY074fp/S8ImFjc3kRHObJOKtko9/QvIbNhMjW0TwVB8cF7qighV4s3l4Y1B4EnXnuGuU8Vy/ENQ1L1J+r/5T7v9P8TYoj19K9RMALu8wUfDpa1prbxTygiB9+DFwMe5FVyIo/zScZ+ri3UfBefxACCqmTbGvO14YZn7+4g9YG7IboarYirTm51+yEGIlEXIXqXPP0G10GpWsMHhohTjJj0wJ7POs7JuKxT5rsePt716n5vg5AZvcdV6IlzQefEC+ykRvQmTJJnzI3aqgymhhfQyvJjlwuPrO894xcbtiziquLQxcya6VgILFxAHY6Jz/0dnfSOyhmP9jj+5YRMF1iC2M1Q==",
+      "frame": "{\"type\": 685, \"line\": \"J55okyxqwaYhyq7O!J5CmDejLa1bhfAso!tx tdLe7ucV8sH4ira9s+ubAwPROkNHMbDk4bK0D1OgItNH06EzeW9CQDzbJaELx4IG1poHUXc5BUW/yzJSR08Yc8LZOvNZjrUcZhYPA0WQsc/i3MACP7oRp+Obixuz22D87EOd+9996/NMFf412CGwgdhuS3h/vaN2J0LNEeY4kEm/fR7a8WO3GLny5MRbFlrdWRvr48TVNA17t18BSLXHaOv/qPLpcjvuJaqfUjtAwF+AY4+OOEz5gZg3qhFMa3qmXUwjUQAPZirKZwgTzWjdfWAhQynN1Jz0N7rXx/GvmP40tus4CexTNoWVmPRS6jI1ywP+AzBGyYCM+Bey54O8Rw1SzhwxY074fp/S8ImFjc3kRHObJOKtko9/QvIbNhMjW0TwVB8cF7qighV4s3l4Y1B4EnXnuGuU8Vy/ENQ1L1J+r/5T7v9P8TYoj19K9RMALu8wUfDpa1prbxTygiB9+DFwMe5FVyIo/zScZ+ri3UfBefxACCqmTbGvO14YZn7+4g9YG7IboarYirTm51+yEGIlEXIXqXPP0G10GpWsMHhohTjJj0wJ7POs7JuKxT5rsePt716n5vg5AZvcdV6IlzQefEC+ykRvQmTJJnzI3aqgymhhfQyvJjlwuPrO894xcbtiziquLQxcya6VgILFxAHY6Jz/0dnfSOyhmP9jj+5YRMF1iC2M1Q== 02c8fc47afa0dd01f5f414e350e6237df150b72501843988be9c4ab66f107a1083 MEQCIBKDOLYiV66g6fvECiSG4icpokC+8zMS757pFxXOcczyAiBNX3na0RZHJRQfkbh6sDGuKWzgUQA/DoGKkVRKgRePsA==\"}"
+    },
+    "sig": [
+      {
+        "plaintext": "RzBEAiApOTtFCwhGMYws5eePi3mTsRMiRWMiabNAzp55fqD0owIgHsYeun/8iQipyFNrmxA4y9MQoEK45GV1asSbN4Y4I8YhIQM9GmP7qXQkdEDHdqORXkQl3FRGMLCeaQ0AE8/qZA4XzA==",
+        "ciphertext": "ersThnP4cyFjQkQN47Q7R3HfCNBRJQhWNdXCyKN9+n/jwNQomMonvIzQ5zHwMRT/dbha339jBliBmNe0aAkP2idKZomepgN64+UuTeq1nIQ/zYUSenELpBNcJ94GCHEKfikAWc7W2IsAVJHbH6jVIxk50i2VIu3YbSnPC01kCEIxpu22EzugfdC6OywcsIWHuCQqZuPFsYiMp1BlChkTwv22x5JwVTxhtBlxn0sgO6ZGoyAbznPMlA==",
+        "line": "{\"type\": 685, \"line\": \"J5CmDejLa1bhfAso!J55okyxqwaYhyq7O!sig ersThnP4cyFjQkQN47Q7R3HfCNBRJQhWNdXCyKN9+n/jwNQomMonvIzQ5zHwMRT/dbha339jBliBmNe0aAkP2idKZomepgN64+UuTeq1nIQ/zYUSenELpBNcJ94GCHEKfikAWc7W2IsAVJHbH6jVIxk50i2VIu3YbSnPC01kCEIxpu22EzugfdC6OywcsIWHuCQqZuPFsYiMp1BlChkTwv22x5JwVTxhtBlxn0sgO6ZGoyAbznPMlA== 02e2fb42cbd40cd4f386a2ea18ca1d45372bee640feca192514966e5a1ff53828f MEQCIFSZ4TTQnPDLYv5UxS5dIKi2n7iur2knN0YXy3N2/qJDAiAzRPSKyUilsC3E7X5FT5qV9s4baNJnDDQ9SXWl3k+G1Q==\"}"
+      },
+      {
+        "plaintext": "RzBEAiA+Y8fZV2pNGnDM0IGhe3KWwCp9Sc0YKotAnfhKw4jMbgIgJUPXFKaMNApOYi38cPfi9C93hWTHnD0qS9toFapBaoMhIQPhPSee3bsA/LkutTiwB8DkAze0JXRwCgJ3TChlRtzBSA==",
+        "ciphertext": "s5n580WfAZjbehTnz7r0l07y4pFRYQAl2vSDaP1yXD1w4AdB765Ahvkj9JxplOB97xCx+BspQS53DWL6IN2aScLkmCdwAGeqbHEHoqpJonQdzSGtswOi1GFCJ3tTvlLFuufQHlcSi5fvDtloIzCsfiQ6459/Bflbwb2AYS9zIbncO0/Stu1CCYylsLTG7zsHy/8Ezeqa7pzBBXEfRK/DUmJr3hWBC056pETEoWph5ZSRuVtVRNk40Q==",
+        "line": "{\"type\": 685, \"line\": \"J5CmDejLa1bhfAso!J55okyxqwaYhyq7O!sig s5n580WfAZjbehTnz7r0l07y4pFRYQAl2vSDaP1yXD1w4AdB765Ahvkj9JxplOB97xCx+BspQS53DWL6IN2aScLkmCdwAGeqbHEHoqpJonQdzSGtswOi1GFCJ3tTvlLFuufQHlcSi5fvDtloIzCsfiQ6459/Bflbwb2AYS9zIbncO0/Stu1CCYylsLTG7zsHy/8Ezeqa7pzBBXEfRK/DUmJr3hWBC056pETEoWph5ZSRuVtVRNk40Q== 02e2fb42cbd40cd4f386a2ea18ca1d45372bee640feca192514966e5a1ff53828f MEUCIQDaj7frki7QKNR2JXUYViS++aQPsZBpylUWDkZtT8imEwIgLDVdI+CkVFyY3zB/b2GR4apcC4oXf2icnaH9W9ZtDDg=\"}"
+      }
+    ],
+    "push": {
+      "frame": "{\"type\": 685, \"line\": \"J55okyxqwaYhyq7O!J5CmDejLa1bhfAso!push AgAAAAABBENxozLC/M/Y7J/CLk7hoS/zDBKVjeMcepBqlm7Nu6riAQAAAAD+////BACrnEnO8fM44XUyc1H2oJCLg/ZeLqrn2JshyBGi19cAAAAAAP7///8w/hjdNHbgX+6xOoNKQvjR9AJ27mjCASMXEnvu6BXaNwMAAAAA/v///zOUo+BHqJseRRXfx14xhlGI5qRxVoJ4OZkxc3+Qf6y+AgAAAAD+////BoDDyQEAAAAAFgAU7g0PX/PySeJDJ2f0iVNgZ87tHkOAw8kBAAAAABYAFLOim0Zj8d9/fdgDNz80Y3MNluNRgMPJAQAAAAAWABQ0GsVFcVwUG1nuAHyaqJRHMjI04kbG5AAAAAAAFgAU99GID1kE3S6Lf/+PDpQiuxMg93ywYkwAAAAAABYAFPV+v90IcMBmyFnScdbLjABVLLeMnkMPAAAAAAAWABRBjSMnAmm8zcassuHXjppYLRGFhAJIMEUCIQCBSKBmqumzBkbHJrKDXoLkNUH5RbVMV9zZNVHoeDHLfQIgTUw/cuCieuPn/evV9uMZ828fT+gHafDV9R1RE7p2uOYhIQJpwKpwWQ0h5bz4Nd+/tjzTHPYO7okE5CmPHYM4rJxdfgJHMEQCICk5O0ULCEYxjCzl54+LeZOxEyJFYyJps0DOnnl+oPSjAiAexh66f/yJCKnIU2ubEDjL0xCgQrjkZXVqxJs3hjgjxiEhAz0aY/updCR0QMd2o5FeRCXcVEYwsJ5pDQATz+pkDhfMAkcwRAIgPmPH2VdqTRpwzNCBoXtylsAqfUnNGCqLQJ34SsOIzG4CICVD1xSmjDQKTmIt/HD34vQvd4Vkx5w9KkvbaBWqQWqDISED4T0nnt27APy5LrU4sAfA5AM3tCV0cAoCd0woZUbcwUgCSDBFAiEA/ftBY6QasYGWZ9HUdOmnsZGqwwgP9IA7XUUuof7LTHMCIE0U+XMXTn3OmED9yVzTuyHlig6M+rylbAgxx/SkH3dTISEDB+vawLGZUKpqlG/xF5V2aOnEiB6NCeH61hpXSgZuVBukrA4A 02c8fc47afa0dd01f5f414e350e6237df150b72501843988be9c4ab66f107a1083 MEQCIFhxIBCvDsqFXAygbe0VzORpRP3HSY0tTMdijm8ejkZlAiBuz9wLUIDiHNXexCTrOlgh66gIxO+0ar+Yjs1ez7in1Q==\"}"
+    },
+    "error": {
+      "frame": "{\"type\": 685, \"line\": \"J5CmDejLa1bhfAso!J55okyxqwaYhyq7O!error Transaction verification failed: CJ output value too low 02e2fb42cbd40cd4f386a2ea18ca1d45372bee640feca192514966e5a1ff53828f MEQCIC8XO8VqUikMeFXwtg2pdMPNLjTy09X/5delaPUXrH5RAiBnuuxgo55+GV0hZVIdJJuhQQsrB+xabrI1IwwZIcIH8g==\"}"
+    }
+  }
+}

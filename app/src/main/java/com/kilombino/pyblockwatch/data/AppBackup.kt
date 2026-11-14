@@ -63,6 +63,9 @@ object AppBackup {
             .put("coinjoin", dump(app.getSharedPreferences(COINJOIN, Context.MODE_PRIVATE).all))
             .put("scan", scanMemory(app))
             .apply { com.kilombino.pyblockwatch.ln.Lightning.exportBackup(app)?.let { put("lightning", it) } }
+            // JoinBlaket: PoDLE commitments already shown to makers, so a restored wallet never reuses one.
+            .apply { com.kilombino.pyblockwatch.joinblaket.FileCommitmentStore(
+                com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.commitmentsFile(app)).export()?.let { put("joinblaket_commitments", JSONObject(it)) } }
             .toString()
     }
 
@@ -117,6 +120,8 @@ object AppBackup {
         o.optJSONObject("coinjoin")?.let { Store.importPrefs(app.getSharedPreferences(COINJOIN, Context.MODE_PRIVATE), load(it)) }
         o.optJSONObject("scan")?.let { runCatching { restoreScanMemory(app, it) } }
         o.optJSONObject("lightning")?.let { runCatching { com.kilombino.pyblockwatch.ln.Lightning.stageRestore(app, it) } }
+        o.optJSONObject("joinblaket_commitments")?.let { runCatching { com.kilombino.pyblockwatch.joinblaket.FileCommitmentStore(
+            com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.commitmentsFile(app)).mergeFrom(it.toString()) } }
         com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.reload(app)
     }
 }

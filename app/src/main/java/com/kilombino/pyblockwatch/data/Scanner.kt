@@ -659,11 +659,26 @@ class Scanner(
          * already fetched; null when it is not at hand. Splits a wallet's movements by jar.
          */
         fun cachedNet(txid: String, ours: Set<String>): Long? {
-            val tx = txCache[txid] ?: return null
+            val tx = cachedTx(txid) ?: return null
             fun mine(o: TxParse.Out?) = o != null && Address.electrumScriptHash(o.scriptPubKey) in ours
             return tx.outputs.filter { mine(it) }.sumOf { it.value } -
-                tx.inputs.sumOf { i -> txCache[i.txid]?.outputs?.getOrNull(i.vout)?.takeIf { mine(it) }?.value ?: 0L }
+                tx.inputs.sumOf { i -> cachedTx(i.txid)?.outputs?.getOrNull(i.vout)?.takeIf { mine(it) }?.value ?: 0L }
         }
+
+        /**
+         * A wallet transaction a look already fetched: from memory, or from the phone (kept by an
+         * earlier run); null when neither has it. Never asks the server.
+         */
+        fun cachedTx(txid: String): TxParse.Tx? {
+            txCache[txid]?.let { return it }
+            val file = txFile(txid) ?: return null
+            val fromDisk = file.takeIf { it.exists() }?.let { f -> runCatching { f.readText() }.getOrNull() }
+                ?.let { hex -> runCatching { TxParse.parse(hex) }.getOrNull()?.takeIf { TxParse.txid(it) == txid } } ?: return null
+            txCache[txid] = fromDisk
+            return fromDisk
+        }
+
+        private fun txFile(txid: String): java.io.File? = disk?.let { java.io.File(java.io.File(it, "tx"), txid.filter { c -> c.isLetterOrDigit() }) }
 
         /** Read the remembered statuses again (a backup file just put them back). */
         fun reloadDisk(dir: java.io.File): Unit = synchronized(this) {
@@ -680,11 +695,8 @@ class Scanner(
 
         /** A wallet transaction: from memory, from the phone, or from the server (then kept). */
         private fun tx(client: ElectrumClient, txid: String): TxParse.Tx? {
-            txCache[txid]?.let { return it }
-            val file = disk?.let { java.io.File(java.io.File(it, "tx"), txid.filter { c -> c.isLetterOrDigit() }) }
-            val fromDisk = file?.takeIf { it.exists() }?.let { f -> runCatching { f.readText() }.getOrNull() }
-                ?.let { hex -> runCatching { TxParse.parse(hex) }.getOrNull()?.takeIf { TxParse.txid(it) == txid } }
-            if (fromDisk != null) { txCache[txid] = fromDisk; return fromDisk }
+            cachedTx(txid)?.let { return it }
+            val file = txFile(txid)
             val hex = runCatching { client.transaction(txid) }.getOrNull() ?: return null
             val parsed = runCatching { TxParse.parse(hex) }.getOrNull() ?: return null
             txCache[txid] = parsed

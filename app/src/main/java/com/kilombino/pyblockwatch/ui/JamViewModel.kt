@@ -9,6 +9,7 @@ import com.kilombino.pyblockwatch.crypto.BondPsbt
 import com.kilombino.pyblockwatch.crypto.TxBuilder
 import com.kilombino.pyblockwatch.data.AddressRow
 import com.kilombino.pyblockwatch.data.BalanceWatch
+import com.kilombino.pyblockwatch.data.JamLedger
 import com.kilombino.pyblockwatch.data.JamWatch
 import com.kilombino.pyblockwatch.data.JoinMarket
 import com.kilombino.pyblockwatch.data.Notifier
@@ -36,6 +37,10 @@ data class JamUi(
     val bonds: List<JoinMarket.BondState> = emptyList(),
     /** Movement → jar → what it did to that jar (+ in, − out). */
     val jarNets: Map<String, Map<Int, Long>> = emptyMap(),
+    /** The coins (UTXOs) of every jar and bond, from the transactions at hand. */
+    val coins: JamLedger.Coins = JamLedger.Coins(emptyList(), true),
+    /** What the wallet earned as a maker (see [JamLedger.makerEarnings]). */
+    val earnings: JamLedger.Earnings = JamLedger.Earnings(emptyList()),
     /** Shown from the last look this phone saved, not yet checked again. */
     val stale: Boolean = false,
     val refreshing: Boolean = false,
@@ -49,6 +54,19 @@ data class JamUi(
     val total: Long get() = confirmed + unconfirmed
     fun jarRows(jar: Int) = rows.filter { it.jar == jar && it.chainIndex != JoinMarket.BOND_BRANCH }
     fun jarTotal(jar: Int) = jarRows(jar).sumOf { it.total }
+    /** A jar's coins, the bonds' left out (they have their own section, as in the totals). */
+    fun jarCoins(jar: Int) = coins.coins.filter { it.jar == jar && !it.bond }
+    /** A jar's movements, each with what it did to that jar (+ in, − out) as its amount. */
+    fun jarMoves(jar: Int) = txs.mapNotNull { t -> jarNets[t.txid]?.get(jar)?.let { t.copy(amount = it) } }
+    /**
+     * The movements of several jars in one list, in the wallet's order (so they interleave): each
+     * transaction once, with what it did to those jars together (a move between two of them nets out).
+     */
+    fun jarsMoves(jars: Set<Int>) = txs.mapNotNull { t ->
+        val nets = jarNets[t.txid] ?: return@mapNotNull null
+        val mine = nets.filterKeys { it in jars }
+        if (mine.isEmpty()) null else t.copy(amount = mine.values.sum())
+    }
     val bondTotal: Long get() = rows.filter { it.chainIndex == JoinMarket.BOND_BRANCH }.sumOf { it.total }
 }
 
@@ -90,8 +108,9 @@ class JamViewModel(app: Application) : AndroidViewModel(app) {
             withContext(Dispatchers.IO) {
                 Scanner.useDisk(java.io.File(getApplication<Application>().noBackupFilesDir, "scan-cache"))
             }
-            readSnapshot()?.let { s -> _state.update { it.copy(rows = s.rows, txs = s.txs, height = s.height, bonds = s.bonds, phase = ScanPhase.Complete, stale = true,
-                jarNets = JamWatch.jarNets(s.txs, s.rows)) } }
+            readSnapshot()?.let { s -> val l = ledger(s.txs, s.rows)
+                _state.update { it.copy(rows = s.rows, txs = s.txs, height = s.height, bonds = s.bonds, phase = ScanPhase.Complete, stale = true,
+                    jarNets = l.jarNets, coins = l.coins, earnings = l.earnings) } }
         }
     }
 
@@ -149,8 +168,9 @@ class JamViewModel(app: Application) : AndroidViewModel(app) {
                         JamWatch.noteUsed(e, store, ev.rows)
                         store.setLastBalance(chain, ev.rows.sumOf { it.confirmed }, ev.rows.sumOf { it.unconfirmed })
                         store.setLastFullLook(chain)
+                        val l = ledger(ev.txs, ev.rows)
                         _state.update { it.copy(rows = ev.rows, txs = ev.txs, height = ev.height, phase = ScanPhase.Complete, stale = false,
-                            jarNets = JamWatch.jarNets(ev.txs, ev.rows)) }
+                            jarNets = l.jarNets, coins = l.coins, earnings = l.earnings) }
                         checkBonds(e, ev.rows)
                     }
                     is ScanEvent.Failed -> _state.update { it.copy(phase = ScanPhase.Error(ev.message)) }
@@ -185,7 +205,8 @@ class JamViewModel(app: Application) : AndroidViewModel(app) {
                 JamWatch.noteUsed(e, store, used)
                 BalanceWatch.evaluate(store, notifier, chain, used.sumOf { it.confirmed }, used.sumOf { it.unconfirmed }, txs,
                     runCatching { com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.ownTxids(getApplication()) }.getOrDefault(emptySet()))
-                _state.update { it.copy(rows = used, txs = txs, height = tip, stale = false, jarNets = JamWatch.jarNets(txs, used)) }
+                val l = ledger(txs, used)
+                _state.update { it.copy(rows = used, txs = txs, height = tip, stale = false, jarNets = l.jarNets, coins = l.coins, earnings = l.earnings) }
                 // A newly used address may sit past the walked range: walk again.
                 if (used.filter { it.chainIndex in 0..1 }.size > st.rows.filter { it.chainIndex in 0..1 }.size) {
                     _state.update { it.copy(refreshing = false) }; job = null; scan(); return@launch
@@ -194,6 +215,13 @@ class JamViewModel(app: Application) : AndroidViewModel(app) {
             }.onFailure { err -> _state.update { it.copy(phase = ScanPhase.Error(err.message ?: "The look failed")) } }
             _state.update { it.copy(refreshing = false) }
         }
+    }
+
+    private class Ledger(val jarNets: Map<String, Map<Int, Long>>, val coins: JamLedger.Coins, val earnings: JamLedger.Earnings)
+
+    /** Movements by jar, coins and maker earnings, from the transactions a look fetched (memory or phone). */
+    private suspend fun ledger(txs: List<TxConf>, rows: List<AddressRow>): Ledger = withContext(Dispatchers.IO) {
+        Ledger(JamWatch.jarNets(txs, rows), JamLedger.coins(rows, txs) { Scanner.cachedTx(it) }, JamLedger.makerEarnings(rows, txs) { Scanner.cachedTx(it) })
     }
 
     private suspend fun checkBonds(e: JoinMarket.Export, rows: List<AddressRow>) {
