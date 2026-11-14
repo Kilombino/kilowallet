@@ -106,7 +106,7 @@ object MarketFeed {
      * Fetches fresh data if the server allows it right now; otherwise returns the cache.
      * [force] (the refresh button) skips the 15-min schedule and the failure back-off, so
      * one network hiccup no longer leaves the button dead for hours; it never skips a 429
-     * and still waits at least one minute between attempts.
+     * and still waits at least ten seconds between attempts.
      */
     @Synchronized
     fun refresh(ctx: Context, force: Boolean = false): MarketData? {
@@ -114,7 +114,7 @@ object MarketFeed {
         val now = System.currentTimeMillis()
         val next = p.getLong(KEY_NEXT, 0L)
         val allowedByForce = force && now >= p.getLong(KEY_LIMITED_UNTIL, 0L) &&
-            now - p.getLong(KEY_LAST_TRY, 0L) >= 60_000L
+            now - p.getLong(KEY_LAST_TRY, 0L) >= 10_000L
         if (now < next && !allowedByForce) return cached(ctx)
         p.edit().putLong(KEY_LAST_TRY, now).apply()
         var conn: HttpURLConnection? = null

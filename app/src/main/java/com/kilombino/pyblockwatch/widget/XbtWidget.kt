@@ -68,7 +68,7 @@ class XbtWidget : AppWidgetProvider() {
             try {
                 MarketFeed.refresh(app, force)
                 // Keep it spinning for a moment even when the answer is instant (or the
-                // one-minute limit says "not yet"), otherwise it only flickers.
+                // ten-second limit says "not yet"), otherwise it only flickers.
                 if (force) Thread.sleep(maxOf(0L, MIN_SPIN_MS - (System.currentTimeMillis() - t0)))
             } finally {
                 if (force) spinning = false
@@ -232,7 +232,7 @@ class XbtWidget : AppWidgetProvider() {
                 else "${money(sym, m.low24Usd * rate)} – ${money(sym, m.high24Usd * rate)}")
             v.setTextViewText(R.id.block, m?.height?.let { String.format(Locale.US, "#%,d", it) } ?: "–")
             v.setTextViewText(R.id.updated, if (m == null) MarketFeed.SOURCE else {
-                val t = DateFormat.getTimeInstance(DateFormat.SHORT, Locale.US).format(Date(m.fetchedMs))
+                val t = DateFormat.getTimeInstance(DateFormat.MEDIUM, Locale.US).format(Date(m.fetchedMs))
                 MarketFeed.SOURCE + " · " + (if (MarketFeed.isStale(m)) "⚠ last data $t" else "updated $t")
             })
             if (size == Size.LARGE) {
