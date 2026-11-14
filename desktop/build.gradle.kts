@@ -28,7 +28,7 @@ val engineFiles = when (hostOs) {
 }
 
 /** The desktop app's own version (its betas are numbered apart from Android's). */
-val desktopVersion = "0.1.0-beta21"
+val desktopVersion = "0.1.0-beta22"
 val desktopCode = 18
 
 val writeBuildInfo by tasks.registering {
