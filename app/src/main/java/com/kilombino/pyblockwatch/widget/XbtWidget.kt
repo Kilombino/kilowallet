@@ -52,7 +52,9 @@ class XbtWidget : AppWidgetProvider() {
 
     override fun onReceive(ctx: Context, intent: Intent) {
         super.onReceive(ctx, intent)
-        if (intent.action == ACTION_REFRESH) refreshAsync(ctx, force = true)
+        // The button also restarts the countdown: the next automatic refresh is
+        // five minutes after this one, not after the previous one.
+        if (intent.action == ACTION_REFRESH) { scheduleNext(ctx); refreshAsync(ctx, force = true) }
         if (intent.action == ACTION_TICK) { scheduleNext(ctx); refreshAsync(ctx, force = false) }
     }
 
@@ -66,7 +68,7 @@ class XbtWidget : AppWidgetProvider() {
             try {
                 MarketFeed.refresh(app, force)
                 // Keep it spinning for a moment even when the answer is instant (or the
-                // one-minute limit says "not yet"), otherwise it only flickers.
+                // ten-second limit says "not yet"), otherwise it only flickers.
                 if (force) Thread.sleep(maxOf(0L, MIN_SPIN_MS - (System.currentTimeMillis() - t0)))
             } finally {
                 if (force) spinning = false
@@ -90,12 +92,23 @@ class XbtWidget : AppWidgetProvider() {
             ctx, 7, Intent(ctx, XbtWidget::class.java).setAction(ACTION_TICK),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
-        /** The next automatic refresh in [EVERY_MS]; allowed while the phone dozes (Android may delay it). */
+        /**
+         * The next automatic refresh in [EVERY_MS]. An exact alarm, so the countdown on the
+         * widget reaches zero when the refresh happens: an inexact one may fire minutes late
+         * and the countdown would run on into negative numbers meanwhile. Falls back to the
+         * inexact alarm if exact ones are not allowed (then the countdown is not shown).
+         */
         fun scheduleNext(ctx: Context) {
             if (!hasWidgets(ctx)) return
+            val am = alarm(ctx) ?: return
             val at = android.os.SystemClock.elapsedRealtime() + EVERY_MS
-            nextTickElapsed = at
-            alarm(ctx)?.setAndAllowWhileIdle(android.app.AlarmManager.ELAPSED_REALTIME, at, tickIntent(ctx))
+            val exact = android.os.Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()
+            if (exact) {
+                am.setExactAndAllowWhileIdle(android.app.AlarmManager.ELAPSED_REALTIME, at, tickIntent(ctx))
+            } else {
+                am.setAndAllowWhileIdle(android.app.AlarmManager.ELAPSED_REALTIME, at, tickIntent(ctx))
+            }
+            nextTickElapsed = if (exact) at else 0L
         }
 
         private const val MIN_SPIN_MS = 1500L
@@ -219,7 +232,7 @@ class XbtWidget : AppWidgetProvider() {
                 else "${money(sym, m.low24Usd * rate)} – ${money(sym, m.high24Usd * rate)}")
             v.setTextViewText(R.id.block, m?.height?.let { String.format(Locale.US, "#%,d", it) } ?: "–")
             v.setTextViewText(R.id.updated, if (m == null) MarketFeed.SOURCE else {
-                val t = DateFormat.getTimeInstance(DateFormat.SHORT, Locale.US).format(Date(m.fetchedMs))
+                val t = DateFormat.getTimeInstance(DateFormat.MEDIUM, Locale.US).format(Date(m.fetchedMs))
                 MarketFeed.SOURCE + " · " + (if (MarketFeed.isStale(m)) "⚠ last data $t" else "updated $t")
             })
             if (size == Size.LARGE) {

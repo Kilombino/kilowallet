@@ -2563,5 +2563,7 @@
 "1 CoinJoin as a maker": "1 coinjoin en tant que maker",
 "{0} CoinJoins as a maker": "{0} coinjoins en tant que maker",
 "In each CoinJoin where you were a maker: what came back to you over what you put in (the maker's fee less your part of the mining fee). Each one counts in the jar its coins came from.": "Dans chaque coinjoin où vous étiez maker : ce qui vous est revenu au-delà de ce que vous avez mis (les frais du maker moins votre part des frais de minage). Chacun compte dans le pot d'où venaient ses pièces.",
-"Movements": "Mouvements"
+"Movements": "Mouvements",
+"Exact coin on its way: waiting for its first confirmation. Then your pool opens by itself; follow it in IN PROGRESS.": "Pièce exacte en route : en attente de sa première confirmation. Ensuite ton pool s'ouvre tout seul ; suis-le dans EN COURS.",
+"Exact coin on its way: waiting for its first confirmation. Then it joins the pool by itself; follow it in IN PROGRESS.": "Pièce exacte en route : en attente de sa première confirmation. Ensuite elle rejoint le pool toute seule ; suis-la dans EN COURS."
 }

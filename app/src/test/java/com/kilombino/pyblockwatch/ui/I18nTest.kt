@@ -64,6 +64,19 @@ class I18nTest {
         I18n.lang.value = I18n.ES
     }
 
+    /** The note once a perfect coin is sent from the coinjoin sheet (it closes and goes to IN PROGRESS): every language. */
+    @Test fun exactCoinSentNotes() {
+        val keys = listOf(exactCoinSentNote(opensPool = true), exactCoinSentNote(opensPool = false))
+        assertTrue(keys[0] != keys[1])
+        for (l in I18n.LANGUAGES.map { it.first }.filter { it != I18n.EN }) {
+            val o = JSONObject(File(dir, "$l.json").readText())
+            keys.forEach { k -> assertTrue("$l lacks \"$k\"", o.has(k) && o.getString(k) != k) }
+        }
+        I18n.lang.value = I18n.ES
+        assertEquals("Moneda exacta en camino: esperando su primera confirmación. Entonces tu pool se abre solo; síguelo en EN CURSO.",
+            I18n.tr(exactCoinSentNote(opensPool = true)))
+    }
+
     /** The open jars' movements card: "Movements · <jar names>", the names left as Jam shows them. */
     @Test fun jarMovementsCardTitle() {
         I18n.lang.value = I18n.ES

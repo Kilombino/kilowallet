@@ -274,6 +274,10 @@ fun CoinjoinScreen(vm: WalletViewModel, accent: Color) {
             creating = false; com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.pending.value = null
             // A payment goes back to SEND as it was typed, nothing lost.
             pay?.draft?.let { com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.backToSend.value = it }
+        }, onExactCoinSent = {
+            // The perfect coin opens this pool by itself once it confirms (PerfectCoin): the form is done,
+            // and pressing OPEN on it again would open a second pool.
+            creating = false; tab = 1
         }) { amount, rate, minPeers, peers, hours, password, maxInputs, outputs, u, dest, cap, async ->
             scope.launch {
                 val type = if (u.first().type == ScriptType.P2TR) ScriptType.P2TR else ScriptType.P2WPKH
@@ -509,6 +513,11 @@ private fun CoinPicker(
     /** The pool a perfect coin made here is for: it joins (or opens) it by itself once confirmed. */
     exactFor: WalletViewModel.ExactFor,
     onCancel: () -> Unit,
+    /**
+     * A perfect coin made here was sent: it joins (or opens) the pool by itself once confirmed, so the
+     * sheet this picker belongs to is done. By default the same as [onCancel].
+     */
+    onExactSent: () -> Unit = onCancel,
     /** Coins ticked already (coin control in SEND, for a payment): the ones that fit are preselected. */
     initial: List<Scanner.SpendableUtxo> = emptyList(),
     /** A payment through the pool: the outputs go to its recipients, and there is no perfect coin to make. */
@@ -590,7 +599,7 @@ private fun CoinPicker(
             if (cap != null) Text("♻ Perpetual coinjoin: on · its pools at ${fmtRate(cap)} sat/vB. After this pool, the mixed coin remixes on its own.",
                 color = Good, style = MaterialTheme.typography.bodySmall)
             // The perpetual choice goes with the perfect coin: its pool, once joined, remixes as chosen here.
-            ExactCoinPanel(vm, accent, exact, tag, exactFor.withPerpetual(cap), dest, outputs) { sent -> making = false; reload++; if (sent) onCancel() }
+            ExactCoinPanel(vm, accent, exact, tag, exactFor.withPerpetual(cap), dest, outputs) { sent -> making = false; reload++; if (sent) onExactSent() }
             return@Panel
         }
         if (paymentPool) Explain((if (maxInputs > 1)
@@ -710,6 +719,8 @@ private fun CreatePool(
     /** A payment from SEND: the amount, the outputs and the address type are the payment's, not to be changed here. */
     pay: com.kilombino.pyblockwatch.coinjoin.CoinjoinPayment.Request?,
     onCancel: () -> Unit,
+    /** A perfect coin for this pool was sent from the coin picker: the pool opens by itself once it confirms. */
+    onExactCoinSent: () -> Unit,
     onCreate: (amount: Long, rate: Double, minPeers: Int, maxPeers: Int, hours: Int, password: String, maxInputs: Int,
                outputs: Int, coins: List<Scanner.SpendableUtxo>, dest: Destination.Kind, perpetualCap: Double?, async: Boolean) -> Unit,
 ) {
@@ -787,7 +798,7 @@ private fun CreatePool(
             .put("maxPeers", peers!!).put("hours", hours!!).put("minPeers", minPeers!!).put("password", password).put("maxInputs", maxInputs!!)
             .put("outputs", outputs!!).put("async", async))
         CoinPicker(vm, accent, if (pay != null) "Your coins for the payment" else "Your coins for the pool", amount, rate, type, maxInputs, outputs, exactFor,
-            onCancel = { pickCoin = false }, initial = pay?.coins.orEmpty(), payment = pay != null,
+            onCancel = { pickCoin = false }, onExactSent = onExactCoinSent, initial = pay?.coins.orEmpty(), payment = pay != null,
             feeOutputs = payV5?.size ?: outputs, paymentPool = payV5 != null, perpetualOk = pay == null && outputs == 1,
             initialPerpetual = perpetual, initialCap = capText.ifEmpty { rateText }) { u, dest, cap ->
             onCreate(amount, rate, minPeers!!, peers!!, hours!!, password, maxInputs, outputs, u, dest, cap, async)
@@ -1487,6 +1498,7 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, tag:
                     confirmButton = {
                         TextButton(onClick = {
                             vm.resetSend(); onDone(true)
+                            vm.toast(exactCoinSentNote(exactFor.create != null))
                             // The coin now waits for its pool in IN PROGRESS: that is where to look, not BTC.
                             com.kilombino.pyblockwatch.data.OpenTab.open(com.kilombino.pyblockwatch.data.OpenTab.COINJOIN_ROUNDS)
                         }) { Text("CLOSE", color = accent) }
@@ -1505,6 +1517,11 @@ private fun ExactCoinPanel(vm: WalletViewModel, accent: Color, exact: Long, tag:
         }
     }
 }
+
+/** Said once the perfect coin's dialog is closed, on the way to IN PROGRESS where it waits. */
+internal fun exactCoinSentNote(opensPool: Boolean): String =
+    if (opensPool) "Exact coin on its way: waiting for its first confirmation. Then your pool opens by itself; follow it in IN PROGRESS."
+    else "Exact coin on its way: waiting for its first confirmation. Then it joins the pool by itself; follow it in IN PROGRESS."
 
 private fun fmtRate(r: Double): String =
     if (r >= 10) "%.0f".format(java.util.Locale.ROOT, r) else "%.1f".format(java.util.Locale.ROOT, r)
