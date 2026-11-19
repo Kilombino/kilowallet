@@ -2551,5 +2551,7 @@
 "1 CoinJoin as a maker": "作为做市方参与 1 次 CoinJoin",
 "{0} CoinJoins as a maker": "作为做市方参与 {0} 次 CoinJoin",
 "In each CoinJoin where you were a maker: what came back to you over what you put in (the maker's fee less your part of the mining fee). Each one counts in the jar its coins came from.": "在你作为做市方参与的每次 CoinJoin 中：返还给你的金额超出你投入的部分（做市方手续费减去你分摊的矿工费）。每次都计入其币所来自的罐子。",
-"Movements": "变动记录"
+"Movements": "变动记录",
+"Exact coin on its way: waiting for its first confirmation. Then your pool opens by itself; follow it in IN PROGRESS.": "精确币已发出：正在等待第一次确认。之后你的池会自动开启；在 进行中 查看。",
+"Exact coin on its way: waiting for its first confirmation. Then it joins the pool by itself; follow it in IN PROGRESS.": "精确币已发出：正在等待第一次确认。之后它会自动加入该池；在 进行中 查看。"
 }
