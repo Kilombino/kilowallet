@@ -2565,5 +2565,11 @@
 "In each CoinJoin where you were a maker: what came back to you over what you put in (the maker's fee less your part of the mining fee). Each one counts in the jar its coins came from.": "En cada coinjoin en el que fuiste maker: lo que te volvió por encima de lo que pusiste (la comisión del maker menos tu parte de la comisión de minería). Cada uno cuenta en el bote del que salieron sus monedas.",
 "Movements": "Movimientos",
 "Exact coin on its way: waiting for its first confirmation. Then your pool opens by itself; follow it in IN PROGRESS.": "Moneda exacta en camino: esperando su primera confirmación. Entonces tu pool se abre solo; síguelo en EN CURSO.",
-"Exact coin on its way: waiting for its first confirmation. Then it joins the pool by itself; follow it in IN PROGRESS.": "Moneda exacta en camino: esperando su primera confirmación. Entonces entra sola en el pool; síguela en EN CURSO."
+"Exact coin on its way: waiting for its first confirmation. Then it joins the pool by itself; follow it in IN PROGRESS.": "Moneda exacta en camino: esperando su primera confirmación. Entonces entra sola en el pool; síguela en EN CURSO.",
+"Open Roblosats": "Abrir Roblosats",
+"Unlock to see your robots and orders": "Desbloquea para ver tus robots y órdenes",
+"Include my Roblosats robots (tokens and Garage Key)": "Incluir mis robots de Roblosats (tokens y Garage Key)",
+"Open outside Kilowallet?": "¿Abrir fuera de Kilowallet?",
+"This link leaves Roblosats and opens in another app (your browser does not go through Kilowallet's Tor):": "Este enlace sale de Roblosats y se abre en otra app (tu navegador no pasa por el Tor de Kilowallet):",
+"Copied": "Copiado"
 }

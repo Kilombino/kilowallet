@@ -1,0 +1,8 @@
+repo=https://github.com/Kilombino/roblosats
+branch=kilowallet-embed
+tag=v0.9.10-kw1
+commit=1a9303e5ee33f978274f0add8b1255da238a452b
+file=roblo-client-v0.9.10-kw1.zip
+build=scripts/kilowallet-client.sh v0.9.10-kw1 (Roblosats repo, node_modules from frontend/package-lock.json)
+license=AGPL-3.0 (the client; LICENSE and SOURCE inside the zip)
+sha256=e24a0fe54bfb5b0249e7020b390de549c36ba05712c44170d165cbf28fce697a

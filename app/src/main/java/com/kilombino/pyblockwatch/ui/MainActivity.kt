@@ -87,12 +87,24 @@ class MainActivity : FragmentActivity() {
     override fun onStart() {
         super.onStart()
         AppVisible.value = true
+        if (com.kilombino.pyblockwatch.BuildConfig.ROBLO) com.kilombino.pyblockwatch.roblo.RobloWeb.appShown()
     }
 
     override fun onStop() {
         super.onStop()
         AppVisible.value = false
+        if (com.kilombino.pyblockwatch.BuildConfig.ROBLO) com.kilombino.pyblockwatch.roblo.RobloWeb.appHidden()
         StreetMode.lock()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (com.kilombino.pyblockwatch.BuildConfig.ROBLO) com.kilombino.pyblockwatch.roblo.RobloWeb.onTrimMemory(level, AppVisible.value)
+    }
+
+    override fun onDestroy() {
+        if (com.kilombino.pyblockwatch.BuildConfig.ROBLO) com.kilombino.pyblockwatch.roblo.RobloWeb.detach(this)
+        super.onDestroy()
     }
 
     // A notification asks to open its tab (BTC, SPAMCOIN, ARK, COINJOIN), refreshed.
@@ -343,7 +355,10 @@ class MainActivity : FragmentActivity() {
                     }
                     // A JoinBlaket payment going (or just ended): its sheet over whatever is on screen.
                     JoinBlaketSheet(Good, vm.explorerFor(com.kilombino.pyblockwatch.chain.Chain.BLAKE2B))
-                    if (state.jamView && !state.setupMode) {
+                    if (com.kilombino.pyblockwatch.BuildConfig.ROBLO && state.robloView && !state.setupMode) {
+                        // 🤖 ROBLO: the Roblosats client, its page kept alive between tabs.
+                        com.kilombino.pyblockwatch.roblo.RobloScreen(state, vm)
+                    } else if (state.jamView && !state.setupMode) {
                         // The JoinMarket wallet (Jam, read-only): its own screen, no simple mode.
                         val jvm: JamViewModel = viewModel()
                         JamScreen(vm, jvm, onToggleNotifications = { on -> toggleNotifications(vm, on) })

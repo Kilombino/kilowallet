@@ -29,6 +29,9 @@ android {
         // One native library of ours: the Ark engine, arm64-v8a only, rebuilt from a pinned
         // commit and checked against ark-engine/ENGINE before every release build. On other
         // ABIs the wallet runs without Ark. See README-REPRODUCIBLE.md §1.
+        // The 🤖 ROBLO tab (the Roblosats client, roblo-client/CLIENT): off in the release build
+        // until Kilombino approves it; on in debug and in the beta build type.
+        buildConfigField("boolean", "ROBLO", "false")
     }
 
     signingConfigs {
@@ -70,13 +73,25 @@ android {
             isDebuggable = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+        debug {
+            buildConfigField("boolean", "ROBLO", "true")
+        }
+        // The private beta of the ROBLO tab: the release build (R8, same applicationId, signed with
+        // the release key when keystore.properties is there, unsigned otherwise) plus the
+        // Roblosats client. `./gradlew assembleBeta`; assembleRelease is unchanged.
+        create("beta") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            versionNameSuffix = "-roblo"
+            buildConfigField("boolean", "ROBLO", "true")
+        }
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
 
     // A call that does not exist on older Android crashes there (BigInteger.TWO did, on 8–12):
     // the release build stops on any.
@@ -135,12 +150,69 @@ val verifyLndEngine by tasks.registering {
         check(actual == expected) { "Lightning engine hash $actual does not match the pinned $expected" }
     }
 }
-tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(verifyArkEngine, verifyLndEngine, verifyTorEngine) }
+tasks.matching { it.name == "preReleaseBuild" || it.name == "preBetaBuild" }.configureEach { dependsOn(verifyArkEngine, verifyLndEngine, verifyTorEngine) }
+
+// The Roblosats client of the ROBLO tab: a zip built from Roblosats (scripts/kilowallet-client.sh),
+// pinned in roblo-client/CLIENT like the engines; anyone can rebuild it from that commit and get the
+// same SHA-256. It is checked and unpacked into the assets (assets/roblo/) of the builds that have
+// the tab (debug, beta); the release build carries none of it.
+fun robloPin(key: String): String = rootProject.file("roblo-client/CLIENT").readLines()
+    .first { it.startsWith("$key=") }.substringAfter("=").trim()
+
+abstract class UnpackRobloClient : DefaultTask() {
+    @get:InputFile abstract val zip: RegularFileProperty
+    @get:Input abstract val expectedSha256: Property<String>
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+    @get:javax.inject.Inject abstract val fs: FileSystemOperations
+    @get:javax.inject.Inject abstract val archives: ArchiveOperations
+
+    @TaskAction fun unpack() {
+        val f = zip.get().asFile
+        val actual = MessageDigest.getInstance("SHA-256").digest(f.readBytes()).joinToString("") { "%02x".format(it) }
+        check(actual == expectedSha256.get()) { "Roblosats client hash $actual does not match the pinned ${expectedSha256.get()}" }
+        fs.sync { from(archives.zipTree(f)); into(outputDir.dir("roblo")) }
+    }
+}
+val verifyRobloClient by tasks.registering {
+    val pin = rootProject.file("roblo-client/CLIENT")
+    inputs.files(pin)
+    doLast {
+        val zip = rootProject.file("roblo-client/" + robloPin("file"))
+        check(zip.exists()) { "Missing $zip — build it in Roblosats with ${robloPin("build")}." }
+        val actual = MessageDigest.getInstance("SHA-256").digest(zip.readBytes()).joinToString("") { "%02x".format(it) }
+        check(actual == robloPin("sha256")) { "Roblosats client hash $actual does not match the pinned ${robloPin("sha256")}" }
+    }
+}
+// Tests against the regtest lab only: -ProbloLabZip=<a client built with the lab's coordinator
+// address> replaces the pinned client in a debug build. A beta build refuses it.
+val robloLabZip: String? = providers.gradleProperty("robloLabZip").orNull
+val unpackRobloClient by tasks.registering(UnpackRobloClient::class) {
+    if (robloLabZip == null) {
+        dependsOn(verifyRobloClient)
+        zip.set(rootProject.layout.projectDirectory.file("roblo-client/" + robloPin("file")))
+        expectedSha256.set(robloPin("sha256"))
+    } else {
+        val f = file(robloLabZip)
+        zip.set(f)
+        expectedSha256.set(MessageDigest.getInstance("SHA-256").digest(f.readBytes()).joinToString("") { "%02x".format(it) })
+    }
+    outputDir.set(layout.buildDirectory.dir("generated/roblo-client"))
+}
+tasks.matching { it.name == "preBetaBuild" || it.name == "preReleaseBuild" }.configureEach {
+    doFirst { check(robloLabZip == null) { "robloLabZip is for debug builds against the lab only" } }
+}
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { v -> v.sources.assets?.addGeneratedSourceDirectory(unpackRobloClient, UnpackRobloClient::outputDir) }
+    onVariants(selector().withBuildType("beta")) { v -> v.sources.assets?.addGeneratedSourceDirectory(unpackRobloClient, UnpackRobloClient::outputDir) }
+}
 
 // The Lightning engine's AAR carries an x86_64 build for the emulator: debug builds keep it,
 // a release ships arm64 only, like the Ark engine.
 androidComponents {
     onVariants(selector().withBuildType("release")) { v ->
+        v.packaging.jniLibs.excludes.addAll(listOf("lib/x86_64/libgojni.so", "lib/x86/libgojni.so", "lib/armeabi-v7a/libgojni.so"))
+    }
+    onVariants(selector().withBuildType("beta")) { v ->
         v.packaging.jniLibs.excludes.addAll(listOf("lib/x86_64/libgojni.so", "lib/x86/libgojni.so", "lib/armeabi-v7a/libgojni.so"))
     }
 }

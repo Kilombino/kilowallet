@@ -66,7 +66,20 @@ object AppBackup {
             // JoinBlaket: PoDLE commitments already shown to makers, so a restored wallet never reuses one.
             .apply { com.kilombino.pyblockwatch.joinblaket.FileCommitmentStore(
                 com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.commitmentsFile(app)).export()?.let { put("joinblaket_commitments", JSONObject(it)) } }
+            // Roblosats (the ROBLO tab): robot tokens, Garage Key, settings, rescue data, opened
+            // here like the node passwords above (the file is encrypted with its password).
+            .apply { robloSection(app)?.let { put("roblo", it) } }
             .toString()
+    }
+
+    /** "Include my robots" in the backup's dialog (on by default; only shown when there are robots). */
+    @Volatile var includeRoblo: Boolean = true
+
+    private fun robloSection(app: Context): JSONObject? {
+        if (!includeRoblo) return null
+        val store = com.kilombino.pyblockwatch.roblo.RobloStore.of(app)
+        val o = runCatching { store.export() }.getOrNull() ?: return null
+        return if ((o.optJSONObject("items")?.length() ?: 0) > 0) o else null
     }
 
     /**
@@ -122,6 +135,9 @@ object AppBackup {
         o.optJSONObject("lightning")?.let { runCatching { com.kilombino.pyblockwatch.ln.Lightning.stageRestore(app, it) } }
         o.optJSONObject("joinblaket_commitments")?.let { runCatching { com.kilombino.pyblockwatch.joinblaket.FileCommitmentStore(
             com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.commitmentsFile(app)).mergeFrom(it.toString()) } }
+        // Kept even by a build without the ROBLO tab, so a later one finds the robots. An older app
+        // ignores the section (the file's version is unchanged: nothing else in it is new).
+        o.optJSONObject("roblo")?.let { runCatching { com.kilombino.pyblockwatch.roblo.RobloStore.of(app).import(it) } }
         com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.reload(app)
     }
 }

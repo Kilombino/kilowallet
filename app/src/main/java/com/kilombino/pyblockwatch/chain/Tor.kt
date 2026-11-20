@@ -30,7 +30,33 @@ object Tor {
     /** Tor is up: started for something else (a node reached by .onion) and its SOCKS port open. */
     val running: Boolean get() = ready && proc?.isAlive == true
 
+    /**
+     * Who needs Tor up. Everything that used Tor before (a .onion node, Electrum through Tor,
+     * Lightning, coinjoin, JoinBlaket) calls [start], which keeps Tor up until the app's process
+     * ends, as always. A part that knows when it is done (the ROBLO tab) [acquire]s it under its
+     * own name and [release]s it: Tor stops then only if no other owner holds it and nothing
+     * started it the old way. [stop] never stops it under a holder.
+     */
+    internal val owners = TorOwners()
+
+    /** Tor for [owner], until [release]; started now if it is not running (and may be). */
+    fun acquire(ctx: Context, owner: String) {
+        owners.acquire(owner)
+        launch(ctx)
+    }
+
+    /** [owner] no longer needs Tor: stopped if nobody else does. */
+    fun release(ctx: Context, owner: String) {
+        if (owners.release(owner)) synchronized(lock) { if (owners.mayStop()) { proc?.destroy(); proc = null; ready = false } }
+    }
+
+    /** Tor for the rest of the process's life (every use of Tor before the owners existed). */
     fun start(ctx: Context) {
+        owners.keepForever()
+        launch(ctx)
+    }
+
+    private fun launch(ctx: Context) {
         val app = ctx.applicationContext
         synchronized(lock) {
             if (proc?.isAlive == true || !available) return
@@ -121,8 +147,10 @@ object Tor {
     /** Tor's process is alive (up, or still connecting). */
     val alive: Boolean get() = proc?.isAlive == true
 
+    /** Stops Tor, unless an owner still holds it ([acquire]). */
     fun stop(ctx: Context) {
         synchronized(lock) {
+            if (!owners.stopAllowed()) return
             proc?.destroy(); proc = null; ready = false
         }
     }
@@ -158,4 +186,30 @@ object Tor {
         ElectrumClient.torProxy = { if (available) { start(app); proxy() } else null }
         ElectrumClient.throughTor = app.getSharedPreferences("pyblockwatch", Context.MODE_PRIVATE).getBoolean(ELECTRUM_TOR, false)
     }
+}
+
+/**
+ * The bookkeeping behind [Tor.acquire]/[Tor.release]: a set of named owners, and whether Tor was
+ * started the old way ([Tor.start]: up until the process ends). Pure, so it is tested off-device.
+ */
+internal class TorOwners {
+    private val held = LinkedHashSet<String>()
+    private var forever = false
+
+    /** [owner] holds Tor (twice by the same name counts once). */
+    @Synchronized fun acquire(owner: String) { held.add(owner) }
+
+    /** [owner] lets go; true when that was the last owner and Tor may stop now. */
+    @Synchronized fun release(owner: String): Boolean = held.remove(owner) && mayStop()
+
+    /** Started the old way: never stopped by a release. */
+    @Synchronized fun keepForever() { forever = true }
+
+    /** No owner left and nothing started it the old way. */
+    @Synchronized fun mayStop(): Boolean = held.isEmpty() && !forever
+
+    /** [Tor.stop] is refused while anybody holds Tor; an explicit stop ends the old way's hold. */
+    @Synchronized fun stopAllowed(): Boolean = if (held.isEmpty()) { forever = false; true } else false
+
+    @Synchronized fun holders(): Set<String> = held.toSet()
 }

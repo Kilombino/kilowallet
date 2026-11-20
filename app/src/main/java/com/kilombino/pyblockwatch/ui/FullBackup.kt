@@ -52,6 +52,8 @@ fun FullBackupPanel(vm: WalletViewModel, accent: Color) {
     var pw2 by remember { mutableStateOf("") }
     var pending by remember { mutableStateOf<ByteArray?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
+    val hasRobots = remember(askPassword) { com.kilombino.pyblockwatch.BuildConfig.ROBLO && runCatching { com.kilombino.pyblockwatch.roblo.RobloStore.of(ctx).hasRobots() }.getOrDefault(false) }
+    var withRobots by remember { mutableStateOf(true) }
 
     val saveFile = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         val bytes = pending ?: return@rememberLauncherForActivityResult
@@ -82,11 +84,17 @@ fun FullBackupPanel(vm: WalletViewModel, accent: Color) {
                         singleLine = true, visualTransformation = PasswordVisualTransformation(),
                         isError = mismatch && pw2.isNotEmpty(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+                    // Roblosats' robots (ROBLO tab), in by default: a lost robot is a lost order.
+                    if (hasRobots) androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        androidx.compose.material3.Checkbox(checked = withRobots, onCheckedChange = { withRobots = it })
+                        Text("Include my Roblosats robots (tokens and Garage Key)", style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             },
             confirmButton = {
                 TextButton(enabled = pw1.length >= ArkBackup.MIN_PASSWORD && !mismatch, onClick = {
                     val pw = pw1
+                    com.kilombino.pyblockwatch.data.AppBackup.includeRoblo = withRobots
                     askPassword = false; pw1 = ""; pw2 = ""
                     withHotWords(activity, vm, "Unlock to write the backup file",
                         onWords = { w ->

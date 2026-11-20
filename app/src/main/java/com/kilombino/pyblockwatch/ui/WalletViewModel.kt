@@ -193,6 +193,8 @@ data class UiState(
     val receiveTaproot: Boolean = false,
     /** The JoinMarket wallet (read-only, from Jam) is on screen instead of the hot/watch-only one. */
     val jamView: Boolean = false,
+    /** 🤖 ROBLO (the Roblosats client) is on screen; never kept across starts (the fingerprint opens it). */
+    val robloView: Boolean = false,
 ) {
     val current: ChainState get() = chains[selected] ?: ChainState()
     val hasWallet: Boolean get() = !xpub.isNullOrBlank()
@@ -951,7 +953,18 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
     fun viewJam() {
         if (!hasJamWallet()) return
         store.jamView = true
-        _state.update { it.copy(jamView = true, sendPhase = SendPhase.Editing) }
+        _state.update { it.copy(jamView = true, robloView = false, sendPhase = SendPhase.Editing) }
+    }
+
+    /** 🤖 ROBLO: call only after the fingerprint check passed (and only in builds with the tab). */
+    fun viewRoblo() {
+        if (!com.kilombino.pyblockwatch.BuildConfig.ROBLO) return
+        _state.update { it.copy(robloView = true, sendPhase = SendPhase.Editing) }
+    }
+
+    /** Leaves ROBLO for the wallet that was on screen before it (no fingerprint: it was open). */
+    fun leaveRoblo() {
+        _state.update { it.copy(robloView = false) }
     }
 
     /** The JoinMarket wallet was forgotten: back to the hot or watch-only one. */
@@ -965,7 +978,7 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun switchTo(wallet: String) {
         store.jamView = false
-        _state.update { it.copy(jamView = false) }
+        _state.update { it.copy(jamView = false, robloView = false) }
         jobs.values.forEach(Job::cancel); jobs.clear()
         store = Store(getApplication(), wallet)
         store.activeWallet = wallet
