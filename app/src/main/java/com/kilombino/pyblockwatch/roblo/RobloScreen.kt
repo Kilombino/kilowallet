@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
@@ -61,7 +62,8 @@ fun RobloScreen(state: UiState, vm: WalletViewModel) {
             RobloWeb.offScreen()
         }
     }
-    Column(Modifier.fillMaxSize().imePadding()) {
+    // Edge to edge: the page's bottom bar (OFFERS · + · GARAGE) above the system's navigation bar.
+    Column(Modifier.fillMaxSize().navigationBarsPadding().imePadding()) {
         Spacer(Modifier.height(28.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) { WalletModeSwitch(state, vm, RobloAccent) }

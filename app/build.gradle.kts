@@ -75,6 +75,9 @@ android {
         }
         debug {
             buildConfigField("boolean", "ROBLO", "true")
+            // Emulator tests next to another debug install signed with a different key:
+            // -PkwDebugSuffix=.roblotest. Never set for anything handed out.
+            providers.gradleProperty("kwDebugSuffix").orNull?.let { applicationIdSuffix = it }
         }
         // The private beta of the ROBLO tab: the release build (R8, same applicationId, signed with
         // the release key when keystore.properties is there, unsigned otherwise) plus the
