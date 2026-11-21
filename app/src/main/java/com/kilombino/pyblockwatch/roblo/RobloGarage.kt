@@ -29,31 +29,46 @@ object RobloGarage {
         return BigInteger(1, h)
     }
 
+    /** secp256k1's group order: a robot's secret must be in 1..N-1 to be a key at all. */
+    private val N = BigInteger("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16)
+
+    /**
+     * The robots of [garageSlots], each one read on its own: a slot that is not a robot, has no
+     * usable key or saved another key than its token's is left out and never stops the others,
+     * and nothing here throws (Roblosats 0.9.13: a robot with a bad key killed its app's
+     * notification service). One snapshot: callers read "garage_slots" once and pass it in.
+     */
     fun robots(garageSlots: String): List<Robot> {
         if (garageSlots.isBlank()) return emptyList()
         val g = runCatching { JSONObject(garageSlots) }.getOrNull() ?: return emptyList()
         val out = ArrayList<Robot>()
-        for (k in g.keys()) {
-            val s = g.optJSONObject(k) ?: continue
-            val token = s.optString("token", "").takeIf { it.isNotEmpty() && it != "null" } ?: continue
-            val sec = secretOf(token)
-            val pub = NostrEvent.pubOf(sec)
-            val saved = s.optString("nostrPubKey", "")
-            if (saved.isNotEmpty() && saved != pub) continue // not the key the client uses: leave it
-            val active = s.optJSONObject("activeOrder")?.let { o ->
-                val alias = o.optString("shortAlias", ""); val id = o.optLong("id", 0)
-                if (alias.isEmpty() || id <= 0) null else {
-                    val onchain = o.opt("escrow_type").let { it == "onchain" || it == 1 }
-                    val st = o.optInt("status", -1)
-                    val pending = onchain && st in setOf(12, 14, 17, 18) &&
-                        (o.optInt("escrow_status_code", -1) in setOf(2, 4) || o.optInt("bond_status_code", -1) == 1)
-                    Order(alias, id, st, onchain, pending)
-                }
-            }
-            out += Robot(pub, sec, s.optString("hashId", ""), active)
-        }
+        for (k in g.keys()) runCatching { robot(g.optJSONObject(k)) }.getOrNull()?.let { out += it }
         return out
     }
+
+    private fun robot(s: JSONObject?): Robot? {
+        s ?: return null
+        val token = s.optString("token", "").takeIf { it.isNotEmpty() && it != "null" } ?: return null
+        val sec = secretOf(token)
+        if (sec.signum() <= 0 || sec >= N) return null
+        val pub = NostrEvent.pubOf(sec)
+        if (!pub.matches(HEX64)) return null
+        val saved = s.optString("nostrPubKey", "")
+        if (saved.isNotEmpty() && saved != pub) return null // not the key the client uses: leave it
+        val active = s.optJSONObject("activeOrder")?.let { o ->
+            val alias = o.optString("shortAlias", ""); val id = o.optLong("id", 0)
+            if (alias.isEmpty() || id <= 0) null else {
+                val onchain = o.opt("escrow_type").let { it == "onchain" || it == 1 }
+                val st = o.optInt("status", -1)
+                val pending = onchain && st in setOf(12, 14, 17, 18) &&
+                    (o.optInt("escrow_status_code", -1) in setOf(2, 4) || o.optInt("bond_status_code", -1) == 1)
+                Order(alias, id, st, onchain, pending)
+            }
+        }
+        return Robot(pub, sec, s.optString("hashId", ""), active)
+    }
+
+    private val HEX64 = Regex("^[0-9a-f]{64}$")
 
     /** The order that keeps the watcher connected: the first one in a live status. */
     fun liveOrder(robots: List<Robot>): Order? =

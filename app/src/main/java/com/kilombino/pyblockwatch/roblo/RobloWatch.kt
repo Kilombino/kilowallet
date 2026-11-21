@@ -32,8 +32,15 @@ object RobloWatch {
     const val CHANNEL_ACTION = "roblo_action"
     const val GROUP = "roblosats"
     const val SUMMARY_ID = 6999
-    /** Gift wraps' created_at is randomised up to two days back (NIP-59): looked for that far. */
-    const val WRAP_SLACK = 2 * 24 * 3600L
+    /**
+     * Gift wraps' created_at is randomised up to two days back (NIP-59): looked for that far,
+     * plus an hour for clocks (as the Roblosats app 0.9.13).
+     */
+    const val WRAP_SLACK = 2 * 24 * 3600L + 3600L
+    /** Never further back than a week, nor more than [LIMIT] wraps per request (0.9.13). */
+    const val MAX_WINDOW = 7 * 24 * 3600L
+    const val FIRST_WINDOW = 3 * 24 * 3600L
+    const val LIMIT = 300
     private const val LAST_LOOK = "kw_watch_last_look"
 
     /** The watcher's sources, from the client's storage and Kilowallet's Tor. */
@@ -47,6 +54,7 @@ object RobloWatch {
             clearnet = { store.clearnet() },
             clearnetHosts = { store.clearnetHosts() },
             allowLocal = com.kilombino.pyblockwatch.BuildConfig.DEBUG,
+            labOnly = com.kilombino.pyblockwatch.BuildConfig.ROBLO_LAB,
         )
         return Sources(store, net)
     }
@@ -69,14 +77,17 @@ object RobloWatch {
         val robots = RobloGarage.robots(store.get("garage_slots"))
         val relays = RobloGarage.relays(store.get("federation_relays")).take(3)
         if (robots.isEmpty() || relays.isEmpty()) return 0
-        val since = (store.get(LAST_LOOK).toLongOrNull() ?: (System.currentTimeMillis() / 1000 - 3 * 24 * 3600)) - WRAP_SLACK
+        val now = System.currentTimeMillis() / 1000
+        val since = since(store.get(LAST_LOOK).toLongOrNull(), now)
         var shown = 0
         try {
+            var reached = 0
             for (relay in relays) {
                 val inbox = Inbox(store, robots, RobloGarage.coordinatorKeys(store.get("federation_pubkeys"))) { r, robot -> notify(ctx, r, robot); shown++ }
-                runCatching { fetch(src.net, relay, robots.map { it.pubkey }, since, inbox, timeoutMs) }
+                if (runCatching { fetch(src.net, relay, robots.map { it.pubkey }, since, inbox, timeoutMs) }.isSuccess) reached++
             }
-            store.set(LAST_LOOK, (System.currentTimeMillis() / 1000).toString())
+            // Moved on only when a relay answered: a look with Tor still starting loses nothing.
+            if (reached > 0) store.set(LAST_LOOK, now.toString())
         } finally { if (liveSub == null) Tor.release(ctx.applicationContext, TOR_OWNER) }
         return shown
     }
@@ -100,8 +111,12 @@ object RobloWatch {
         } finally { ws.close() }
     }
 
+    /** Where a look starts: the last look minus [WRAP_SLACK], never more than [MAX_WINDOW] back. */
+    internal fun since(lastLook: Long?, now: Long): Long =
+        maxOf(lastLook?.let { it - WRAP_SLACK } ?: (now - FIRST_WINDOW - WRAP_SLACK), now - MAX_WINDOW, 0L)
+
     internal fun filter(pubkeys: List<String>, since: Long): JSONObject =
-        JSONObject().put("kinds", JSONArray().put(1059)).put("#p", JSONArray(pubkeys)).put("since", maxOf(0, since))
+        JSONObject().put("kinds", JSONArray().put(1059)).put("#p", JSONArray(pubkeys)).put("since", maxOf(0, since)).put("limit", LIMIT)
 
     /**
      * What arrives from the relays: each gift wrap for one of the [robots], unwrapped; a notice from
@@ -178,6 +193,9 @@ object RobloWatch {
         runCatching { androidx.core.content.ContextCompat.startForegroundService(app, Intent(app, com.kilombino.pyblockwatch.data.WatchService::class.java)) }
     }
 
+    /** The garage has a robot the open subscription does not ask for. */
+    internal fun gainedRobots(subscribed: Set<String>, now: List<RobloGarage.Robot>): Boolean = now.any { it.pubkey !in subscribed }
+
     private fun liveLoop(app: Context, src: Sources) {
         var backoff = 5_000L
         while (!liveStop) {
@@ -198,10 +216,11 @@ object RobloWatch {
                 ws.connect()
                 backoff = 5_000L
                 ws.send(JSONArray().put("REQ").put("kw-roblo-live").put(filter(keys.toList(), System.currentTimeMillis() / 1000 - WRAP_SLACK)).toString())
-                // Open until it drops, the robots change (a new robot, the order finished) or the watcher stops it.
+                // Open until it drops, a robot is added, the order finishes or the watcher stops it.
+                // A garage with fewer robots (one deleted, a save half done) keeps it as it is (0.9.13).
                 while (!liveStop && !closed.await(15, TimeUnit.SECONDS)) {
                     val now = RobloGarage.robots(store.get("garage_slots"))
-                    if (now.map { it.pubkey }.toSet() != keys || RobloGarage.liveOrder(now) == null) break
+                    if (gainedRobots(keys, now) || RobloGarage.liveOrder(now) == null) break
                 }
                 ws.close()
             }

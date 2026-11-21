@@ -152,4 +152,40 @@ class RobloWatchTest {
         assertTrue(RobloWatch.notificationId("abc") >= 7000)
         assertEquals(1059, RobloWatch.filter(listOf(robot), 5).getJSONArray("kinds").getInt(0))
     }
+
+    /** 0.9.13: a robot with a bad key (or a slot that is not a robot) is skipped; the others still come out. */
+    @Test fun aBadRobotNeverStopsTheGarage() {
+        val g = JSONObject(garage(token to null))
+            .put("emptyKey", JSONObject().put("token", "x").put("nostrPubKey", "{}"))
+            .put("shortKey", JSONObject().put("token", "y").put("nostrPubKey", "ab".repeat(16)))
+            .put("noToken", JSONObject().put("token", JSONObject.NULL))
+            .put("objectToken", JSONObject().put("token", JSONObject()).put("nostrPubKey", "00".repeat(32)))
+            .put("notASlot", "{}").put("anArray", JSONArray().put(1))
+        val robots = RobloGarage.robots(g.toString())
+        assertEquals(listOf(vector.getString("robotPub")), robots.map { it.pubkey })
+        assertTrue(robots.all { it.pubkey.matches(Regex("[0-9a-f]{64}")) })
+        assertTrue(RobloGarage.robots("{\"a\":").isEmpty())  // a save cut half way
+        assertTrue(RobloGarage.robots("{}").isEmpty())
+    }
+
+    /** 0.9.13: the request asks for a bounded window (a week at most) and at most 300 wraps. */
+    @Test fun lookWindowAndLimit() {
+        val now = 1_800_000_000L
+        assertEquals(now - 3600 - RobloWatch.WRAP_SLACK, RobloWatch.since(now - 3600, now))
+        assertEquals(now - RobloWatch.MAX_WINDOW, RobloWatch.since(now - 90L * 24 * 3600, now)) // months away: a week
+        assertEquals(now - RobloWatch.FIRST_WINDOW - RobloWatch.WRAP_SLACK, RobloWatch.since(null, now))
+        assertTrue(RobloWatch.WRAP_SLACK > 2 * 24 * 3600L)
+        val f = RobloWatch.filter(listOf("ab".repeat(32)), now)
+        assertEquals(RobloWatch.LIMIT, f.getInt("limit")); assertEquals(now, f.getLong("since"))
+    }
+
+    /** 0.9.13: the live subscription is renewed only when the garage gains a robot, not when it loses one. */
+    @Test fun liveSubscriptionRenewsOnlyForNewRobots() {
+        val two = RobloGarage.robots(garage(token to null, "other-token-xyz" to null))
+        val keys = two.map { it.pubkey }.toSet()
+        assertFalse(RobloWatch.gainedRobots(keys, two))
+        assertFalse(RobloWatch.gainedRobots(keys, two.take(1)))   // half-saved garage or a robot deleted
+        assertFalse(RobloWatch.gainedRobots(keys, emptyList()))
+        assertTrue(RobloWatch.gainedRobots(keys.take(1).toSet(), two))
+    }
 }
