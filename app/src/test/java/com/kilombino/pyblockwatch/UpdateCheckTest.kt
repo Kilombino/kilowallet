@@ -15,6 +15,7 @@ class UpdateCheckTest {
         // The ROBLO beta is not a pre-release of its base: the plain 1.6.1 is not offered to it.
         assertFalse(UpdateCheck.isNewer("v1.6.1", "1.6.1-roblo"))
         assertFalse(UpdateCheck.isNewer("v1.6.1", "1.6.1-roblo2"))
+        assertFalse(UpdateCheck.isNewer("v1.6.1", "1.6.1-roblo3"))
         assertFalse(UpdateCheck.isNewer("v1.6.0", "1.6.1-roblo"))
         assertTrue(UpdateCheck.isNewer("v1.6.2", "1.6.1-roblo"))
         assertTrue(UpdateCheck.isNewer("v1.0.0", "0.99.9"))

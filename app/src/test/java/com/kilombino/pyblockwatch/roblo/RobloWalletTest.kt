@@ -23,6 +23,8 @@ class RobloWalletTest {
         assertNotNull(RobloWallet.checkInvoice("bitcoin:bc1q...", "kilobot/24"))
         assertNull(RobloWallet.checkAddress("payout", "kilobot/24"))
         assertNotNull(RobloWallet.checkAddress("anything", "kilobot/24"))
+        assertNull(RobloWallet.checkAddress("bond_return", ""))        // maker form: no order yet
+        assertNotNull(RobloWallet.checkAddress("payout", ""))
     }
 
     /** The sheet signs only a draft paying exactly the coordinator's address and amount, to one recipient. */

@@ -60,7 +60,7 @@ fun RobloWalletSheets(state: UiState, vm: WalletViewModel) {
 private fun groups(a: String) = a.chunked(4).joinToString(" ")
 
 /** "kilobot/24" → "order #24 · Kilobot". */
-private fun orderText(ref: String) = ref.split('/').let { "order #${it.getOrElse(1) { "?" }} · ${it[0].replaceFirstChar { c -> c.uppercase() }}" }
+private fun orderText(ref: String) = if (ref.isEmpty()) "new order" else ref.split('/').let { "order #${it.getOrElse(1) { "?" }} · ${it[0].replaceFirstChar { c -> c.uppercase() }}" }
 
 @Composable
 private fun Sheet(title: String, onDismiss: () -> Unit, content: @Composable () -> Unit, buttons: @Composable () -> Unit) {

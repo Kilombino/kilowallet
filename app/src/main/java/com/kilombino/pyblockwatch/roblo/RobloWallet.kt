@@ -43,8 +43,13 @@ object RobloWallet {
         else -> null
     }
 
-    fun checkAddress(purpose: String, orderRef: String): String? =
-        if (purpose !in PURPOSES) "bad purpose" else if (!ORDER.matches(orderRef)) "bad order" else null
+    /** A bond return address may be asked from the maker form, before the order exists (orderRef ""). */
+    fun checkAddress(purpose: String, orderRef: String): String? = when {
+        purpose !in PURPOSES -> "bad purpose"
+        orderRef.isEmpty() && purpose == "bond_return" -> null
+        !ORDER.matches(orderRef) -> "bad order"
+        else -> null
+    }
 
     /** Queues [r] for the screen; false when another one is still open. */
     @Synchronized fun offer(r: Request): Boolean {

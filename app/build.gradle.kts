@@ -85,7 +85,7 @@ android {
         create("beta") {
             initWith(getByName("release"))
             matchingFallbacks += listOf("release")
-            versionNameSuffix = "-roblo"
+            versionNameSuffix = "-roblo3"
             buildConfigField("boolean", "ROBLO", "true")
         }
     }
