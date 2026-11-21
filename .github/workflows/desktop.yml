@@ -10,8 +10,8 @@ name: desktop
 on:
   workflow_dispatch:
   push:
-    branches: [desktop]
-    paths: ['desktop/**', 'app/src/main/**', 'gradle/**', '*.gradle.kts', '.github/workflows/desktop.yml']
+    branches: [desktop, 'desktop-roblo*']
+    paths: ['desktop/**', 'app/src/main/**', 'gradle/**', '*.gradle.kts', 'roblo-client/**', '.github/workflows/desktop.yml']
 
 permissions:
   contents: read
@@ -104,17 +104,17 @@ jobs:
           ( cd "$R" && sha256sum $(ls *gojni.* *kilombino_ark.* tor/tor* tor/*.dylib 2>/dev/null) ) | tee "$R/ENGINES.sha256"
           ls -la "$R" "$R/tor"
 
-      - name: Tests (the Android app's unit tests too, with the engines loaded)
-        working-directory: kilowallet
-        run: ./gradlew --no-daemon :desktop:test
-
       - name: Roblosats client (pinned in roblo-client/CLIENT, built from its commit)
         run: |
           eval "$(grep -E '^(repo|commit|tag|sha256)=' kilowallet/roblo-client/CLIENT | sed 's/^/RC_/')"
-          git clone --filter=blob:none "$RC_repo" roblosats && git -C roblosats checkout "$RC_commit"
+          git clone --filter=blob:none --branch "$(grep '^branch=' kilowallet/roblo-client/CLIENT | cut -d= -f2)" "$RC_repo" roblosats && git -C roblosats checkout "$RC_commit"
           (cd roblosats/frontend && npm ci --no-audit --no-fund)
           ROBLO_BUILDROOT="$RUNNER_TEMP/roblo-client-build" bash roblosats/scripts/kilowallet-client.sh "$RC_tag" "$GITHUB_WORKSPACE/kilowallet/roblo-client"
           echo "$RC_sha256  kilowallet/roblo-client/roblo-client-$RC_tag.zip" | sha256sum -c -
+
+      - name: Tests (the Android app's unit tests too, with the engines loaded)
+        working-directory: kilowallet
+        run: ./gradlew --no-daemon :desktop:test
 
       - name: Package
         working-directory: kilowallet

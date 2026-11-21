@@ -33,7 +33,7 @@ class RobloNetTest {
     }
 
     @Test fun localAddressesAreRefusedExceptInTheLabOrForTheUsersOwnExplorer() {
-        for (u in listOf("http://127.0.0.1:28800/api/", "http://localhost/", "http://192.168.0.14:3000/", "http://10.0.2.2/",
+        for (u in listOf("http://127.0.0.1:28800/api/", "http://localhost/", "http://192.168.1.20:3000/", "http://10.0.2.2/",
                 "http://172.20.1.1/", "http://169.254.1.1/", "http://[::1]/", "http://[fd00::1]/", "http://[fe80::1]/", "ws://127.0.0.1:27778/relay")) {
             assertTrue(u, net().route(u, "anon") is RobloNet.Route.Refused)
             assertTrue(u, net(clearnet = true).route(u, "anon") is RobloNet.Route.Refused)

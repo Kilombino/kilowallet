@@ -4,7 +4,7 @@
 # <dir>. Prints the runtime's home (the folder with bin/ and jmods/): use it as KW_JBR and
 # KW_PACKAGE_JDK. An archive already in <dir> is checked again and reused.
 #
-#   desktop/engines/fetch-jbr.sh linux-x64 /mnt/datos2/jbr
+#   desktop/engines/fetch-jbr.sh linux-x64 "$HOME/jbr"
 set -euo pipefail
 P=${1:?usage: $0 <platform> <dir>}; DIR=${2:?usage: $0 <platform> <dir>}
 PIN="$(cd "$(dirname "$0")" && pwd)/JBR"

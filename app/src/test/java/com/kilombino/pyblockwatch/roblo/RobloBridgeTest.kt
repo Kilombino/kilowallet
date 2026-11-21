@@ -139,7 +139,7 @@ class RobloBridgeTest {
         b.sendRequest(uuid, "GET", "http://127.0.0.1:1/api/info/", "{}", "")
         val (ok, msg) = answer(h)
         assertFalse(ok); assertTrue(msg.contains("local"))
-        b.openWS(uuid, "ws://192.168.0.14:27778/relay")
+        b.openWS(uuid, "ws://192.168.1.20:27778/relay")
         assertFalse(answer(h).first)
     }
 
