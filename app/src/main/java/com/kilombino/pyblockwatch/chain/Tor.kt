@@ -30,7 +30,33 @@ object Tor {
     /** Tor is up: started for something else (a node reached by .onion) and its SOCKS port open. */
     val running: Boolean get() = ready && proc?.isAlive == true
 
+    /**
+     * Who needs Tor up. Everything that used Tor before (a .onion node, Electrum through Tor,
+     * Lightning, coinjoin, JoinBlaket) calls [start], which keeps Tor up until the app's process
+     * ends, as always. A part that knows when it is done (the ROBLO tab) [acquire]s it under its
+     * own name and [release]s it: Tor stops then only if no other owner holds it and nothing
+     * started it the old way. [stop] never stops it under a holder.
+     */
+    internal val owners = TorOwners()
+
+    /** Tor for [owner], until [release]; started now if it is not running (and may be). */
+    fun acquire(ctx: Context, owner: String) {
+        owners.acquire(owner)
+        launch(ctx)
+    }
+
+    /** [owner] no longer needs Tor: stopped if nobody else does. */
+    fun release(ctx: Context, owner: String) {
+        if (owners.release(owner)) synchronized(lock) { if (owners.mayStop()) { proc?.destroy(); proc = null; ready = false } }
+    }
+
+    /** Tor for the rest of the process's life (every use of Tor before the owners existed). */
     fun start(ctx: Context) {
+        owners.keepForever()
+        launch(ctx)
+    }
+
+    private fun launch(ctx: Context) {
         val app = ctx.applicationContext
         synchronized(lock) {
             if (proc?.isAlive == true || !available) return
@@ -121,8 +147,10 @@ object Tor {
     /** Tor's process is alive (up, or still connecting). */
     val alive: Boolean get() = proc?.isAlive == true
 
+    /** Stops Tor, unless an owner still holds it ([acquire]). */
     fun stop(ctx: Context) {
         synchronized(lock) {
+            if (!owners.stopAllowed()) return
             proc?.destroy(); proc = null; ready = false
         }
     }
@@ -159,3 +187,4 @@ object Tor {
         ElectrumClient.throughTor = app.getSharedPreferences("pyblockwatch", Context.MODE_PRIVATE).getBoolean(ELECTRUM_TOR, false)
     }
 }
+

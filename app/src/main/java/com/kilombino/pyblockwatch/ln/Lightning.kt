@@ -57,7 +57,7 @@ object Lightning {
     }
 
     /** LND's own channel backup file, kept current by the node (encrypted with its keys). */
-    fun channelBackupFile(ctx: Context) = File(Lnd.dir(ctx), "data/chain/bitcoin/mainnet/channel.backup")
+    fun channelBackupFile(ctx: Context) = File(Lnd.dir(ctx), "data/chain/bitcoin/${Lnd.net}/channel.backup")
 
     /** A channel backup file from the old phone, handed to the node when its wallet is made here. */
     fun stageScb(ctx: Context, bytes: ByteArray) = File(ctx.noBackupFilesDir, RESTORE_SCB).writeBytes(bytes)
@@ -153,7 +153,8 @@ object Lightning {
     private fun followInFlight(app: Context, payments: List<Lnd.Payment>) {
         // A BOLT 12 payment is keyed by its offer until it ends; don't follow it twice.
         if (_paying.value.isNotEmpty()) return
-        for (p in payments.filter { it.status == 1 && it.hash.isNotBlank() })
+        // Roblosats' hold invoices (bonds, escrow) are followed by RobloLn, not here.
+        for (p in payments.filter { it.status == 1 && it.hash.isNotBlank() && !com.kilombino.pyblockwatch.roblo.RobloLn.owns(app, it.hash) })
             startPayment(app, p.hash, p.sats) { Lnd.track(p.hash) }
     }
 
@@ -300,7 +301,7 @@ object Lightning {
                     // activation, so no coin of that node is missed.
                     val birthday = prefs.getLong("birthday", 0L).takeIf { it > 0 } ?: ACTIVATION_TIME
                     val scb = File(app.noBackupFilesDir, RESTORE_SCB).takeIf { it.exists() }?.readBytes()
-                    Lnd.initWallet(LnSeed.password(app), LnSeed.masterXprv(bip39Seed), birthday, scb)
+                    Lnd.initWallet(LnSeed.password(app), LnSeed.masterXprv(bip39Seed, regtest = Lnd.labRegtest(app)), birthday, scb)
                     prefs.edit().putLong("birthday", birthday).apply()
                     File(app.noBackupFilesDir, RESTORE_SCB).delete()
                 }

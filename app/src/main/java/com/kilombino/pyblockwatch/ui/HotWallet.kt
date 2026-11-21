@@ -1204,7 +1204,7 @@ fun QrImage(text: String, sizeDp: Int) {
  * forward so a user who wants a new address per payment can get one.
  */
 @androidx.compose.runtime.Composable
-fun ReceiveSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
+fun ReceiveSheet(vm: WalletViewModel, accent: Color, onPick: ((address: String, path: String) -> Unit)? = null, onClose: () -> Unit) {
     val copier = rememberCopier()
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     // The wallet the addresses come from: switching HOT/WATCH (or the receive account) with the
@@ -1270,6 +1270,15 @@ fun ReceiveSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                 )
                 FiatAmountField(askSats, { askSats = it }, Modifier.weight(1f),
                     chain = st.selected, market = st.market, fiat = st.fiat)
+            }
+            // Asked by Roblosats (ROBLO tab): this address goes to the order, after accepting it.
+            if (onPick != null) {
+                Spacer(Modifier.height(10.dp))
+                Button(
+                    onClick = { onPick(address, path) },
+                    colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Ink),
+                    shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth(),
+                ) { Text("USE THIS ADDRESS FOR ROBLOSATS", style = MaterialTheme.typography.titleMedium) }
             }
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

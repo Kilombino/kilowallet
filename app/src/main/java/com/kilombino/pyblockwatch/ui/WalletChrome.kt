@@ -37,7 +37,8 @@ import androidx.fragment.app.FragmentActivity
 import com.kilombino.pyblockwatch.chain.Chain
 
 /**
- * HOT | WATCH | JM, top left: three different wallets on one phone (JM: a Jam wallet, read-only). The hot one is the
+ * HOT | WATCH | JM (| ROBLO in beta builds), top left: three different wallets on one phone (JM: a Jam wallet, read-only), and
+ * the Roblosats client. The hot one is the
  * seed's; the watch-only one is a separate xpub, watched with its own notifications (one at
  * most). Going either way asks for the fingerprint; to hot with no seed it leads to
  * create/restore instead, and to watch-only the first time it asks for the xpub.
@@ -50,8 +51,10 @@ fun WalletModeSwitch(state: UiState, vm: WalletViewModel, accent: Color, modifie
     var setupJam by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     if (setupWatch) WatchWalletSetup(vm, accent) { setupWatch = false }
     if (setupJam) JamImportDialog(jvm, JamTeal, onImported = { setupJam = false; vm.viewJam() }, onClose = { setupJam = false })
-    val hotOn = state.isHot && !state.jamView
-    val watchOn = !state.isHot && !state.jamView
+    val roblo = state.robloView
+    val hotOn = state.isHot && !state.jamView && !roblo
+    val watchOn = !state.isHot && !state.jamView && !roblo
+    val jamOn = state.jamView && !roblo
     Row(modifier.clip(RoundedCornerShape(10.dp)).background(PanelSoft).padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         // Short, so the bar keeps room for ⚙, ⏻ and the logo in every language.
@@ -66,6 +69,8 @@ fun WalletModeSwitch(state: UiState, vm: WalletViewModel, accent: Color, modifie
         seg("🔥 HOT", hotOn) {
             when {
                 hotOn -> {}
+                // Back from ROBLO to the hot wallet that was open under it: no fingerprint again.
+                roblo && state.isHot && !state.jamView -> vm.leaveRoblo()
                 state.hasSeed -> Biometric.confirm(activity, "Back to the hot wallet",
                     "Unlock to see and spend your hot wallet", onSuccess = { vm.viewAsHot() }, onError = {})
                 else -> { vm.leaveJam(); vm.startSetup() }   // no hot wallet yet: create or restore one
@@ -74,15 +79,22 @@ fun WalletModeSwitch(state: UiState, vm: WalletViewModel, accent: Color, modifie
         seg("👁 WATCH", watchOn) {
             // The watched wallet's balances and addresses are as private as the hot one's: the
             // fingerprint first, as going back to hot asks.
-            if (!watchOn) Biometric.confirm(activity, "Open the watch-only wallet",
+            if (roblo && !state.isHot && !state.jamView) vm.leaveRoblo()
+            else if (!watchOn) Biometric.confirm(activity, "Open the watch-only wallet",
                 "Unlock to see the watched wallet", onSuccess = { if (vm.hasWatchWallet()) vm.viewAsWatchOnly() else setupWatch = true },
                 onError = {})
         }
         // The JoinMarket wallet (Jam, read-only): the fingerprint too, then its import the first time.
-        seg("🫙 JM", state.jamView) {
-            if (!state.jamView) Biometric.confirm(activity, "Open the JoinMarket wallet",
+        seg("🫙 JM", jamOn) {
+            if (roblo && state.jamView) vm.leaveRoblo()
+            else if (!jamOn) Biometric.confirm(activity, "Open the JoinMarket wallet",
                 "Unlock to see the JoinMarket wallet", onSuccess = { if (vm.hasJamWallet()) vm.viewJam() else setupJam = true },
                 onError = {})
+        }
+        // 🤖 ROBLO: the Roblosats client (beta builds only). The fingerprint first, as for the wallets.
+        if (com.kilombino.pyblockwatch.BuildConfig.ROBLO) seg("🤖 ROBLO", roblo) {
+            if (!roblo) Biometric.confirm(activity, "Open Roblosats",
+                "Unlock to see your robots and orders", onSuccess = { vm.viewRoblo() }, onError = {})
         }
     }
 }

@@ -174,3 +174,23 @@ service hosting, bridges or pluggable transports. (1.1.7-beta1 shipped
 `b4b50742a24ff3dc540e6fbad4c269c68f515982314629551a0b9834f584d846`, the same build with only debug
 info stripped.)
 
+
+## 10. The Roblosats client (beta builds only)
+
+The 🤖 ROBLO tab shows the Roblosats client (AGPL-3.0) in a WebView. It exists only in the `beta`
+build type (`./gradlew assembleBeta`) and in debug builds; `assembleRelease` carries none of it
+(`BuildConfig.ROBLO` is false there). `roblo-client/CLIENT` pins the client's repository, commit and
+SHA-256, and `verifyRobloClient` checks the zip before it is unpacked into `assets/roblo/`. To rebuild
+it (the zip is not committed):
+
+```
+git clone --branch kilowallet-embed https://github.com/Kilombino/roblosats
+cd roblosats && git checkout <commit from CLIENT>
+(cd frontend && npm ci)
+scripts/kilowallet-client.sh <tag from CLIENT> /path/to/kilowallet/roblo-client
+```
+
+The script builds from a copy of the commit in a fixed folder (`/tmp/roblo-client-build`: webpack
+names the WebAssembly files after the modules' paths) and writes the zip with sorted entries, a fixed
+date and fixed permissions, so the same commit and lock file give the same SHA-256. The zip carries
+the client's `LICENSE` and a `SOURCE` file with its commit.

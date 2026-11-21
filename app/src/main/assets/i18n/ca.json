@@ -2565,5 +2565,20 @@
 "In each CoinJoin where you were a maker: what came back to you over what you put in (the maker's fee less your part of the mining fee). Each one counts in the jar its coins came from.": "A cada coinjoin en què vas ser maker: el que et va tornar per sobre del que hi vas posar (la comissió del maker menys la teva part de la comissió de mineria). Cadascun compta al pot d'on van sortir les seves monedes.",
 "Movements": "Moviments",
 "Exact coin on its way: waiting for its first confirmation. Then your pool opens by itself; follow it in IN PROGRESS.": "Moneda exacta en camí: esperant la seva primera confirmació. Llavors el teu pool s'obre sol; segueix-lo a EN CURS.",
-"Exact coin on its way: waiting for its first confirmation. Then it joins the pool by itself; follow it in IN PROGRESS.": "Moneda exacta en camí: esperant la seva primera confirmació. Llavors entra sola al pool; segueix-la a EN CURS."
+"Exact coin on its way: waiting for its first confirmation. Then it joins the pool by itself; follow it in IN PROGRESS.": "Moneda exacta en camí: esperant la seva primera confirmació. Llavors entra sola al pool; segueix-la a EN CURS.",
+"Open Roblosats": "Obrir Roblosats",
+"Unlock to see your robots and orders": "Desbloqueja per veure els teus robots i ordres",
+"Include my Roblosats robots (tokens and Garage Key)": "Incloure els meus robots de Roblosats (tokens i Garage Key)",
+"Open outside Kilowallet?": "Obrir fora de Kilowallet?",
+"This link leaves Roblosats and opens in another app (your browser does not go through Kilowallet's Tor):": "Aquest enllaç surt de Roblosats i s'obre en una altra app (el teu navegador no passa pel Tor de Kilowallet):",
+"Copied": "Copiat",
+"Watching · Roblosats order #{0}": "Vigilant · ordre #{0} de Roblosats",
+"Roblosats orders": "Ordres de Roblosats",
+"Roblosats: your order needs you": "Roblosats: la teva ordre et necessita",
+"It is paid from your hot wallet.": "Es paga des de la cartera calenta.",
+"USE THE HOT WALLET": "FER SERVIR LA CARTERA CALENTA",
+"Use this address for Roblosats?": "Fer servir aquesta adreça per a Roblosats?",
+"USE THIS ADDRESS FOR ROBLOSATS": "FER SERVIR AQUESTA ADREÇA PER A ROBLOSATS",
+"LOCK": "BLOQUEJAR",
+"CREATE": "CREAR"
 }

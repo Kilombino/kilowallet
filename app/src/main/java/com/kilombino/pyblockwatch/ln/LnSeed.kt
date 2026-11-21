@@ -25,12 +25,13 @@ object LnSeed {
     private const val TAG = "Kilowallet Lightning v1"
 
     /** The node's BIP-32 master key (mainnet xprv, depth 0), from the BIP-39 seed bytes. */
-    fun masterXprv(bip39Seed: ByteArray): String {
+    fun masterXprv(bip39Seed: ByteArray, regtest: Boolean = false): String {
         val i = Hashes.hmacSha512(TAG.toByteArray(Charsets.UTF_8), bip39Seed)
         val k = BigInteger(1, i.copyOfRange(0, 32))
         require(k.signum() != 0 && k < Secp256k1.N) { "invalid Lightning master key" }
         val out = ByteArray(78)
-        byteArrayOf(0x04, 0x88.toByte(), 0xAD.toByte(), 0xE4.toByte()).copyInto(out, 0)
+        // xprv; tprv only for the regtest lab of a debug build (Lnd.labRegtest)
+        (if (regtest) byteArrayOf(0x04, 0x35, 0x83.toByte(), 0x94.toByte()) else byteArrayOf(0x04, 0x88.toByte(), 0xAD.toByte(), 0xE4.toByte())).copyInto(out, 0)
         // depth 0, parent fingerprint 0, child number 0 (bytes 4..12 stay zero)
         i.copyInto(out, 13, 32, 64)            // chain code
         out[45] = 0

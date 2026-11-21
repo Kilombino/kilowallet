@@ -87,12 +87,24 @@ class MainActivity : FragmentActivity() {
     override fun onStart() {
         super.onStart()
         AppVisible.value = true
+        if (com.kilombino.pyblockwatch.BuildConfig.ROBLO) com.kilombino.pyblockwatch.roblo.RobloWeb.appShown()
     }
 
     override fun onStop() {
         super.onStop()
         AppVisible.value = false
+        if (com.kilombino.pyblockwatch.BuildConfig.ROBLO) com.kilombino.pyblockwatch.roblo.RobloWeb.appHidden()
         StreetMode.lock()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (com.kilombino.pyblockwatch.BuildConfig.ROBLO) com.kilombino.pyblockwatch.roblo.RobloWeb.onTrimMemory(level, AppVisible.value)
+    }
+
+    override fun onDestroy() {
+        if (com.kilombino.pyblockwatch.BuildConfig.ROBLO) com.kilombino.pyblockwatch.roblo.RobloWeb.detach(this)
+        super.onDestroy()
     }
 
     // A notification asks to open its tab (BTC, SPAMCOIN, ARK, COINJOIN), refreshed.
@@ -100,6 +112,19 @@ class MainActivity : FragmentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         com.kilombino.pyblockwatch.data.OpenTab.from(intent)
+        robloLink(intent)
+    }
+
+    /** A Roblosats notification was tapped: remember its order for the page and ask to open ROBLO. */
+    private fun robloLink(intent: Intent?) {
+        if (!com.kilombino.pyblockwatch.BuildConfig.ROBLO || intent?.action != com.kilombino.pyblockwatch.roblo.RobloLinks.ACTION) return
+        val nav = com.kilombino.pyblockwatch.roblo.RobloLinks.navigation(
+            intent.getStringExtra(com.kilombino.pyblockwatch.roblo.RobloLinks.EXTRA_PATH),
+            intent.getStringExtra(com.kilombino.pyblockwatch.roblo.RobloLinks.EXTRA_ROBOT)) ?: return
+        com.kilombino.pyblockwatch.roblo.RobloLinks.pending = nav
+        com.kilombino.pyblockwatch.roblo.RobloLinks.asked.value++
+        // handled once: a later recreation of the activity must not open it again
+        intent.action = Intent.ACTION_MAIN
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -109,6 +134,7 @@ class MainActivity : FragmentActivity() {
         com.kilombino.pyblockwatch.data.JoinMarket.testNetworksAllowed =
             (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
         com.kilombino.pyblockwatch.data.OpenTab.from(intent)
+        robloLink(intent)
         // A coinjoin round left running (app killed, updated, phone restarted) picks up again.
         // Looked for off the main thread: it opens each round's key from the Keystore.
         lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -141,6 +167,18 @@ class MainActivity : FragmentActivity() {
                 LaunchedEffect(openTab) {
                     if (state.uiMode == "simple" && (openTab == com.kilombino.pyblockwatch.data.OpenTab.ARK ||
                             openTab == com.kilombino.pyblockwatch.data.OpenTab.COINJOIN)) vm.setUiMode("advanced")
+                }
+                // A Roblosats notification: ROBLO after the fingerprint (as its button asks), then its order.
+                if (com.kilombino.pyblockwatch.BuildConfig.ROBLO) {
+                    val robloAsked by com.kilombino.pyblockwatch.roblo.RobloLinks.asked.collectAsState()
+                    LaunchedEffect(robloAsked, state.hasWallet) {
+                        if (robloAsked == 0 || com.kilombino.pyblockwatch.roblo.RobloLinks.pending.isEmpty() || !state.hasWallet) return@LaunchedEffect
+                        // From a cold start the prompt can only show once the activity is resumed.
+                        lifecycle.withResumed { }
+                        if (state.robloView) com.kilombino.pyblockwatch.roblo.RobloWeb.navigateNow()
+                        else Biometric.confirm(this@MainActivity, "Open Roblosats", "Unlock to see your robots and orders",
+                            onSuccess = { vm.viewRoblo(); com.kilombino.pyblockwatch.roblo.RobloWeb.navigateNow() }, onError = {})
+                    }
                 }
                 // A payment's notification opens BTC on the wallet it is about; the other wallet after the
                 // fingerprint, as its button at the top asks.
@@ -343,7 +381,10 @@ class MainActivity : FragmentActivity() {
                     }
                     // A JoinBlaket payment going (or just ended): its sheet over whatever is on screen.
                     JoinBlaketSheet(Good, vm.explorerFor(com.kilombino.pyblockwatch.chain.Chain.BLAKE2B))
-                    if (state.jamView && !state.setupMode) {
+                    if (com.kilombino.pyblockwatch.BuildConfig.ROBLO && state.robloView && !state.setupMode) {
+                        // 🤖 ROBLO: the Roblosats client, its page kept alive between tabs.
+                        com.kilombino.pyblockwatch.roblo.RobloScreen(state, vm)
+                    } else if (state.jamView && !state.setupMode) {
                         // The JoinMarket wallet (Jam, read-only): its own screen, no simple mode.
                         val jvm: JamViewModel = viewModel()
                         JamScreen(vm, jvm, onToggleNotifications = { on -> toggleNotifications(vm, on) })
