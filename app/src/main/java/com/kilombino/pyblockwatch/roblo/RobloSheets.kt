@@ -200,9 +200,13 @@ private fun LnPaySheet(r: RobloWallet.Request.PayInvoice) {
     val ctx = LocalContext.current
     val activity = ctx as FragmentActivity
     var info by remember(r) { mutableStateOf<com.kilombino.pyblockwatch.ln.Lnd.PayReq?>(null) }
-    var error by remember(r) { mutableStateOf<String?>(RobloLn.notReady(ctx)) }
+    var error by remember(r) { mutableStateOf<String?>(null) }
+    var starting by remember(r) { mutableStateOf(true) }
     var busy by remember(r) { mutableStateOf(false) }
-    LaunchedEffect(r) { if (error == null) runCatching { com.kilombino.pyblockwatch.ln.Lnd.decode(r.bolt11) }.onSuccess { info = it }.onFailure { error = it.message } }
+    LaunchedEffect(r) {
+        error = RobloLn.awaitReady(ctx); starting = false
+        if (error == null) runCatching { com.kilombino.pyblockwatch.ln.Lnd.decode(r.bolt11) }.onSuccess { info = it }.onFailure { error = it.message }
+    }
     Sheet("Lock with Lightning · " + orderText(r.orderRef), onDismiss = { if (!busy) RobloWallet.finish(r, false, "cancelled") }, content = {
         info?.let {
             Text("${"%,d".format(it.sats)} sats from your Lightning channels", style = MaterialTheme.typography.bodyMedium, color = TextMain)
@@ -210,6 +214,7 @@ private fun LnPaySheet(r: RobloWallet.Request.PayInvoice) {
                 "(or, for the seller, when the trade completes). Keep Kilowallet able to run: its background watcher brings the node back " +
                 "while it is locked (up to ${it.cltv} blocks).", style = MaterialTheme.typography.bodySmall, color = TextSoft)
         }
+        if (starting) Text("Starting your Lightning node…", color = TextSoft, style = MaterialTheme.typography.bodySmall)
         if (busy) Text("Sending the payment…", color = TextSoft, style = MaterialTheme.typography.bodySmall)
         error?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall) }
     }, buttons = {
@@ -230,14 +235,17 @@ private fun LnPaySheet(r: RobloWallet.Request.PayInvoice) {
 private fun LnInvoiceSheet(r: RobloWallet.Request.Invoice) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    var error by remember(r) { mutableStateOf<String?>(RobloLn.notReady(ctx)) }
+    var error by remember(r) { mutableStateOf<String?>(null) }
+    var starting by remember(r) { mutableStateOf(true) }
+    LaunchedEffect(r) { error = RobloLn.awaitReady(ctx); starting = false }
     Sheet("Invoice from your Lightning node", onDismiss = { RobloWallet.finish(r, false, "cancelled") }, content = {
         Text("${"%,d".format(r.sats)} sats · ${r.memo}", style = MaterialTheme.typography.bodyMedium, color = TextMain)
         Text("Your channels need room to receive it (inbound liquidity).", style = MaterialTheme.typography.bodySmall, color = TextSoft)
+        if (starting) Text("Starting your Lightning node…", color = TextSoft, style = MaterialTheme.typography.bodySmall)
         error?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall) }
     }, buttons = {
         TextButton(onClick = { RobloWallet.finish(r, false, "cancelled") }) { Text("CANCEL", color = TextSoft) }
-        if (error == null) TextButton(onClick = {
+        if (error == null && !starting) TextButton(onClick = {
             scope.launch {
                 runCatching { RobloLn.invoice(ctx, r.sats, r.memo) }
                     .onSuccess { RobloWallet.finish(r, true, it) }.onFailure { error = it.message ?: "No invoice" }
