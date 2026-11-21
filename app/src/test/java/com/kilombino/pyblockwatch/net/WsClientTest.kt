@@ -69,7 +69,14 @@ class WsClientTest {
 
     @Test fun aServerThatIsNotAWebSocketIsRefused() {
         val server = java.net.ServerSocket(0, 5, java.net.InetAddress.getLoopbackAddress())
-        Thread { server.accept().use { it.getOutputStream().write("HTTP/1.1 200 OK\r\n\r\n".toByteArray()) } }.apply { isDaemon = true }.start()
+        // reads the client's request before answering, and stays open a moment after: closing at once
+        // reset the connection on Windows before the client could read the answer (CI, 21 nov)
+        Thread { server.accept().use { s ->
+            val r = s.getInputStream().bufferedReader()
+            while (r.readLine()?.isNotEmpty() == true) {}
+            s.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n".toByteArray()); s.getOutputStream().flush()
+            Thread.sleep(2000)
+        } }.apply { isDaemon = true }.start()
         val ws = WsClient("ws://127.0.0.1:${server.localPort}/", direct, onText = {})
         assertTrue(runCatching { ws.connect() }.exceptionOrNull()?.message.orEmpty().contains("refused"))
         server.close()
