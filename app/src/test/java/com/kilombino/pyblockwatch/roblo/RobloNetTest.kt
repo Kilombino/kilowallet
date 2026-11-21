@@ -43,6 +43,17 @@ class RobloNetTest {
         assertFalse(RobloNet.isLocal("8.8.8.8")); assertFalse(RobloNet.isLocal("172.32.0.1")); assertFalse(RobloNet.isLocal("kilobot.kilombino.com"))
     }
 
+    @Test fun aLabBuildReachesOnlyTheLab() {
+        val lab = RobloNet(torSocks = { null }, clearnet = { true }, allowLocal = true, clearnetHosts = { setOf("kilobot.kilombino.com") }, labOnly = true)
+        assertEquals(RobloNet.Route.Direct, lab.route("http://127.0.0.1:28800/api/book/", "anon"))
+        assertEquals(RobloNet.Route.Direct, lab.route("ws://127.0.0.1:27778/relay", "anon"))
+        // a real coordinator, its onion, an explorer: never, whatever the federation or the mode says
+        for (u in listOf("https://kilobot.kilombino.com/api/info/", "http://kiloblo3ibbey3wridofauizwb467y5osfaycxoecgsf66mggsrw6ryd.onion/api/book/",
+                "wss://nostr.kilombino.com/", "https://mempool.kilombino.com/api/tx/x"))
+            assertTrue(u, lab.route(u, "anon") is RobloNet.Route.Refused)
+        assertTrue(lab.route("https://kilobot.kilombino.com/", "anon", userChosen = true) is RobloNet.Route.Refused)
+    }
+
     @Test fun otherSchemesAreRefused() {
         for (u in listOf("file:///data/data/x", "javascript:alert(1)", "content://x/y", "ftp://a.b/", "not a url"))
             assertTrue(u, net().route(u, "anon") is RobloNet.Route.Refused)

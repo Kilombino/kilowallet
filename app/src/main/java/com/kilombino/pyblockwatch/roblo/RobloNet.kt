@@ -23,6 +23,13 @@ class RobloNet(
     private val allowLocal: Boolean = false,
     /** In Clearnet mode only these hosts (the coordinators' clearnet addresses) go direct. */
     private val clearnetHosts: () -> Set<String> = { emptySet() },
+    /**
+     * A test build against the regtest lab: nothing but the lab (addresses on this machine or the
+     * local network) is reachable, so a lab client can never reach a real coordinator, even if
+     * its federation or a coordinator's answer points elsewhere (the lab order that reached
+     * Kilobot's mainnet, 20 nov 2026).
+     */
+    private val labOnly: Boolean = false,
 ) {
     sealed class Route {
         object Direct : Route()
@@ -40,6 +47,7 @@ class RobloNet(
         val scheme = u.scheme?.lowercase()
         if (scheme !in setOf("http", "https", "ws", "wss")) return Route.Refused("only http(s) and ws(s)")
         val host = u.host?.lowercase()?.trim('[', ']') ?: return Route.Refused("no host")
+        if (labOnly) return if (isLocal(host)) Route.Direct else Route.Refused("lab build: only the lab is reachable")
         if (host.endsWith(".onion")) return Route.Tor(isolation(isolationKey))
         if (isLocal(host)) return if (allowLocal || userChosen) Route.Direct else Route.Refused("local addresses are not reachable from Roblosats")
         // 0.9.11: only the coordinators' own clearnet hosts go direct; anything else (an explorer,
