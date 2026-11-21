@@ -54,6 +54,7 @@ object RobloWatch {
             clearnet = { store.clearnet() },
             clearnetHosts = { store.clearnetHosts() },
             allowLocal = com.kilombino.pyblockwatch.BuildConfig.DEBUG,
+            labOnly = com.kilombino.pyblockwatch.BuildConfig.ROBLO_LAB,
         )
         return Sources(store, net)
     }

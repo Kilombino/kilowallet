@@ -79,6 +79,8 @@ object RobloWeb {
             clearnet = { store.clearnet() },
             clearnetHosts = { store.clearnetHosts() },
             allowLocal = BuildConfig.DEBUG,
+            // The lab's client (-ProbloLabZip): nothing but the lab, whatever the page asks for.
+            labOnly = BuildConfig.ROBLO_LAB,
         )
         val b = RobloBridge(HostImpl(app), store, net)
         bridge = b
