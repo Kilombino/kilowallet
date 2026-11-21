@@ -20,7 +20,7 @@ import java.net.URL
  * offered. Betas are offered only to a copy that is itself a beta.
  */
 object UpdateCheck {
-    private const val API = "https://api.github.com/repos/Kilombino/kilowallet-desktop/releases?per_page=10"
+    private const val API = "https://api.github.com/repos/Kilombino/kilowallet-desktop/releases?per_page=100"
     /** Kilombino's release key for the desktop app (x-only public key, BIP-340). */
     const val RELEASE_PUBKEY = "3e2fcd910f0e78ab222bacadb1c438f5deb7677319e8f95b01417a603c01f257"
 
