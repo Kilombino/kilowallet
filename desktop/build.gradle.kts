@@ -28,8 +28,8 @@ val engineFiles = when (hostOs) {
 }
 
 /** The desktop app's own version (its betas are numbered apart from Android's). */
-val desktopVersion = "0.1.0-beta24-roblo1"
-val desktopCode = 20
+val desktopVersion = "0.1.0-beta24-roblo2"
+val desktopCode = 21
 
 /**
  * 🤖 ROBLO (the Roblosats client tab, roblo-client/CLIENT): on in this beta line, like Android's
