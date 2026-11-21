@@ -64,8 +64,16 @@ object DesktopIntents {
     /** Shown by the window: a share's text was copied, a screen does not exist here… */
     @Volatile var onMessage: (String) -> Unit = {}
 
+    /**
+     * An intent for the app's own activity (a tapped notification that opens something in the
+     * app: a Roblosats order): the window comes up and the activity gets it as onNewIntent.
+     */
+    @Volatile var onActivity: (Intent) -> Unit = {}
+
     fun start(intent: Intent) {
         val i = intent.chosen ?: intent
+        val cls = i.component?.className?.let { runCatching { Class.forName(it) }.getOrNull() }
+        if (cls != null && android.app.Activity::class.java.isAssignableFrom(cls)) { onActivity(i); return }
         when (i.action) {
             Intent.ACTION_VIEW -> i.data?.toString()?.let { open(it) }
             Intent.ACTION_SEND -> {

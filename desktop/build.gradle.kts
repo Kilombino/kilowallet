@@ -28,14 +28,102 @@ val engineFiles = when (hostOs) {
 }
 
 /** The desktop app's own version (its betas are numbered apart from Android's). */
-val desktopVersion = "0.1.0-beta23"
-val desktopCode = 19
+val desktopVersion = "0.1.0-beta24-roblo1"
+val desktopCode = 20
+
+/**
+ * 🤖 ROBLO (the Roblosats client tab, roblo-client/CLIENT): on in this beta line, like Android's
+ * `beta` build type; -PkwRoblo=false builds the app without it.
+ */
+val robloOn = providers.gradleProperty("kwRoblo").orNull != "false"
+/**
+ * A test build (-PkwDebug=true): the ROBLO page's remote debugging port (CDP, for the lab's
+ * Playwright scenarios) and its test driver, and only with -ProbloLabZip the regtest lab's client
+ * (which then reaches nothing but the lab). Never for anything handed out: packaging refuses it.
+ */
+val debugBuild = providers.gradleProperty("kwDebug").orNull == "true"
+val robloLabZip: String? = providers.gradleProperty("robloLabZip").orNull
+fun robloPin(key: String): String = rootProject.file("roblo-client/CLIENT").readLines()
+    .first { it.startsWith("$key=") }.substringAfter("=").trim()
+fun sha256(f: File) = MessageDigest.getInstance("SHA-256").digest(f.readBytes()).joinToString("") { "%02x".format(it) }
+
+/**
+ * JetBrains Runtime with JCEF (the Chromium the ROBLO page runs in), pinned in engines/JBR and
+ * fetched + checked by engines/fetch-jbr.sh. KW_JBR points at the unpacked runtime: its jcef
+ * module is the compile-time API here and the packages' runtime (KW_PACKAGE_JDK).
+ */
+val jbrHome: String? = System.getenv("KW_JBR")
 
 val writeBuildInfo by tasks.registering {
     val out = layout.buildDirectory.dir("generated/buildinfo")
     outputs.dir(out)
     inputs.property("v", desktopVersion)
     doLast { out.get().file("kilowallet-desktop.properties").asFile.apply { parentFile.mkdirs(); writeText("version=$desktopVersion\ncode=$desktopCode\n") } }
+}
+
+/**
+ * The shared code's BuildConfig (Android generates it): ROBLO, DEBUG and the version, plus the
+ * pinned Roblosats client's SHA-256, checked again when the app loads the zip.
+ */
+val writeBuildConfig by tasks.registering {
+    val out = layout.buildDirectory.dir("generated/buildconfig")
+    outputs.dir(out)
+    val clientSha = if (robloLabZip != null) sha256(file(robloLabZip)) else robloPin("sha256")
+    inputs.property("roblo", robloOn); inputs.property("debug", debugBuild); inputs.property("v", desktopVersion)
+    inputs.property("client", clientSha); inputs.property("lab", robloLabZip != null)
+    doLast {
+        out.get().file("com/kilombino/pyblockwatch/BuildConfig.kt").asFile.apply {
+            parentFile.mkdirs()
+            writeText("""
+                |package com.kilombino.pyblockwatch
+                |
+                |/** Written by the desktop build (desktop/build.gradle.kts writeBuildConfig), as Android generates it. */
+                |object BuildConfig {
+                |    const val ROBLO: Boolean = $robloOn
+                |    const val DEBUG: Boolean = $debugBuild
+                |    const val VERSION_NAME: String = "$desktopVersion"
+                |    const val ROBLO_CLIENT_SHA256: String = "$clientSha"
+                |    /** A client built for the regtest lab (debug builds only): it may reach nothing but the lab. */
+                |    const val ROBLO_LAB: Boolean = ${robloLabZip != null}
+                |}
+                |""".trimMargin())
+        }
+    }
+}
+
+// The Roblosats client, as pinned (or the lab's in a debug build): the zip itself goes into the
+// app; RobloAssets checks its hash against BuildConfig before serving anything from it.
+val robloClientFile = if (robloLabZip != null) file(robloLabZip) else rootProject.file("roblo-client/" + robloPin("file"))
+val verifyRobloClient by tasks.registering {
+    inputs.files(rootProject.file("roblo-client/CLIENT"))
+    doLast {
+        check(robloLabZip == null || debugBuild) { "robloLabZip is for debug builds (-PkwDebug=true) against the lab only" }
+        check(robloClientFile.exists()) { "Missing $robloClientFile — build it in Roblosats with ${robloPin("build")}." }
+        if (robloLabZip == null) check(sha256(robloClientFile) == robloPin("sha256")) { "Roblosats client hash ${sha256(robloClientFile)} does not match the pinned ${robloPin("sha256")}" }
+    }
+}
+val robloClientZip by tasks.registering(Sync::class) {
+    dependsOn(verifyRobloClient)
+    from(robloClientFile) { rename { "roblo-client.zip" } }
+    into(layout.buildDirectory.dir("generated/roblo-client/roblo"))
+}
+
+/** JCEF's API for compiling (classes of the pinned runtime's jcef module; the runtime brings the rest). */
+val jcefClasses by tasks.registering(Exec::class) {
+    val dir = layout.buildDirectory.dir("jcef/extracted")
+    outputs.dir(dir)
+    onlyIf { jbrHome != null }
+    doFirst {
+        check(File("$jbrHome/jmods/jcef.jmod").isFile) { "KW_JBR=$jbrHome has no jmods/jcef.jmod (engines/fetch-jbr.sh)" }
+        dir.get().asFile.deleteRecursively()
+    }
+    executable = "$jbrHome/bin/jmod" + if (hostOs == "windows") ".exe" else ""
+    args("extract", "--dir", dir.get().asFile.path, "$jbrHome/jmods/jcef.jmod")
+}
+val jcefApi by tasks.registering(Jar::class) {
+    from(jcefClasses.map { File(it.outputs.files.singleFile, "classes") }) { exclude("module-info.class") }
+    archiveFileName.set("jcef-api.jar")
+    destinationDirectory.set(layout.buildDirectory.dir("jcef"))
 }
 
 /**
@@ -54,6 +142,11 @@ val sharedSources by tasks.registering(Sync::class) {
             // The phone runs Arti (libarti.so, Android 1.1.7+); the desktop keeps the C tor of the
             // Tor Project's expert bundle, behind the same Tor object (src/main/kotlin).
             "com/kilombino/pyblockwatch/chain/Tor.kt",
+            // The ROBLO page's host: Android's WebView there, JCEF here (desktop roblo/RobloWeb,
+            // RobloAssets and RobloScreen); the bridge, the store, the watcher and the sheets are shared.
+            "com/kilombino/pyblockwatch/roblo/RobloWeb.kt",
+            "com/kilombino/pyblockwatch/roblo/RobloAssets.kt",
+            "com/kilombino/pyblockwatch/roblo/RobloScreen.kt",
         )
         // The screens' Text is the app's translating one; on the desktop it also says "computer"
         // for "phone" and "password" for "fingerprint" (desktop i18n.Text, over the same tables).
@@ -66,7 +159,7 @@ val sharedSources by tasks.registering(Sync::class) {
 
 sourceSets {
     main {
-        kotlin { srcDir(sharedSources) }
+        kotlin { srcDir(sharedSources); srcDir(writeBuildConfig) }
     }
     // The Android app's own unit tests, run on the desktop JVM too (with the native engines loaded).
     test {
@@ -79,6 +172,7 @@ sourceSets {
 // The images the shared screens draw, from the Android app's res/ folder.
 tasks.named<ProcessResources>("processResources") {
     from(writeBuildInfo)
+    if (robloOn) from(robloClientZip) { into("roblo") }
     // The language tables and anything else in the app's assets.
     from("../app/src/main/assets") { into("assets") }
     from("../app/src/main/res") {
@@ -97,6 +191,8 @@ dependencies {
     implementation("org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
     implementation("com.google.zxing:core:3.5.3")
     implementation("com.google.zxing:javase:3.5.3")
+    // JCEF from the pinned JetBrains Runtime: compile against its API, run on that runtime.
+    compileOnly(files(jcefApi))
     testImplementation("junit:junit:4.13.2")
 }
 
@@ -125,6 +221,8 @@ compose.desktop {
             // The modules the app uses (as ./gradlew suggestRuntimeModules lists them), not the whole JDK.
             modules("java.instrument", "java.management", "java.naming", "java.net.http", "java.prefs", "java.sql",
                 "jdk.crypto.ec", "jdk.unsupported", "jdk.security.auth")
+            // ROBLO: JCEF (and what it needs) from the JetBrains Runtime the package is cut from.
+            if (robloOn) modules("jcef", "jogl.all", "gluegen.rt", "jdk.unsupported.desktop")
             linux {
                 packageName = "kilowallet"
                 debPackageVersion = desktopVersion.replace("-", "~")
@@ -185,3 +283,15 @@ val verifyEngines by tasks.registering {
     }
 }
 tasks.matching { it.name.startsWith("package") }.configureEach { dependsOn(verifyEngines) }
+
+// A package is never a test build, and a ROBLO package runs on the pinned JetBrains Runtime.
+val checkPackaging by tasks.registering {
+    doLast {
+        check(!debugBuild && robloLabZip == null) { "-PkwDebug / -ProbloLabZip are for test builds only: not packaged" }
+        if (robloOn) {
+            val jdk = System.getenv("KW_PACKAGE_JDK")
+            check(jdk != null && File("$jdk/jmods/jcef.jmod").isFile) { "ROBLO packages need KW_PACKAGE_JDK = the pinned JetBrains Runtime with JCEF (engines/fetch-jbr.sh)" }
+        }
+    }
+}
+tasks.matching { it.name.startsWith("package") || it.name == "createDistributable" || it.name == "createReleaseDistributable" }.configureEach { dependsOn(checkPackaging) }

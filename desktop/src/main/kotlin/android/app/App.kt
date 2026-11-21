@@ -17,19 +17,25 @@ open class Activity : Context() {
     open fun finish() { DesktopActivities.onFinish(this) }
     open fun recreate() { DesktopActivities.onRecreate(this) }
     open fun finishAffinity() = finish()
-    /** ⏻ on the phone closes the app for good: the same here. */
-    open fun finishAndRemoveTask() { kotlin.system.exitProcess(0) }
+    /** ⏻ on the phone closes the app for good: the same here (the window may ask first, see DesktopActivities.onQuit). */
+    open fun finishAndRemoveTask() { DesktopActivities.onQuit() }
     open fun moveTaskToBack(b: Boolean): Boolean = true
     open val intent: Intent get() = Intent(Intent.ACTION_MAIN)
     open fun setIntent(i: Intent) {}
     open val window: android.view.Window get() = android.view.Window
     open fun shouldShowRequestPermissionRationale(p: String): Boolean = false
     open fun requestPermissions(p: Array<String>, code: Int) {}
+    /** Android's memory pressure: never sent on the desktop. */
+    open fun onTrimMemory(level: Int) {}
+    /** Runs [r] on the window's thread (Swing's). */
+    fun runOnUiThread(r: Runnable) { if (javax.swing.SwingUtilities.isEventDispatchThread()) r.run() else javax.swing.SwingUtilities.invokeLater(r) }
 }
 
 object DesktopActivities {
     @Volatile var onFinish: (Activity) -> Unit = {}
     @Volatile var onRecreate: (Activity) -> Unit = {}
+    /** ⏻: the window quits the app (after its own checks: a Lightning payment held by ROBLO). */
+    @Volatile var onQuit: () -> Unit = { kotlin.system.exitProcess(0) }
 }
 
 /** A background service runs inside the desktop app: its loop starts when "started". */
@@ -102,6 +108,7 @@ class Notification(val title: CharSequence?, val text: CharSequence?, val ongoin
         fun setSortKey(k: String?) = this
         fun setProgress(max: Int, p: Int, ind: Boolean) = this
         fun addAction(icon: Int, title: CharSequence?, p: PendingIntent?) = this
+        fun setVibrate(p: LongArray?) = this
         fun build() = Notification(title, text, ongoing, intent, quiet)
     }
     abstract class Style
@@ -110,6 +117,7 @@ class Notification(val title: CharSequence?, val text: CharSequence?, val ongoin
     companion object {
         const val VISIBILITY_PUBLIC = 1; const val VISIBILITY_PRIVATE = 0; const val VISIBILITY_SECRET = -1
         const val CATEGORY_PROGRESS = "progress"; const val CATEGORY_STATUS = "status"; const val CATEGORY_MESSAGE = "msg"
+        const val CATEGORY_REMINDER = "reminder"
         const val PRIORITY_DEFAULT = 0; const val PRIORITY_LOW = -1; const val PRIORITY_HIGH = 1
         const val FOREGROUND_SERVICE_IMMEDIATE = 1
         const val GROUP_ALERT_ALL = 0; const val GROUP_ALERT_SUMMARY = 1; const val GROUP_ALERT_CHILDREN = 2
@@ -119,6 +127,8 @@ class Notification(val title: CharSequence?, val text: CharSequence?, val ongoin
 class NotificationChannel(val id: String, val name: CharSequence?, val importance: Int) {
     var description: String? = null
     var lockscreenVisibility: Int = 0
+    var group: String? = null
+    var vibrationPattern: LongArray? = null
     fun setShowBadge(b: Boolean) {}
     fun enableVibration(b: Boolean) {}
     fun setSound(u: android.net.Uri?, a: Any?) {}
@@ -126,8 +136,11 @@ class NotificationChannel(val id: String, val name: CharSequence?, val importanc
 }
 
 /** Notifications on the desktop: alerts pop up from the tray icon; ongoing ones are listed in the window. */
+class NotificationChannelGroup(val id: String, val name: CharSequence?)
+
 class NotificationManager {
     fun createNotificationChannel(c: NotificationChannel) {}
+    fun createNotificationChannelGroup(g: NotificationChannelGroup) {}
     fun deleteNotificationChannel(id: String) {}
     fun getNotificationChannel(id: String): NotificationChannel? = null
     fun notify(id: Int, n: Notification) = DesktopNotifications.show(id, n)
@@ -146,6 +159,11 @@ class NotificationManager {
 object DesktopNotifications {
     /** The window registers how to pop an alert up (tray message) and where ongoing ones are listed. */
     @Volatile var popup: (String, String) -> Unit = { _, _ -> }
+    /**
+     * When set, alerts pop up through this one instead, with what a click on them opens (a
+     * Roblosats notice opens its order): notify-send's action on Linux, the tray icon elsewhere.
+     */
+    @Volatile var popupWithIntent: ((String, String, PendingIntent?) -> Unit)? = null
     val ongoing = java.util.concurrent.ConcurrentHashMap<Int, Notification>()
     private val shown = java.util.concurrent.ConcurrentHashMap<Int, String>()
     fun show(id: Int, n: Notification) {
@@ -154,7 +172,9 @@ object DesktopNotifications {
         val key = "${n.title}|${n.text}"
         if (shown.put(id, key) == key) return // updated with the same text: once
         if (n.quiet) return
-        popup(n.title?.toString() ?: "Kilowallet", n.text?.toString() ?: "")
+        val title = n.title?.toString() ?: "Kilowallet"; val text = n.text?.toString() ?: ""
+        popupWithIntent?.let { it(title, text, n.contentIntent); return }
+        popup(title, text)
     }
     fun cancel(id: Int) { ongoing.remove(id); shown.remove(id) }
     fun cancelAll() { ongoing.clear(); shown.clear() }

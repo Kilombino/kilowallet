@@ -31,6 +31,21 @@ class UpdateCheckTest {
         assertTrue(UpdateCheck.isNewer("v0.1.0-beta10", "0.1.0-beta9"))
     }
 
+    /** The ROBLO beta: a line of its own on top of a beta, never "updated" back to a build without the tab. */
+    @Test fun theRobloBetaIsALineOfItsOwn() {
+        val roblo = "0.1.0-beta24-roblo1"
+        assertFalse(UpdateCheck.isNewer("v0.1.0-beta23", roblo))   // seen live: was offered before this
+        assertFalse(UpdateCheck.isNewer("v0.1.0-beta24", roblo))
+        assertFalse(UpdateCheck.isNewer("v0.1.0", roblo))
+        assertTrue(UpdateCheck.isNewer("v0.1.0-beta25", roblo))
+        assertTrue(UpdateCheck.isNewer("v0.1.0-beta24-roblo2", roblo))
+        assertFalse(UpdateCheck.isNewer("v0.1.0-beta24-roblo1", roblo))
+        assertTrue(UpdateCheck.isNewer("v0.2.0", roblo))
+        // a regular copy is never offered the ROBLO beta
+        assertFalse(UpdateCheck.isNewer("v0.1.0-beta24-roblo1", "0.1.0-beta23"))
+        assertFalse(UpdateCheck.isNewer("v0.1.0-beta30-roblo1", "0.1.0-beta23"))
+    }
+
     @Test fun theVersionComesFromTheSignedFileName() {
         assertEquals("0.1.0-beta6", UpdateCheck.signedVersion("Kilowallet-0.1.0-beta6-x86_64.AppImage"))
         assertEquals("0.1.0-beta6", UpdateCheck.signedVersion("kilowallet_0.1.0-beta6_amd64.deb"))

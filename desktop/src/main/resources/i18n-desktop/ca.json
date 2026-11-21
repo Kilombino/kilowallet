@@ -35,5 +35,13 @@
  "Desktop beta for macOS": "Beta d'escriptori per a macOS",
  "Lock": "Bloquejar",
  "Lock after 15 minutes without use (Lightning, coinjoin on its own and Ark renewals wait until you unlock)": "Bloquejar després de 15 minuts sense ús (Lightning, el coinjoin sol i les renovacions d'Ark esperen que desbloquegis)",
- "Wait before trying again:": "Espera abans de tornar a provar:"
+ "Wait before trying again:": "Espera abans de tornar a provar:",
+ "A Lightning payment of Roblosats is held": "Hi ha un pagament Lightning de Roblosats retingut",
+ "This computer's Lightning node holds a payment until the trade ends:": "El node Lightning d'aquest ordinador reté un pagament fins que acabi l'intercanvi:",
+ "If Kilowallet closes, the node stops and can't settle or cancel it in time: the channel may be closed on chain and cost fees. Keep Kilowallet open (and the computer awake) until the trade ends.": "Si Kilowallet es tanca, el node s'atura i no pot liquidar-lo ni cancel·lar-lo a temps: el canal es podria tancar en cadena i costar comissions. Deixa Kilowallet obert (i l'ordinador despert) fins que acabi l'intercanvi.",
+ "This computer may go to sleep: it could not be kept awake": "Aquest ordinador es pot suspendre: no s'ha pogut mantenir despert",
+ "KEEP KILOWALLET OPEN": "DEIXAR KILOWALLET OBERT",
+ "Close anyway": "Tancar igualment",
+ "Roblosats could not start on this computer: ": "Roblosats no ha pogut arrencar en aquest ordinador: ",
+ "Choose a picture": "Tria una imatge"
 }

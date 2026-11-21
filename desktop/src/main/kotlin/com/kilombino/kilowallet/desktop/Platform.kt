@@ -57,4 +57,27 @@ object Platform {
     fun notify(title: String, text: String) {
         runCatching { ProcessBuilder("notify-send", "-a", "Kilowallet", title, text).start() }
     }
+
+    /**
+     * The same with [onClick] run when the user clicks it (notify-send's default action, libnotify
+     * 0.8+). An older notify-send without actions shows it plain.
+     */
+    fun notify(title: String, text: String, onClick: (() -> Unit)?) {
+        if (onClick == null) { notify(title, text); return }
+        Thread({
+            val p = runCatching { ProcessBuilder(notifyClickCommand(title, text)).redirectErrorStream(true).start() }.getOrNull() ?: return@Thread
+            val out = runCatching { p.inputStream.bufferedReader().readText() }.getOrDefault("")
+            val code = p.waitFor()
+            when {
+                code == 0 && clicked(out) -> onClick()
+                code != 0 -> notify(title, text)
+            }
+        }, "notify").apply { isDaemon = true }.start()
+    }
+
+    fun notifyClickCommand(title: String, text: String) =
+        listOf("notify-send", "-a", "Kilowallet", "--action=default=Open", "--wait", title, text)
+
+    /** notify-send --wait prints the action's name when one was clicked. */
+    fun clicked(out: String) = out.lines().any { it.trim() == "default" }
 }

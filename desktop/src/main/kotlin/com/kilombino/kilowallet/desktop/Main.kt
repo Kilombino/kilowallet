@@ -34,6 +34,7 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberTrayState
 import androidx.compose.ui.window.rememberWindowState
 import com.kilombino.kilowallet.desktop.i18n.I18n
+import com.kilombino.pyblockwatch.BuildConfig
 import com.kilombino.pyblockwatch.ui.MainActivity
 import kotlinx.coroutines.delay
 
@@ -42,7 +43,25 @@ private val useTray = Platform.os != Platform.Os.LINUX && androidx.compose.ui.wi
 /** The desktop app's Application: the shared code's `getApplication()`. */
 object DesktopApp : Application()
 
+/** The window's activity, once created (a tapped notification hands it its intent). */
+@Volatile private var mainActivity: MainActivity? = null
+
+/**
+ * A Roblosats payment held by this node (a hold invoice: an HTLC out until the trade ends), as
+ * "order kilobot/24 · 3000 sats"; null when none. Quitting or sleeping then needs care.
+ */
+internal fun robloHeldPayment(): String? {
+    if (!BuildConfig.ROBLO) return null
+    val held = runCatching { com.kilombino.pyblockwatch.roblo.RobloLn.held(android.content.DesktopContext) }.getOrDefault(emptyList())
+    if (held.isEmpty()) return null
+    return held.joinToString(", ") { "Roblosats ${it.order} · ${it.sats} sats" }
+}
+
 fun main() {
+    // ROBLO: the Roblosats page is a native Chromium window inside ours, drawn above whatever the
+    // app paints on its own canvas. Dialogs and menus then go on layers of their own above it, or
+    // they would open hidden behind the page (seen with ⏻'s question while ROBLO was open).
+    if (BuildConfig.ROBLO && System.getProperty("compose.layers.type") == null) System.setProperty("compose.layers.type", "WINDOW")
     // Android's Keystore, emulated over a password (see DesktopKeyStore), before any vault is touched.
     DesktopKeyStore.install()
     // What the Android app runs first: the crash log.
@@ -53,9 +72,26 @@ fun main() {
     // A second launch only brings the open copy's window up (and that copy's window may be hidden).
     val showRequests = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     if (!SingleInstance.acquire(onShow = { showRequests.tryEmit(Unit) })) return
+    // Test builds: what the screens show, for the lab's scenarios (never in a package); the lab's
+    // Knots node is on this machine, not behind an emulator's host address.
+    TestDriver.start()
+    if (BuildConfig.DEBUG) com.kilombino.pyblockwatch.ln.Lnd.LAB_PEER = "127.0.0.1:29444"
 
     application {
         var unlocked by remember { mutableStateOf(DesktopKeyStore.unlocked()) }
+        // Quitting with a Roblosats payment held by the node asks first (it would stop the node).
+        var quitGuard by remember { mutableStateOf<String?>(null) }
+        fun quitNow() { exitApplication() }
+        fun requestQuit() { val held = robloHeldPayment(); if (held != null) quitGuard = held else quitNow() }
+        LaunchedEffect(Unit) { android.app.DesktopActivities.onQuit = { javax.swing.SwingUtilities.invokeLater { requestQuit() } } }
+        // The computer stays awake while such a payment is held; after a sleep the page reconnects.
+        if (BuildConfig.ROBLO) LaunchedEffect(Unit) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                SleepGuard.watch(heldPayment = ::robloHeldPayment, onWake = { gap ->
+                    com.kilombino.pyblockwatch.roblo.RobloWeb.networkChanged("the computer woke up after ${gap / 1000} s")
+                })
+            }
+        }
         // Any key or click in the app counts as use; locking after a while without use is a choice
         // made on the unlock screen (off by default).
         LaunchedEffect(Unit) {
@@ -63,17 +99,27 @@ fun main() {
                 java.awt.AWTEvent.KEY_EVENT_MASK or java.awt.AWTEvent.MOUSE_EVENT_MASK or java.awt.AWTEvent.MOUSE_WHEEL_EVENT_MASK)
             while (true) {
                 delay(20_000)
-                if (DesktopKeyStore.lockIfIdle()) unlocked = false
+                if (DesktopKeyStore.lockIfIdle()) { unlocked = false; if (BuildConfig.ROBLO) com.kilombino.pyblockwatch.roblo.RobloWeb.destroy("locked") }
             }
         }
         var visible by remember { mutableStateOf(true) }
         val tray = rememberTrayState()
         val icon = painterResource(com.kilombino.pyblockwatch.R.mipmap.ic_launcher)
         val toast = remember { mutableStateOf<String?>(null) }
+        // The last tray notice that opens something when clicked (a Roblosats order).
+        val trayClick = remember { java.util.concurrent.atomic.AtomicReference<android.app.PendingIntent?>(null) }
         LaunchedEffect(Unit) {
             DesktopNotifications.popup = { title, text ->
                 if (useTray) tray.sendNotification(androidx.compose.ui.window.Notification(I18n.tr(title), I18n.tr(text)))
                 else Platform.notify(I18n.tr(title), I18n.tr(text))
+            }
+            DesktopNotifications.popupWithIntent = { title, text, intent ->
+                if (useTray) { trayClick.set(intent); tray.sendNotification(androidx.compose.ui.window.Notification(I18n.tr(title), I18n.tr(text))) }
+                else Platform.notify(I18n.tr(title), I18n.tr(text), intent?.let { { it.send() } })
+            }
+            // A notice's click that opens the app's own screen: the window up, the activity told.
+            android.content.DesktopIntents.onActivity = { i ->
+                javax.swing.SwingUtilities.invokeLater { showRequests.tryEmit(Unit); mainActivity?.onNewIntent(i) }
             }
             DesktopToast.show = { javax.swing.SwingUtilities.invokeLater { toast.value = I18n.tr(it) } }
             DesktopIntents.onMessage = DesktopToast.show
@@ -83,13 +129,13 @@ fun main() {
         // while the window is closed: closing hides it to the tray; Quit there ends the app.
         // Not on Linux: Java's tray icon there is often dead (no menu, a click opens nothing), so a
         // hidden window could not be brought back nor the app quit. Closing the window quits.
-        if (useTray) Tray(icon = icon, state = tray, tooltip = "Kilowallet", onAction = { visible = true }, menu = {
+        if (useTray) Tray(icon = icon, state = tray, tooltip = "Kilowallet", onAction = { visible = true; trayClick.getAndSet(null)?.send() }, menu = {
             Item(Tr.t("Open Kilowallet", "Abrir Kilowallet"), onClick = { visible = true })
-            Item(Tr.t("Quit", "Salir"), onClick = { exitApplication() })
+            Item(Tr.t("Quit", "Salir"), onClick = { visible = true; requestQuit() })
         })
 
         Window(
-            onCloseRequest = { if (unlocked && useTray) visible = false else exitApplication() },
+            onCloseRequest = { if (unlocked && useTray) { visible = false; if (BuildConfig.ROBLO) com.kilombino.pyblockwatch.roblo.RobloWeb.appHidden() } else requestQuit() },
             visible = visible,
             title = "Kilowallet " + BuildInfo.VERSION,
             icon = icon,
@@ -116,18 +162,56 @@ fun main() {
                         UnlockScreen(onUnlocked = { unlocked = true })
                     }
                     BetaBadge(Modifier.align(Alignment.TopEnd))
-                    if (unlocked) TextButton(onClick = { DesktopKeyStore.lock(); unlocked = false },
+                    if (unlocked) TextButton(onClick = { DesktopKeyStore.lock(); unlocked = false; if (BuildConfig.ROBLO) com.kilombino.pyblockwatch.roblo.RobloWeb.destroy("locked") },
                         modifier = Modifier.align(Alignment.TopStart)) { Text("🔒 " + Tr.t("Lock", "Bloquear"), fontSize = 11.sp, color = Color.Gray) }
                     toast.value?.let { msg ->
                         LaunchedEffect(msg) { delay(3500); toast.value = null }
                         Snackbar(Modifier.align(Alignment.BottomCenter).padding(16.dp)) { Text(msg) }
                     }
                     PasswordDialog()
+                    quitGuard?.let { held -> QuitGuardDialog(held, onStay = { quitGuard = null }, onQuit = { quitGuard = null; quitNow() }) }
                 }
             }
         }
     }
+    // Chromium (the ROBLO page) ends with the app; left running it would keep the process alive.
+    if (BuildConfig.ROBLO) runCatching { com.kilombino.pyblockwatch.roblo.RobloWeb.shutdown() }
+    SleepGuard.release()
+    kotlin.system.exitProcess(0)
 }
+
+/**
+ * Quitting while this computer's node holds a Roblosats payment (a hold invoice): the node stops
+ * with the app and can't settle or cancel it in time, so the channel may end up closed on chain.
+ */
+@Composable
+private fun QuitGuardDialog(held: String, onStay: () -> Unit, onQuit: () -> Unit) {
+    DisposableEffect(Unit) {
+        com.kilombino.pyblockwatch.roblo.RobloOverlay.covers.intValue++
+        onDispose { com.kilombino.pyblockwatch.roblo.RobloOverlay.covers.intValue-- }
+    }
+    AlertDialog(
+        onDismissRequest = onStay,
+        title = { Text(I18n.tr("A Lightning payment of Roblosats is held")) },
+        text = {
+            Column {
+                Text(I18n.tr("This computer's Lightning node holds a payment until the trade ends:"))
+                Spacer(Modifier.height(6.dp))
+                Text(held, color = Color(0xFFE0A100))
+                Spacer(Modifier.height(10.dp))
+                Text(I18n.tr("If Kilowallet closes, the node stops and can't settle or cancel it in time: the channel may be closed on chain and cost fees. Keep Kilowallet open (and the computer awake) until the trade ends."))
+                if (!SleepGuard.holding.value) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(I18n.tr("This computer may go to sleep: it could not be kept awake") + (SleepGuard.unavailable.value?.let { " ($it)" } ?: "") + ".",
+                        color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        confirmButton = { Button(onClick = onStay) { Text(I18n.tr("KEEP KILOWALLET OPEN")) } },
+        dismissButton = { TextButton(onClick = onQuit) { Text(I18n.tr("Close anyway"), color = MaterialTheme.colorScheme.error) } },
+    )
+}
+
 
 /** The Android app's main screen, run as on the phone: same activity, same screens. */
 @Composable
@@ -135,6 +219,7 @@ private fun WalletWindow() {
     val activity = remember {
         MainActivity().also {
             it.onCreate(null); it.onStart(); it.onResume()
+            mainActivity = it
         }
     }
     CompositionLocalProvider(LocalContext provides activity) {

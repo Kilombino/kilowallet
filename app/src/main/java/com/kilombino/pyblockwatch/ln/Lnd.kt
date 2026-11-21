@@ -50,8 +50,11 @@ object Lnd {
     fun labRegtest(ctx: Context): Boolean =
         com.kilombino.pyblockwatch.BuildConfig.DEBUG && File(ctx.filesDir, "lnd-regtest-lab").exists()
 
-    /** The lab's Knots node as seen from the emulator (host loopback), and its BLAKE2b activation. */
-    const val LAB_PEER = "10.0.2.2:29444"
+    /**
+     * The lab's Knots node as seen from the emulator (host loopback; the desktop sets it to its
+     * own 127.0.0.1), and its BLAKE2b activation.
+     */
+    @Volatile var LAB_PEER = "10.0.2.2:29444"
     const val LAB_BLAKE2B_HEIGHT = 300
 
     /**

@@ -39,7 +39,33 @@ object Tor {
     /** Tor is up: started for something else (a node reached by .onion) and its SOCKS port open. */
     val running: Boolean get() = bound && runCatching { (service?.socksPort ?: -1) > 0 }.getOrDefault(false)
 
+    /**
+     * Who needs Tor up, as on Android (shared [TorOwners]). Everything that used Tor before (a .onion
+     * node, Electrum through Tor, Lightning, coinjoin, JoinBlaket) calls [start], which keeps it up
+     * until the app ends, as always. The ROBLO tab and its watcher [acquire] it under their own name
+     * and [release] it: tor stops then only if nobody else holds it and nothing started it the old way.
+     */
+    internal val owners = TorOwners()
+    private val startLock = Any()
+
+    /** Tor for [owner], until [release]; started now if it is not running (and may be). */
+    fun acquire(ctx: Context, owner: String) {
+        owners.acquire(owner)
+        launch(ctx)
+    }
+
+    /** [owner] no longer needs Tor: stopped if nobody else does. */
+    fun release(ctx: Context, owner: String) {
+        if (owners.release(owner)) synchronized(startLock) { if (owners.mayStop()) unbind(ctx) }
+    }
+
+    /** Tor for the rest of the app's life (every use of Tor before the owners existed). */
     fun start(ctx: Context) {
+        owners.keepForever()
+        launch(ctx)
+    }
+
+    private fun launch(ctx: Context) = synchronized(startLock) {
         if (bound || !available) return
         writeTorrc(ctx.applicationContext)
         bound = ctx.applicationContext.bindService(Intent(ctx.applicationContext, TorService::class.java), conn, Context.BIND_AUTO_CREATE)
@@ -66,7 +92,13 @@ object Tor {
         TorService.getTorrc(app).writeText("Log notice file ${log.path}\n")
     }
 
-    fun stop(ctx: Context) {
+    /** Stops Tor, unless an owner still holds it ([acquire]). */
+    fun stop(ctx: Context) = synchronized(startLock) {
+        if (!owners.stopAllowed()) return
+        unbind(ctx)
+    }
+
+    private fun unbind(ctx: Context) {
         if (!bound) return
         runCatching { ctx.applicationContext.unbindService(conn) }
         bound = false; service = null

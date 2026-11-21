@@ -1,0 +1,12 @@
+# JetBrains Runtime with JCEF (Chromium 137, CEF 137.0.17) for the 🤖 ROBLO tab: the runtime every
+# desktop package is cut from (jlink: KW_PACKAGE_JDK) and the JCEF API the desktop compiles
+# against (KW_JBR). engines/fetch-jbr.sh downloads it from JetBrains and checks the SHA-512 pinned
+# here (the same values JetBrains publishes next to each archive as .checksum). It is bundled in
+# the installers: nothing is downloaded when the app runs.
+version=21.0.11b1163.125
+release=https://github.com/JetBrains/JetBrainsRuntime/releases/tag/jbr-release-21.0.11b1163.125
+url=https://cache-redirector.jetbrains.com/intellij-jbr/
+linux-x64=jbrsdk_jcef-21.0.11-linux-x64-b1163.125.tar.gz 19b60f631c34493b64b102c8c309e2cac6194fbe48cc8732ba2fc0182b86797ea07ea389e80c0ff86aca2111c7d521dbb916dbf11f6ad86b37df798ffcaf0f11
+windows-x64=jbrsdk_jcef-21.0.11-windows-x64-b1163.125.tar.gz f9ce90d3831ea0d02ad79ce3bb041311243579f64e83c61b6ef065bd8e9133854ab605551b48af5ccad78def8ca6a4dc7704a013bf37a40c142a95c93910bc83
+macos-arm64=jbrsdk_jcef-21.0.11-osx-aarch64-b1163.125.tar.gz 0e2e904f3a727042ca77a1f6411983b1c76acaa95e0cc6ee63420add1e85586bf16821056129614932144d89a8594dbfb2a578f305029f5902c90ca3addab420
+macos-x64=jbrsdk_jcef-21.0.11-osx-x64-b1163.125.tar.gz cd3594f3ff28c088167bc56b9427b99835ef261442ab70db9ec9bb2e48cbda17a24f8c80ac6c556a6b6b2d665e8e50a41ebd02ad6432be65d3e22a066bc06a50

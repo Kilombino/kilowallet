@@ -27,23 +27,42 @@ object UpdateCheck {
     /** [apkUrl]: the file to install (AppImage, .deb, .msi or .dmg, whichever this copy is); [sha256]: from the signed sums. */
     class Release(val version: String, val url: String, val apkUrl: String?, val sha256: String? = null)
 
-    private fun parse(v: String): Triple<List<Int>, Boolean, Int> {
+    /**
+     * "0.1.0-beta23" → numbers, pre-release, beta number. "0.1.0-beta24-roblo1" is the ROBLO beta
+     * (the Roblosats tab) built on beta24: a line of its own, numbered by its roblo build.
+     */
+    private data class V(val nums: List<Int>, val pre: Boolean, val preNum: Int, val roblo: Int?)
+
+    private fun parse(v: String): V {
         val clean = v.removePrefix("desktop-").removePrefix("v").trim()
         val nums = clean.substringBefore('-').split('.').map { it.toIntOrNull() ?: 0 }
+        val suffix = clean.substringAfter('-', "")
         val pre = clean.contains('-')
-        val preNum = if (pre) Regex("""(\d+)$""").find(clean.substringAfter('-'))?.value?.toIntOrNull() ?: 0 else 0
-        return Triple(nums, pre, preNum)
+        val preNum = if (pre) Regex("""(\d+)""").find(suffix)?.value?.toIntOrNull() ?: 0 else 0
+        val roblo = Regex("""-roblo(\d*)$""").find(clean)?.groupValues?.get(1)?.let { it.toIntOrNull() ?: 0 }
+        return V(nums, pre, preNum, roblo)
     }
 
-    /** True when [remote] is newer than [current]: by number, then a final beats its betas, then beta2 beats beta1. */
+    /**
+     * True when [remote] is newer than [current]: by number, then a final beats its betas, then
+     * beta2 beats beta1. The ROBLO beta is never offered to a regular copy, and a ROBLO copy is
+     * offered only a later beta (or version) than the one it was built on, or a later ROBLO build
+     * of that same beta: never the plain beta it came from, which has no ROBLO tab.
+     */
     fun isNewer(remote: String, current: String): Boolean {
-        val (r, rPre, rN) = parse(remote); val (c, cPre, cN) = parse(current)
-        for (i in 0 until maxOf(r.size, c.size)) {
-            val a = r.getOrElse(i) { 0 }; val b = c.getOrElse(i) { 0 }
+        val r = parse(remote); val c = parse(current)
+        if (r.roblo != null && c.roblo == null) return false
+        for (i in 0 until maxOf(r.nums.size, c.nums.size)) {
+            val a = r.nums.getOrElse(i) { 0 }; val b = c.nums.getOrElse(i) { 0 }
             if (a != b) return a > b
         }
-        if (cPre != rPre) return cPre
-        return rPre && rN > cN
+        if (c.roblo != null) {
+            if (r.pre && r.preNum != c.preNum) return r.preNum > c.preNum
+            if (!r.pre) return false
+            return r.roblo != null && r.roblo > c.roblo
+        }
+        if (c.pre != r.pre) return c.pre
+        return r.pre && r.preNum > c.preNum
     }
 
     sealed class Outcome {
@@ -58,7 +77,7 @@ object UpdateCheck {
         val list = JSONArray(get(API))
         val newest = (0 until list.length()).map { list.getJSONObject(it) }
             .filter { !it.optBoolean("draft") }
-            .filter { !it.optBoolean("prerelease") || parse(current).second }
+            .filter { !it.optBoolean("prerelease") || parse(current).pre }
             .maxWithOrNull { a, b -> if (isNewer(a.getString("tag_name"), b.getString("tag_name"))) 1 else if (isNewer(b.getString("tag_name"), a.getString("tag_name"))) -1 else 0 }
             ?: return Outcome.UpToDate
         val tag = newest.getString("tag_name")
