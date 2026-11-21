@@ -13,6 +13,9 @@ class SleepGuardTest {
             assertTrue(linux[0].endsWith("systemd-inhibit"))
             assertTrue(linux.contains("--what=sleep:idle:handle-lid-switch")); assertTrue(linux.contains("--mode=block"))
             assertEquals(listOf("tail", "--pid=4242", "-f", "/dev/null"), linux.takeLast(4))
+            // polkit may refuse blocking sleep outside the active local session: idle sleep at least
+            assertEquals(listOf("--what=sleep:idle:handle-lid-switch", "--what=sleep:idle", "--what=idle"),
+                SleepGuard.commands(Platform.Os.LINUX, 4242, "x").map { c -> c.first { it.startsWith("--what=") } })
         }
         val win = SleepGuard.command(Platform.Os.WINDOWS, 4242, "x")!!
         assertEquals("powershell.exe", win[0])

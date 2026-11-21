@@ -43,7 +43,8 @@ object SystemClock {
 
 object Process {
     fun myPid(): Int = ProcessHandle.current().pid().toInt()
-    fun killProcess(pid: Int) { kotlin.system.exitProcess(0) }
+    /** The phone's last step of quitting: the window quits the app (after its own checks, DesktopActivities.onQuit). */
+    fun killProcess(pid: Int) { android.app.DesktopActivities.onQuit() }
 }
 
 class Looper private constructor() { companion object { fun getMainLooper() = Looper(); fun myLooper() = Looper() } }

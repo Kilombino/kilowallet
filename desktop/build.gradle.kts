@@ -295,3 +295,19 @@ val checkPackaging by tasks.registering {
     }
 }
 tasks.matching { it.name.startsWith("package") || it.name == "createDistributable" || it.name == "createReleaseDistributable" }.configureEach { dependsOn(checkPackaging) }
+
+// macOS: JCEF's framework and helper apps live next to the runtime's Home (Contents/Frameworks),
+// where jlink does not copy them; the app's runtime gets them as the JetBrains Runtime has them
+// (ditto keeps the frameworks' symlinks). The .dmg is made from this app.
+if (hostOs == "macos" && robloOn) tasks.matching { it.name == "createDistributable" }.configureEach {
+    doLast {
+        val jdk = System.getenv("KW_PACKAGE_JDK") ?: error("KW_PACKAGE_JDK")
+        val from = File(jdk).parentFile.resolve("Frameworks")
+        check(from.resolve("Chromium Embedded Framework.framework").isDirectory) { "$from has no Chromium Embedded Framework" }
+        val app = layout.buildDirectory.dir("compose/binaries/main/app").get().asFile.listFiles { f -> f.name.endsWith(".app") }!!.single()
+        val to = app.resolve("Contents/runtime/Contents/Frameworks")
+        to.mkdirs()
+        val p = ProcessBuilder("ditto", from.path, to.path).inheritIO().start()
+        check(p.waitFor() == 0) { "ditto failed" }
+    }
+}

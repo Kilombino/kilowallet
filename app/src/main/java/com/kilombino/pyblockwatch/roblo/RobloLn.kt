@@ -44,6 +44,25 @@ object RobloLn {
 
     private fun drop(ctx: Context, hash: String) { prefs(ctx).edit().remove(hash).commit(); following.remove(hash) }
 
+    /**
+     * The node up for a sheet that needs it: started if Lightning is on but the node is not running
+     * yet (the app was just opened on ROBLO, the LIGHTNING tab never shown), then waited for. Null
+     * when it is ready, else why not. (21 nov, desktop lab: the sheet said "closed" instead.)
+     */
+    suspend fun awaitReady(ctx: Context, timeoutMs: Long = 180_000): String? {
+        val app = ctx.applicationContext
+        if (!Lightning.enabled(app)) return notReady(app)
+        if (!Lnd.running || Lightning.status.value !is Lightning.Status.Running) runCatching { Lightning.resume(app) }
+        val until = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < until) {
+            if (Lnd.running && Lightning.status.value is Lightning.Status.Running) return null
+            // the status moves on only when refreshed (the LIGHTNING tab does it while shown)
+            if (Lnd.running) runCatching { Lightning.refresh() }
+            kotlinx.coroutines.delay(2000)
+        }
+        return notReady(app) ?: "Lightning is still starting: try again in a moment."
+    }
+
     /** Why the node can't pay now, or null when it can. */
     fun notReady(ctx: Context): String? = when {
         !Lightning.enabled(ctx) -> "Lightning is off in this wallet: turn it on in the LIGHTNING tab first."

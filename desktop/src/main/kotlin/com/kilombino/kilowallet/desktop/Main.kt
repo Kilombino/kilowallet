@@ -81,7 +81,14 @@ fun main() {
         var unlocked by remember { mutableStateOf(DesktopKeyStore.unlocked()) }
         // Quitting with a Roblosats payment held by the node asks first (it would stop the node).
         var quitGuard by remember { mutableStateOf<String?>(null) }
-        fun quitNow() { exitApplication() }
+        // Straight out, as before (the process ended right after the windows anyway): disposing the
+        // windows with dialogs on their own layers threw in Compose (ComposeContainer.dispose) and
+        // the next start then showed a crash report.
+        fun quitNow() {
+            if (BuildConfig.ROBLO) runCatching { com.kilombino.pyblockwatch.roblo.RobloWeb.shutdown() }
+            SleepGuard.release()
+            kotlin.system.exitProcess(0)
+        }
         fun requestQuit() { val held = robloHeldPayment(); if (held != null) quitGuard = held else quitNow() }
         LaunchedEffect(Unit) { android.app.DesktopActivities.onQuit = { javax.swing.SwingUtilities.invokeLater { requestQuit() } } }
         // The computer stays awake while such a payment is held; after a sleep the page reconnects.
@@ -169,7 +176,11 @@ fun main() {
                         Snackbar(Modifier.align(Alignment.BottomCenter).padding(16.dp)) { Text(msg) }
                     }
                     PasswordDialog()
-                    quitGuard?.let { held -> QuitGuardDialog(held, onStay = { quitGuard = null }, onQuit = { quitGuard = null; quitNow() }) }
+                    quitGuard?.let { held -> QuitGuardDialog(held, onStay = {
+                        quitGuard = null
+                        // ⏻ stopped the background watcher before asking: it follows the payment again
+                        runCatching { android.content.DesktopContext.startService(android.content.Intent(android.content.DesktopContext, com.kilombino.pyblockwatch.data.WatchService::class.java)) }
+                    }, onQuit = { quitGuard = null; quitNow() }) }
                 }
             }
         }
@@ -200,9 +211,9 @@ private fun QuitGuardDialog(held: String, onStay: () -> Unit, onQuit: () -> Unit
                 Text(held, color = Color(0xFFE0A100))
                 Spacer(Modifier.height(10.dp))
                 Text(I18n.tr("If Kilowallet closes, the node stops and can't settle or cancel it in time: the channel may be closed on chain and cost fees. Keep Kilowallet open (and the computer awake) until the trade ends."))
-                if (!SleepGuard.holding.value) {
+                if (!SleepGuard.holding.value || SleepGuard.unavailable.value != null) {
                     Spacer(Modifier.height(6.dp))
-                    Text(I18n.tr("This computer may go to sleep: it could not be kept awake") + (SleepGuard.unavailable.value?.let { " ($it)" } ?: "") + ".",
+                    Text(I18n.tr("This computer may go to sleep: it could not be kept awake") + (SleepGuard.unavailable.value?.let { " (${I18n.tr(it)})" } ?: "") + ".",
                         color = MaterialTheme.colorScheme.error)
                 }
             }

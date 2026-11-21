@@ -367,6 +367,8 @@ object Lightning {
      * each refresh until they take.
      */
     private suspend fun link(peers: Int) {
+        // A debug build in the regtest lab reaches nothing real: no tower, no link to Kilombino's node.
+        if (Lnd.net == "regtest") return
         // The watchtower is added once, and only once the node is fully up: AddTower holds the
         // tower client's lock while it reaches the tower over Tor, and LND's start waits on that
         // same lock, so adding it during start (it was retried on every refresh) kept the node

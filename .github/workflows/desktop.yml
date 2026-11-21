@@ -3,6 +3,8 @@
 # tor from the Tor Project's expert bundle (pinned by hash, checked against its signed sums).
 # The packages are uploaded as this run's artifacts; the release (SHA256SUMS signed with the
 # release key, which never comes near CI) is made from them by hand.
+# ROBLO (desktop-roblo* branches, by hand only): the packages are cut from the JetBrains Runtime
+# with JCEF pinned in desktop/engines/JBR (Chromium for the Roblosats tab, bundled).
 name: desktop
 
 on:
@@ -50,6 +52,12 @@ jobs:
         with: { repository: '${{ env.ARK_REPO }}', ref: '${{ env.ARK_COMMIT }}', path: ark }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
+      - name: JetBrains Runtime with JCEF (pinned in desktop/engines/JBR, SHA-512 checked)
+        run: |
+          JBR=$(bash kilowallet/desktop/engines/fetch-jbr.sh ${{ matrix.host }} "$RUNNER_TEMP/jbr")
+          echo "KW_JBR=$JBR" >> "$GITHUB_ENV"
+          echo "KW_PACKAGE_JDK=$JBR" >> "$GITHUB_ENV"
+          "$JBR/bin/java" -version
       - uses: actions/setup-go@v5
         with: { go-version: '1.27.3', cache: false }
       - uses: dtolnay/rust-toolchain@master
@@ -100,9 +108,24 @@ jobs:
         working-directory: kilowallet
         run: ./gradlew --no-daemon :desktop:test
 
+      - name: Roblosats client (pinned in roblo-client/CLIENT, built from its commit)
+        run: |
+          eval "$(grep -E '^(repo|commit|tag|sha256)=' kilowallet/roblo-client/CLIENT | sed 's/^/RC_/')"
+          git clone --filter=blob:none "$RC_repo" roblosats && git -C roblosats checkout "$RC_commit"
+          (cd roblosats/frontend && npm ci --no-audit --no-fund)
+          ROBLO_BUILDROOT="$RUNNER_TEMP/roblo-client-build" bash roblosats/scripts/kilowallet-client.sh "$RC_tag" "$GITHUB_WORKSPACE/kilowallet/roblo-client"
+          echo "$RC_sha256  kilowallet/roblo-client/roblo-client-$RC_tag.zip" | sha256sum -c -
+
       - name: Package
         working-directory: kilowallet
         run: ./gradlew --no-daemon :desktop:${{ matrix.task }}
+
+      - name: The package runs Chromium (JCEF helpers and framework inside)
+        if: runner.os == 'macOS'
+        run: |
+          app=$(ls -d kilowallet/desktop/build/compose/binaries/main/app/*.app | head -1)
+          ls "$app/Contents/runtime/Contents/Frameworks/Chromium Embedded Framework.framework" "$app/Contents/runtime/Contents/Frameworks/jcef Helper.app"
+          ls "$app/Contents/runtime/Contents/Home/lib/libjcef.dylib"
 
       - name: Name the package
         run: |
@@ -111,7 +134,15 @@ jobs:
           f=$(ls kilowallet/desktop/build/compose/binaries/main/${{ matrix.ext }}/*.${{ matrix.ext }} | head -1)
           cp "$f" "out/Kilowallet-$V-${{ matrix.host }}.${{ matrix.ext }}"
           cp kilowallet/desktop/resources/${{ matrix.host }}/ENGINES.sha256 "out/ENGINES-${{ matrix.host }}.sha256"
+          # The JetBrains Runtime the package was cut from, for ENGINES.txt.
+          grep "^${{ matrix.host }}=" kilowallet/desktop/engines/JBR | sed 's/^/jbr-jcef /' >> "out/ENGINES-${{ matrix.host }}.sha256"
           cd out && sha256sum *
+
+      - name: The package runs Chromium (JCEF inside the runtime)
+        if: runner.os == 'Windows'
+        run: |
+          rt=$(ls -d kilowallet/desktop/build/compose/binaries/main/app/*/runtime | head -1)
+          ls "$rt/bin/jcef.dll" "$rt/bin/libcef.dll" "$rt/bin/jcef_helper.exe"
 
       - uses: actions/upload-artifact@v4
         with:

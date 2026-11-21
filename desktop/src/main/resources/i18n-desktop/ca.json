@@ -43,5 +43,8 @@
  "KEEP KILOWALLET OPEN": "DEIXAR KILOWALLET OBERT",
  "Close anyway": "Tancar igualment",
  "Roblosats could not start on this computer: ": "Roblosats no ha pogut arrencar en aquest ordinador: ",
- "Choose a picture": "Tria una imatge"
+ "Choose a picture": "Tria una imatge",
+ "only idle sleep is blocked: the system refused to block sleep": "només es bloqueja la suspensió per inactivitat: el sistema no ha deixat bloquejar la suspensió",
+ "the system refused it": "el sistema l'ha rebutjat",
+ "systemd-inhibit is not installed": "systemd-inhibit no està instal·lat"
 }

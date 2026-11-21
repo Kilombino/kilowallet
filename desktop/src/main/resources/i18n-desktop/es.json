@@ -43,5 +43,8 @@
  "KEEP KILOWALLET OPEN": "DEJAR KILOWALLET ABIERTO",
  "Close anyway": "Cerrar igualmente",
  "Roblosats could not start on this computer: ": "Roblosats no ha podido arrancar en este ordenador: ",
- "Choose a picture": "Elige una imagen"
+ "Choose a picture": "Elige una imagen",
+ "only idle sleep is blocked: the system refused to block sleep": "solo se bloquea la suspensión por inactividad: el sistema no ha dejado bloquear la suspensión",
+ "the system refused it": "el sistema lo ha rechazado",
+ "systemd-inhibit is not installed": "systemd-inhibit no está instalado"
 }
