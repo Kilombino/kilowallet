@@ -165,11 +165,18 @@ jobs:
           grep "^${{ matrix.host }}=" kilowallet/desktop/engines/JBR | sed 's/^/jbr-jcef /' >> "out/ENGINES-${{ matrix.host }}.sha256"
           cd out && sha256sum *
 
-      - name: The package runs Chromium (JCEF inside the runtime)
+      - name: The msi carries Chromium (JCEF inside its runtime) and starts
         if: runner.os == 'Windows'
         run: |
-          rt=$(ls -d kilowallet/desktop/build/compose/binaries/main/app/*/runtime | head -1)
-          ls "$rt/bin/jcef.dll" "$rt/bin/libcef.dll" "$rt/bin/jcef_helper.exe"
+          msi=$(ls kilowallet/desktop/build/compose/binaries/main/msi/*.msi | head -1)
+          msiexec //a "$(cygpath -w "$msi")" //qn TARGETDIR="$(cygpath -w "$PWD/msi-x")"
+          rt=$(dirname "$(find msi-x -name jcef.dll | head -1)")
+          ls -la "$rt/jcef.dll" "$rt/libcef.dll" "$rt/jcef_helper.exe"
+          ls "$(dirname "$rt")/lib/app"/*.jar
+          exe=$(find msi-x -name Kilowallet.exe | head -1); echo "launching $exe"
+          ( "$exe" > launch.log 2>&1 & ); sleep 45
+          tasklist | grep -i kilowallet && echo "STILL RUNNING after 45 s" || { echo "NOT RUNNING"; cat launch.log; }
+          taskkill //F //IM Kilowallet.exe || true
 
       - uses: actions/upload-artifact@v4
         with:
