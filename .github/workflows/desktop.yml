@@ -25,7 +25,28 @@ env:
   TOR_VERSION: 15.0.25
 
 jobs:
+  # The Roblosats client of the ROBLO tab, rebuilt from the commit pinned in roblo-client/CLIENT on
+  # Linux, in the fixed folder its build expects (webpack names WebAssembly files after their path):
+  # the zip must come out byte for byte with the pinned SHA-256.
+  roblo-client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: kilowallet, sparse-checkout: roblo-client }
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
+      - name: Build the pinned Roblosats client
+        run: |
+          eval "$(grep -E '^(repo|branch|commit|tag|sha256)=' kilowallet/roblo-client/CLIENT | sed 's/^/RC_/')"
+          git clone --filter=blob:none --branch "$RC_branch" "$RC_repo" roblosats && git -C roblosats checkout "$RC_commit"
+          (cd roblosats/frontend && npm ci --no-audit --no-fund)
+          mkdir -p out && bash roblosats/scripts/kilowallet-client.sh "$RC_tag" "$PWD/out"
+          echo "$RC_sha256  out/roblo-client-$RC_tag.zip" | sha256sum -c -
+      - uses: actions/upload-artifact@v4
+        with: { name: roblo-client, path: out/*.zip, if-no-files-found: error }
+
   build:
+    needs: roblo-client
     strategy:
       fail-fast: false
       matrix:
@@ -104,12 +125,12 @@ jobs:
           ( cd "$R" && sha256sum $(ls *gojni.* *kilombino_ark.* tor/tor* tor/*.dylib 2>/dev/null) ) | tee "$R/ENGINES.sha256"
           ls -la "$R" "$R/tor"
 
-      - name: Roblosats client (pinned in roblo-client/CLIENT, built from its commit)
+      - name: Roblosats client (built once on Linux by the roblo-client job, hash checked there and here)
+        uses: actions/download-artifact@v4
+        with: { name: roblo-client, path: kilowallet/roblo-client }
+      - name: Roblosats client pin
         run: |
-          eval "$(grep -E '^(repo|commit|tag|sha256)=' kilowallet/roblo-client/CLIENT | sed 's/^/RC_/')"
-          git clone --filter=blob:none --branch "$(grep '^branch=' kilowallet/roblo-client/CLIENT | cut -d= -f2)" "$RC_repo" roblosats && git -C roblosats checkout "$RC_commit"
-          (cd roblosats/frontend && npm ci --no-audit --no-fund)
-          ROBLO_BUILDROOT="$RUNNER_TEMP/roblo-client-build" bash roblosats/scripts/kilowallet-client.sh "$RC_tag" "$GITHUB_WORKSPACE/kilowallet/roblo-client"
+          eval "$(grep -E '^(tag|sha256)=' kilowallet/roblo-client/CLIENT | sed 's/^/RC_/')"
           echo "$RC_sha256  kilowallet/roblo-client/roblo-client-$RC_tag.zip" | sha256sum -c -
 
       - name: Tests (the Android app's unit tests too, with the engines loaded)
