@@ -302,9 +302,20 @@ tasks.matching { it.name.startsWith("package") || it.name == "createDistributabl
 // package (AppImage, .deb, .msi, .dmg) is made from it.
 if (robloOn) tasks.matching { it.name == "createRuntimeImage" }.configureEach {
     doLast {
-        val lib = layout.buildDirectory.dir("compose/tmp/main/runtime/lib").get().asFile
+        val runtime = layout.buildDirectory.dir("compose/tmp/main/runtime").get().asFile
+        val lib = runtime.resolve("lib")
         listOf("jcef_helper", "cef_server", "chrome-sandbox", "jspawnhelper").map { lib.resolve(it) }.filter { it.isFile }.forEach { f ->
             check(f.setExecutable(true, false)) { "could not make $f executable" }
+        }
+        // Windows: Chromium's helper is a program in jcef's bin/, which jlink leaves out with the
+        // other native commands (--strip-native-commands): copied from the pinned runtime.
+        if (hostOs == "windows") {
+            val jdk = File(System.getenv("KW_PACKAGE_JDK") ?: error("KW_PACKAGE_JDK"))
+            listOf("jcef_helper.exe").forEach { name ->
+                val from = jdk.resolve("bin/$name")
+                check(from.isFile) { "$from is missing" }
+                from.copyTo(runtime.resolve("bin/$name"), overwrite = true)
+            }
         }
     }
 }

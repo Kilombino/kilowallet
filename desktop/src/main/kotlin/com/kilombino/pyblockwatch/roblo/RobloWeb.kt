@@ -192,6 +192,10 @@ object RobloWeb {
             val helper = home.resolve("lib/jcef_helper")
             check(helper.isFile && helper.canExecute()) { "Chromium's helper is missing or not executable ($helper)" }
         }
+        if (com.kilombino.kilowallet.desktop.Platform.os == com.kilombino.kilowallet.desktop.Platform.Os.WINDOWS) {
+            val helper = home.resolve("bin/jcef_helper.exe")
+            check(helper.isFile) { "Chromium's helper is missing ($helper)" }
+        }
         if (com.kilombino.kilowallet.desktop.Platform.os == com.kilombino.kilowallet.desktop.Platform.Os.MAC) {
             val fw = home.parentFile.resolve("Frameworks/Chromium Embedded Framework.framework")
             check(fw.isDirectory) { "Chromium's framework is missing ($fw)" }
