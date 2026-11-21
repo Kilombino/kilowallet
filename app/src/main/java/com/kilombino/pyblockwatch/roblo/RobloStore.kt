@@ -51,8 +51,20 @@ class RobloStore(private val prefs: KeyValues, private val sealer: Sealer) {
         prefs.remove(PREFIX + key); cache.remove(key)
     }
 
-    /** Clearnet chosen in Roblosats' own settings (its Tor switch off); Tor otherwise, the default. */
-    fun clearnet(): Boolean = runCatching { get(USE_PROXY) == "false" }.getOrDefault(false)
+    /** Clearnet mode chosen in Roblosats' own settings (0.9.11); Tor otherwise, the default. */
+    fun clearnet(): Boolean = runCatching { get(CLEARNET) == "true" }.getOrDefault(false)
+
+    /** The coordinators' clearnet hosts the page sent (setNetworkMode): the only ones reached directly. */
+    fun clearnetHosts(): Set<String> = runCatching { get(CLEARNET_HOSTS) }.getOrDefault("")
+        .split(',').map { it.trim().lowercase() }.filter { it.isNotEmpty() && !it.endsWith(".onion") }.toSet()
+
+    /**
+     * Beta2 kept Clearnet as "Tor off" (settings_use_proxy false); the 0.9.11 client has a Clearnet
+     * mode of its own and Kilowallet always has Tor: carried over once.
+     */
+    fun migrateClearnet() = runCatching {
+        if (get(USE_PROXY) == "false") { set(USE_PROXY, "true"); set(CLEARNET, "true") }
+    }
 
     /** Any robot or Garage Key kept (the .kab's "include robots" box shows only then). */
     fun hasRobots(): Boolean = runCatching { get("garage_slots").let { it.isNotEmpty() && it != "{}" && it != "[]" } || get("garage_key").isNotEmpty() }.getOrDefault(false)
@@ -91,6 +103,8 @@ class RobloStore(private val prefs: KeyValues, private val sealer: Sealer) {
         const val VERSION = 1
         private const val PREFIX = "v:"
         const val USE_PROXY = "settings_use_proxy"
+        const val CLEARNET = "settings_clearnet"
+        const val CLEARNET_HOSTS = "settings_clearnet_hosts"
         const val MAX_VALUE = 4_000_000
         private val KEY = Regex("^[A-Za-z0-9_.,:;!?()\\[\\]{}\\-]{1,200}$")
 

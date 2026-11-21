@@ -45,6 +45,7 @@ object RobloWatch {
         val net = RobloNet(
             torSocks = { Tor.acquire(app, TOR_OWNER); Tor.proxy()?.address() as? java.net.InetSocketAddress },
             clearnet = { store.clearnet() },
+            clearnetHosts = { store.clearnetHosts() },
             allowLocal = com.kilombino.pyblockwatch.BuildConfig.DEBUG,
         )
         return Sources(store, net)

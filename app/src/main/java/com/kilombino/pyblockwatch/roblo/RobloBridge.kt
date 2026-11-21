@@ -68,6 +68,28 @@ class RobloBridge(
     @JavascriptInterface
     fun appVersion(): String = host.appVersion()
 
+    /** 0.9.11: Clearnet mode, read synchronously while the page starts (its first connection already uses it). */
+    @JavascriptInterface
+    fun isClearnet(): Boolean = store.clearnet()
+
+    /**
+     * 0.9.11: the page's network settings, in place (no restart): Clearnet mode and the coordinators'
+     * clearnet hosts, the only ones that then go direct. Kilowallet always has its own Tor: useProxy
+     * is kept as the client sends it. Open connections close so they reconnect the new way.
+     */
+    @JavascriptInterface
+    fun setNetworkMode(useProxy: Boolean, clearnet: Boolean, hosts: String) {
+        val clean = hosts.split(',').map { it.trim().lowercase() }
+            .filter { it.matches(Regex("^[a-z0-9.-]{1,253}$")) && !it.endsWith(".onion") }.take(32)
+        val changed = store.clearnet() != clearnet
+        runCatching {
+            store.set(RobloStore.CLEARNET, clearnet.toString())
+            store.set(RobloStore.CLEARNET_HOSTS, clean.joinToString(","))
+            store.set(RobloStore.USE_PROXY, "true")
+        }
+        if (changed) dropConnections()
+    }
+
     /** The WebAssembly build makes robot names and avatars itself: never asked here. */
     @JavascriptInterface
     fun generateRoboname(uuid: String, message: String) = reject(uuid, "not in this build")
@@ -87,7 +109,8 @@ class RobloBridge(
     @JavascriptInterface
     fun getTorStatus(uuid: String) {
         if (!validUuid(uuid)) return
-        resolve(uuid, if (store.clearnet()) "OFF" else host.torStatus())
+        // Tor runs in both modes (onion coordinators): its real state.
+        resolve(uuid, host.torStatus())
     }
 
     @JavascriptInterface

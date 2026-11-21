@@ -64,7 +64,9 @@ object RobloWeb {
         // Debug builds against the regtest lab only (adb: run-as … touch files/roblo-lab-regtest).
         RobloWallet.labRegtest = BuildConfig.DEBUG && java.io.File(app.filesDir, "roblo-lab-regtest").exists()
         runCatching { RobloLn.resume(app) }
-        if (!store.clearnet()) Tor.acquire(app, TOR_OWNER)
+        store.migrateClearnet()
+        // Tor in both modes: onion-only coordinators (and everything but the clearnet hosts) use it.
+        Tor.acquire(app, TOR_OWNER)
         val wrapper = MutableContextWrapper(act).also { ctxWrapper = it }
         val w = WebView(wrapper)
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
@@ -75,6 +77,7 @@ object RobloWeb {
                 (Tor.proxy()?.address() as? java.net.InetSocketAddress)
             },
             clearnet = { store.clearnet() },
+            clearnetHosts = { store.clearnetHosts() },
             allowLocal = BuildConfig.DEBUG,
         )
         val b = RobloBridge(HostImpl(app), store, net)
@@ -168,7 +171,7 @@ object RobloWeb {
         val w = web ?: return@post
         val app = w.context.applicationContext
         bridge?.dropConnections()
-        if (RobloStore.of(app).clearnet()) Tor.release(app, TOR_OWNER) else Tor.acquire(app, TOR_OWNER)
+        Tor.acquire(app, TOR_OWNER)
         log("reload (" + (if (RobloStore.of(app).clearnet()) "clearnet" else "Tor") + ")")
         w.loadUrl(BASE + "index.html")
     }

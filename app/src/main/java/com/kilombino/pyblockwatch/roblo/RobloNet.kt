@@ -17,10 +17,12 @@ import java.security.MessageDigest
 class RobloNet(
     /** Tor's SOCKS address, waiting for it to come up; null when Tor can't run. */
     private val torSocks: () -> InetSocketAddress?,
-    /** Clearnet chosen in Roblosats' settings. */
+    /** Clearnet mode chosen in Roblosats' settings. */
     private val clearnet: () -> Boolean,
     /** Debug builds: the lab on 127.0.0.1 / the emulator's host. Never in a release or beta. */
     private val allowLocal: Boolean = false,
+    /** In Clearnet mode only these hosts (the coordinators' clearnet addresses) go direct. */
+    private val clearnetHosts: () -> Set<String> = { emptySet() },
 ) {
     sealed class Route {
         object Direct : Route()
@@ -40,7 +42,9 @@ class RobloNet(
         val host = u.host?.lowercase()?.trim('[', ']') ?: return Route.Refused("no host")
         if (host.endsWith(".onion")) return Route.Tor(isolation(isolationKey))
         if (isLocal(host)) return if (allowLocal || userChosen) Route.Direct else Route.Refused("local addresses are not reachable from Roblosats")
-        return if (clearnet()) Route.Direct else Route.Tor(isolation(isolationKey))
+        // 0.9.11: only the coordinators' own clearnet hosts go direct; anything else (an explorer,
+        // another site) keeps going through Tor even in Clearnet mode.
+        return if (clearnet() && host in clearnetHosts()) Route.Direct else Route.Tor(isolation(isolationKey))
     }
 
     /** Opens the connection for [route]: through Tor with its isolation, or directly; TLS on top when asked. */

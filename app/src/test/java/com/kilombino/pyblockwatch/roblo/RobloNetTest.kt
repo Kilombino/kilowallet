@@ -12,8 +12,9 @@ import java.net.ServerSocket
 
 /** Where the Roblosats client's requests go: Tor by default, a circuit per robot, no local addresses. */
 class RobloNetTest {
-    private fun net(clearnet: Boolean = false, local: Boolean = false, socks: java.net.InetSocketAddress? = null) =
-        RobloNet(torSocks = { socks }, clearnet = { clearnet }, allowLocal = local)
+    private fun net(clearnet: Boolean = false, local: Boolean = false, socks: java.net.InetSocketAddress? = null,
+                    hosts: Set<String> = setOf("kilobot.kilombino.com")) =
+        RobloNet(torSocks = { socks }, clearnet = { clearnet }, allowLocal = local, clearnetHosts = { hosts })
 
     @Test fun torByDefaultAndAlwaysForAnOnion() {
         val n = net()
@@ -25,7 +26,10 @@ class RobloNetTest {
     @Test fun clearnetOnlyWhenChosenAndAnOnionStillThroughTor() {
         val n = net(clearnet = true)
         assertEquals(RobloNet.Route.Direct, n.route("https://kilobot.kilombino.com/api/info/", "anon"))
+        assertEquals(RobloNet.Route.Direct, n.route("wss://kilobot.kilombino.com/relay/", "anon"))
         assertTrue(n.route("http://abc.onion/api/info/", "anon") is RobloNet.Route.Tor)
+        // 0.9.11: anything that is not a coordinator's clearnet host keeps going through Tor
+        assertTrue(n.route("https://mempool.kilombino.com/api/tx/x", "anon") is RobloNet.Route.Tor)
     }
 
     @Test fun localAddressesAreRefusedExceptInTheLabOrForTheUsersOwnExplorer() {

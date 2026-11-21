@@ -55,8 +55,19 @@ class RobloStoreTest {
     @Test fun torUnlessClearnetIsChosen() {
         val s = RobloStore(Mem(), Rot())
         assertFalse(s.clearnet())
-        s.set(RobloStore.USE_PROXY, "true"); assertFalse(s.clearnet())
-        s.set(RobloStore.USE_PROXY, "false"); assertTrue(s.clearnet())
+        s.set(RobloStore.CLEARNET, "false"); assertFalse(s.clearnet())
+        s.set(RobloStore.CLEARNET, "true"); assertTrue(s.clearnet())
+        s.set(RobloStore.CLEARNET_HOSTS, "Kilobot.Kilombino.com, x.onion,,")
+        assertEquals(setOf("kilobot.kilombino.com"), s.clearnetHosts())
+    }
+
+    /** Beta2 kept Clearnet as "Tor off": carried over to 0.9.11's Clearnet mode, Tor back on. */
+    @Test fun beta2ClearnetIsCarriedOver() {
+        val s = RobloStore(Mem(), Rot())
+        s.set(RobloStore.USE_PROXY, "false")
+        s.migrateClearnet()
+        assertTrue(s.clearnet()); assertEquals("true", s.get(RobloStore.USE_PROXY))
+        val t = RobloStore(Mem(), Rot()); t.migrateClearnet(); assertFalse(t.clearnet())
     }
 
     @Test fun backupRoundTripOnAnotherPhone() {

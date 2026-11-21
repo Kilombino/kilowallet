@@ -35,7 +35,7 @@ class RobloBridgeTest {
 
     private fun bridge(local: Boolean = true, clearnet: Boolean = true): Pair<RobloBridge, FakeHost> {
         val h = FakeHost(); val store = RobloStore(Mem(), sealer)
-        if (clearnet) store.set(RobloStore.USE_PROXY, "false")
+        if (clearnet) store.set(RobloStore.CLEARNET, "true")
         return RobloBridge(h, store, RobloNet({ null }, { store.clearnet() }, local)) to h
     }
 
@@ -72,10 +72,22 @@ class RobloBridgeTest {
     @Test fun hostInfoAndTorStatus() {
         val (b, h) = bridge(clearnet = true)
         assertEquals(JSONObject("{\"host\":\"kilowallet\",\"version\":\"1.6.1-roblo\",\"clearnet\":true}").toString(), JSONObject(b.hostInfo()).toString())
-        b.getTorStatus(uuid); assertEquals(true to "OFF", answer(h)) // clearnet: the client doesn't wait for Tor
+        b.getTorStatus(uuid); assertEquals(true to "ON", answer(h)) // Tor runs in both modes (onion coordinators)
+        assertTrue(b.isClearnet())
         val (b2, h2) = bridge(clearnet = false)
         assertFalse(JSONObject(b2.hostInfo()).getBoolean("clearnet"))
         b2.getTorStatus(uuid); assertEquals(true to "ON", answer(h2))
+    }
+
+    /** 0.9.11: the page's network mode, in place; only well-formed clearnet host names are kept. */
+    @Test fun networkModeFromThePage() {
+        val (b, _) = bridge(clearnet = false)
+        assertFalse(b.isClearnet())
+        b.setNetworkMode(true, true, "kilobot.kilombino.com,abc.onion,bad host,evil.com/x")
+        assertTrue(b.isClearnet())
+        assertTrue(JSONObject(b.hostInfo()).getBoolean("clearnet"))
+        b.setNetworkMode(true, false, "")
+        assertFalse(b.isClearnet())
     }
 
     @Test fun clipboardScreenAndRestart() {
