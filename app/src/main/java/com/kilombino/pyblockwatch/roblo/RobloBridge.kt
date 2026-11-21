@@ -49,6 +49,14 @@ class RobloBridge(
         fun explorer(): String = ""
         /** The navigation a notification left for the page; "" when none. */
         fun takeNavigation(): String = ""
+        /** Which Kilowallet app shows the page (client kw4): "android", "desktop" or "ios". */
+        fun platform(): String = "android"
+        /**
+         * The wallet functions this app offers the page now (client kw4: each button shows only
+         * when its own one is listed). A Kilowallet without Lightning leaves out walletPayInvoice
+         * and walletInvoice.
+         */
+        fun features(): List<String> = WALLET_FEATURES
     }
 
     private val sockets = ConcurrentHashMap<String, WsClient>()
@@ -60,10 +68,14 @@ class RobloBridge(
 
     // ---------------------------------------------------------------- identity / small things
 
-    /** {host, version, clearnet}: read once by the client to pick the coordinators' addresses. */
+    /**
+     * {host, version, clearnet, platform, features}: read by the client to pick the coordinators'
+     * addresses and (kw4) which wallet buttons to show.
+     */
     @JavascriptInterface
     fun hostInfo(): String = JSONObject().put("host", "kilowallet").put("version", host.appVersion())
-        .put("clearnet", store.clearnet()).toString()
+        .put("clearnet", store.clearnet()).put("platform", host.platform())
+        .put("features", org.json.JSONArray(host.features().filter { it in WALLET_FEATURES })).toString()
 
     @JavascriptInterface
     fun appVersion(): String = host.appVersion()
@@ -349,6 +361,8 @@ class RobloBridge(
 
     companion object {
         const val TAG = "Roblo"
+        /** Every wallet function the bridge has (the client kw4 shows a button per listed one). */
+        val WALLET_FEATURES = listOf("walletPay", "walletPayInvoice", "walletAddress", "walletInvoice")
         const val MAX_IN_FLIGHT = 48
         const val MAX_QUEUED = 64
         const val MAX_SOCKETS = 32

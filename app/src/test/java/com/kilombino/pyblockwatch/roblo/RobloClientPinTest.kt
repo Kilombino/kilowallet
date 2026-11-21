@@ -29,6 +29,12 @@ class RobloClientPinTest {
             assertTrue(z.getEntry("index.html") != null); assertTrue(z.getEntry("LICENSE") != null)
             val source = z.getInputStream(z.getEntry("SOURCE")).reader().readText()
             assertTrue(source.contains("commit=${pin["commit"]}"))
+            // client kw4: one relative build for Android, the desktop and the iPhone (no base baked in)
+            if (pin.getValue("tag").let { t -> Regex("-kw(\\d+)$").find(t)?.groupValues?.get(1)?.toInt() ?: 0 } >= 4) {
+                assertTrue(source.contains("base=relative"))
+                val index = z.getInputStream(z.getEntry("index.html")).reader().readText()
+                assertTrue(!index.contains("appassets.androidplatform.net"))
+            }
         }
     }
 }

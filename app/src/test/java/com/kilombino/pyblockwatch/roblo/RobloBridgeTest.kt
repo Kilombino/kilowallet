@@ -71,7 +71,12 @@ class RobloBridgeTest {
 
     @Test fun hostInfoAndTorStatus() {
         val (b, h) = bridge(clearnet = true)
-        assertEquals(JSONObject("{\"host\":\"kilowallet\",\"version\":\"1.6.1-roblo\",\"clearnet\":true}").toString(), JSONObject(b.hostInfo()).toString())
+        val info = JSONObject(b.hostInfo())
+        assertEquals("kilowallet", info.getString("host")); assertEquals("1.6.1-roblo", info.getString("version"))
+        assertTrue(info.getBoolean("clearnet"))
+        // client kw4: the platform and the wallet functions offered (all four on Android)
+        assertEquals("android", info.getString("platform"))
+        assertEquals(RobloBridge.WALLET_FEATURES, (0 until info.getJSONArray("features").length()).map { info.getJSONArray("features").getString(it) })
         b.getTorStatus(uuid); assertEquals(true to "ON", answer(h)) // Tor runs in both modes (onion coordinators)
         assertTrue(b.isClearnet())
         val (b2, h2) = bridge(clearnet = false)
@@ -80,6 +85,17 @@ class RobloBridgeTest {
     }
 
     /** 0.9.11: the page's network mode, in place; only well-formed clearnet host names are kept. */
+    @Test fun aHostWithoutLightningListsOnlyItsOnChainFunctions() {
+        val store = RobloStore(Mem(), sealer)
+        val h = object : RobloBridge.Host by FakeHost() {
+            override fun platform() = "ios"
+            override fun features() = listOf("walletPay", "walletAddress", "somethingElse")
+        }
+        val info = JSONObject(RobloBridge(h, store, RobloNet({ null }, { false }, false)).hostInfo())
+        assertEquals("ios", info.getString("platform"))
+        assertEquals("[\"walletPay\",\"walletAddress\"]", info.getJSONArray("features").toString())
+    }
+
     @Test fun networkModeFromThePage() {
         val (b, _) = bridge(clearnet = false)
         assertFalse(b.isClearnet())
