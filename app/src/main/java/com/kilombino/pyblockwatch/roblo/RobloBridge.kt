@@ -224,8 +224,15 @@ class RobloBridge(
     private fun http(method: String, url: String, headers: Map<String, String>, body: ByteArray?, userChosen: Boolean = false): HttpLite.Response {
         val route = net.route(url, RobloNet.isolationKey(url, headers), userChosen)
         if (route is RobloNet.Route.Refused) error(route.why)
-        return HttpLite.request(method, url, headers, body, net.connector(route))
+        val t0 = System.nanoTime()
+        val r = HttpLite.request(method, url, headers, body, net.connector(route))
+        // Timings per route for "Recent logs" and for comparing Tor with clearnet (no token, no body).
+        log("$method ${hostPath(url)} ${if (route is RobloNet.Route.Tor) "tor" else "direct"} ${r.code} ${(System.nanoTime() - t0) / 1_000_000} ms")
+        return r
     }
+
+    /** "kilobot.kilombino.com/api/book" (no query: it may carry a token hash). */
+    private fun hostPath(url: String) = runCatching { java.net.URI(url).let { (it.host ?: "") + (it.path ?: "") } }.getOrDefault("?")
 
     private fun submit(uuid: String, work: () -> String) {
         if (closed) { reject(uuid, "closed"); return }
@@ -260,7 +267,9 @@ class RobloBridge(
                 })
             ws = client
             try {
+                val t0 = System.nanoTime()
                 client.connect()
+                log("WS ${hostPath(path)} ${if (route is RobloNet.Route.Tor) "tor" else "direct"} open ${(System.nanoTime() - t0) / 1_000_000} ms")
                 if (closed) { client.close(); return@Thread }
                 sockets.put(path, client)?.takeIf { it !== client }?.close()
                 resolve(uuid, path)

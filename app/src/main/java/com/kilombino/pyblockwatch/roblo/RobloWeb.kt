@@ -161,11 +161,16 @@ object RobloWeb {
 
     /** Reload from the start (after Tor/clearnet changes in the client's settings). */
     fun reload() = main.post {
-        val act = activity ?: return@post
-        val parent = web?.parent as? ViewGroup
-        destroy("reload")
-        val w = obtain(act)
-        parent?.addView(w, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        // In place, in the same WebView: the client asks for it after its Tor/clearnet switch. A new
+        // WebView put under the screen's AndroidView was never laid out (beta2: a black tab until
+        // the app was closed). The bridge reads the setting on every request, so its connections
+        // are closed, Tor is held or let go for the new choice, and the page loads again.
+        val w = web ?: return@post
+        val app = w.context.applicationContext
+        bridge?.dropConnections()
+        if (RobloStore.of(app).clearnet()) Tor.release(app, TOR_OWNER) else Tor.acquire(app, TOR_OWNER)
+        log("reload (" + (if (RobloStore.of(app).clearnet()) "clearnet" else "Tor") + ")")
+        w.loadUrl(BASE + "index.html")
     }
 
     @Synchronized private fun log(m: String) {
