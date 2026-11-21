@@ -296,6 +296,19 @@ val checkPackaging by tasks.registering {
 }
 tasks.matching { it.name.startsWith("package") || it.name == "createDistributable" || it.name == "createReleaseDistributable" }.configureEach { dependsOn(checkPackaging) }
 
+// jlink copies jcef's natives without their execute bit: Chromium could not start its helper
+// process ("GPU process isn't usable") and aborted the whole app the moment ROBLO opened (seen in
+// the Ubuntu 22.04 container with the first AppImage). The runtime image gets them back before any
+// package (AppImage, .deb, .msi, .dmg) is made from it.
+if (robloOn) tasks.matching { it.name == "createRuntimeImage" }.configureEach {
+    doLast {
+        val lib = layout.buildDirectory.dir("compose/tmp/main/runtime/lib").get().asFile
+        listOf("jcef_helper", "cef_server", "chrome-sandbox", "jspawnhelper").map { lib.resolve(it) }.filter { it.isFile }.forEach { f ->
+            check(f.setExecutable(true, false)) { "could not make $f executable" }
+        }
+    }
+}
+
 // macOS: JCEF's framework and helper apps live next to the runtime's Home (Contents/Frameworks),
 // where jlink does not copy them; the app's runtime gets them as the JetBrains Runtime has them
 // (ditto keeps the frameworks' symlinks). The .dmg is made from this app.

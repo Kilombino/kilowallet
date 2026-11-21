@@ -185,6 +185,17 @@ object RobloWeb {
     /** Chromium, started once per run of the app (it can't be started twice in one process). */
     private fun cefApp(): CefApp {
         app?.let { return it }
+        // Chromium aborts the whole process when it can't start its helper: refuse here instead,
+        // and the tab says why (a runtime whose helper lost its execute bit, a missing framework).
+        val home = java.io.File(System.getProperty("java.home"))
+        if (com.kilombino.kilowallet.desktop.Platform.os == com.kilombino.kilowallet.desktop.Platform.Os.LINUX) {
+            val helper = home.resolve("lib/jcef_helper")
+            check(helper.isFile && helper.canExecute()) { "Chromium's helper is missing or not executable ($helper)" }
+        }
+        if (com.kilombino.kilowallet.desktop.Platform.os == com.kilombino.kilowallet.desktop.Platform.Os.MAC) {
+            val fw = home.parentFile.resolve("Frameworks/Chromium Embedded Framework.framework")
+            check(fw.isDirectory) { "Chromium's framework is missing ($fw)" }
+        }
         val cfg = JCefAppConfig.getInstance()
         val args = cfg.appArgsAsList.toMutableList()
         // Nothing of the page on disk; no GPU process (the page is light, and it is one less thing to crash).
