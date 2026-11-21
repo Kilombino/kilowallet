@@ -40,6 +40,21 @@ object Lnd {
         private set
 
     /**
+     * "mainnet", or "regtest" in a debug build pointed at the Roblosats regtest lab (a file
+     * "lnd-regtest-lab" in the app's files, written by adb: run-as … touch files/lnd-regtest-lab).
+     * Never in a release or beta build.
+     */
+    @Volatile var net = "mainnet"
+        private set
+
+    fun labRegtest(ctx: Context): Boolean =
+        com.kilombino.pyblockwatch.BuildConfig.DEBUG && File(ctx.filesDir, "lnd-regtest-lab").exists()
+
+    /** The lab's Knots node as seen from the emulator (host loopback), and its BLAKE2b activation. */
+    const val LAB_PEER = "10.0.2.2:29444"
+    const val LAB_BLAKE2B_HEIGHT = 300
+
+    /**
      * The configuration file LND reads: mainnet, neutrino with only [peers] (the DNS seeds are
      * Bitcoin's and return nodes on the SHA256d chain), no listening port (a phone cannot be
      * reached), and Tor through [torSocks] when given.
@@ -61,16 +76,24 @@ object Lnd {
             // Channels up to 0.5 BTC can be opened to this wallet.
             appendLine("maxchansize=50000000")
             appendLine("[Bitcoin]")
-            appendLine("bitcoin.mainnet=true")
+            val lab = labRegtest(ctx)
+            net = if (lab) "regtest" else "mainnet"
+            if (lab) {
+                appendLine("bitcoin.regtest=true")
+                appendLine("bitcoin.blake2b-activation-height=$LAB_BLAKE2B_HEIGHT")
+                appendLine("bitcoin.defaultchanconfs=1")
+            } else appendLine("bitcoin.mainnet=true")
             appendLine("bitcoin.node=neutrino")
             appendLine("[neutrino]")
             // Go's resolver finds no DNS server on Android (there is no /etc/resolv.conf), so a
             // peer given by name never connects: the app resolves names here, keeping the name too.
-            resolved(peers).forEach { appendLine("neutrino.connect=$it") }
+            (if (lab) listOf(LAB_PEER) else resolved(peers)).forEach { appendLine("neutrino.connect=$it") }
             // Room for every peer given: with fewer slots it drops and redials one every few seconds.
             appendLine("neutrino.maxpeers=${maxOf(4, peers.size + 2)}")
-            appendLine("[fee]")
-            appendLine("fee.url=$FEE_URL")
+            if (!lab) {
+                appendLine("[fee]")
+                appendLine("fee.url=$FEE_URL")
+            }
             appendLine("[protocol]")
             appendLine("protocol.wumbo-channels=true")
             // Channels can take more funds or give some back without closing (BOLT 2 splicing).
@@ -104,7 +127,7 @@ object Lnd {
 
     /** The end of LND's log, to share when something fails. It names peers and channels, never keys. */
     fun logTail(ctx: Context, maxBytes: Long = 80_000): String? = runCatching {
-        val f = File(dir(ctx), "logs/bitcoin/mainnet/lnd.log")
+        val f = File(dir(ctx), "logs/bitcoin/$net/lnd.log")
         java.io.RandomAccessFile(f, "r").use { r ->
             val n = minOf(r.length(), maxBytes); r.seek(r.length() - n)
             val b = ByteArray(n.toInt()); r.readFully(b); String(b, Charsets.UTF_8).substringAfter('\n')
@@ -131,7 +154,7 @@ object Lnd {
      * neutrino has caught up): the highest block height in the end of its log, or null.
      */
     fun syncHeight(ctx: Context): Int? = runCatching {
-        val f = File(dir(ctx), "logs/bitcoin/mainnet/lnd.log")
+        val f = File(dir(ctx), "logs/bitcoin/$net/lnd.log")
         java.io.RandomAccessFile(f, "r").use { r ->
             val n = minOf(r.length(), 48_000L)
             r.seek(r.length() - n)
@@ -142,7 +165,7 @@ object Lnd {
 
     /** The last error LND logged, to show when it does not come up. */
     fun lastError(ctx: Context): String? = runCatching {
-        File(dir(ctx), "logs/bitcoin/mainnet/lnd.log").readLines().lastOrNull { "[ERR]" in it }
+        File(dir(ctx), "logs/bitcoin/$net/lnd.log").readLines().lastOrNull { "[ERR]" in it }
             ?.substringAfter("[ERR] ")?.substringAfter(": ")
     }.getOrNull()
 
@@ -732,6 +755,41 @@ object Lnd {
             }, onEnd = { e -> if (cont.isActive) cont.resumeWithException(e ?: LndError("the payment ended without an answer")) })
         }
 
+    /**
+     * Pays a hold invoice (a Roblosats bond or trade escrow): [onLocked] runs once the payment is
+     * IN_FLIGHT with an HTLC out (lnrpc.Payment status=10 is 1, htlcs=14 with an attempt in flight,
+     * HTLCAttempt.status=2 is 0), which is when the coordinator sees it locked. The call itself
+     * returns only at the end (settled: the preimage; cancelled or failed: an error), which for a
+     * hold invoice can be hours later: there is no cut-off here, [timeoutSeconds] only bounds the
+     * search for a route.
+     */
+    suspend fun payHold(invoice: String, feeLimitSats: Long, onLocked: (hash: String) -> Unit, timeoutSeconds: Int = 60): String =
+        suspendCancellableCoroutine { cont ->
+            var locked = false
+            val req = Pb().string(5, invoice.trim()).int(6, timeoutSeconds).int(7, feeLimitSats).build()
+            stream({ Lndmobile.routerSendPaymentV2(req, it) }, onMsg = { p ->
+                when (p.int(10)) {
+                    1 -> if (!locked && p.msgs(14).any { it.int(2) == 0 }) { locked = true; runCatching { onLocked(p.string(1)) } }
+                    2 -> if (cont.isActive) cont.resume(p.string(6))
+                    3 -> if (cont.isActive) cont.resumeWithException(LndError(failureText(p.int(16))))
+                }
+            }, onEnd = { e -> if (cont.isActive) cont.resumeWithException(HoldUnknown(e?.message ?: "the payment ended without an answer")) })
+        }
+
+    /** Like [track], telling [onLocked] when the payment is (still) held: after a restart of the app. */
+    suspend fun trackHold(hashHex: String, onLocked: (hash: String) -> Unit): String =
+        suspendCancellableCoroutine { cont ->
+            var locked = false
+            val hash = hashHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+            stream({ Lndmobile.routerTrackPaymentV2(Pb().bytes(1, hash).build(), it) }, onMsg = { p ->
+                when (p.int(10)) {
+                    1 -> if (!locked && p.msgs(14).any { it.int(2) == 0 }) { locked = true; runCatching { onLocked(hashHex) } }
+                    2 -> if (cont.isActive) cont.resume(p.string(6))
+                    3 -> if (cont.isActive) cont.resumeWithException(LndError(failureText(p.int(16))))
+                }
+            }, onEnd = { e -> if (cont.isActive) cont.resumeWithException(HoldUnknown(e?.message ?: "the payment ended without an answer")) })
+        }
+
     private fun failureText(code: Int) = when (code) {
         1 -> "timed out without finding a route"
         2 -> "no route to the destination with enough liquidity"
@@ -767,3 +825,6 @@ object Lnd {
 }
 
 class LndError(msg: String) : Exception(msg)
+
+/** A held payment's stream ended without its outcome (the node stopped, the stream broke): still unknown, follow it again. */
+class HoldUnknown(msg: String) : Exception(msg)

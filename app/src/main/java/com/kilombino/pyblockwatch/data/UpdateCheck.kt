@@ -15,11 +15,16 @@ object UpdateCheck {
     /** [sha256]: the signed APK's hash as the release notes publish it ("Signed APK SHA-256: `…`"). */
     class Release(val version: String, val url: String, val apkUrl: String?, val sha256: String? = null)
 
-    /** "0.20.0-beta3" → [0, 20, 0] plus whether it is a pre-release. */
+    /**
+     * "0.20.0-beta3" → [0, 20, 0] plus whether it is a pre-release. The ROBLO beta ("1.6.1-roblo")
+     * is a build of its own on top of that release, not a pre-release of it: only a higher number
+     * is newer, so it is never offered the plain 1.6.1 (which has no ROBLO tab).
+     */
     private fun parse(v: String): Pair<List<Int>, Boolean> {
         val clean = v.removePrefix("v").trim()
         val nums = clean.substringBefore('-').split('.').map { it.toIntOrNull() ?: 0 }
-        return nums to clean.contains('-')
+        val suffix = clean.substringAfter('-', "")
+        return nums to (clean.contains('-') && !suffix.startsWith("roblo"))
     }
 
     /** True when [remote] is newer than [current] (a final release beats its own betas). */

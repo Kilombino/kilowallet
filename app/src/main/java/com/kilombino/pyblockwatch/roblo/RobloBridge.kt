@@ -43,6 +43,12 @@ class RobloBridge(
         fun appVersion(): String
         /** This page's own log lines (console and bridge), for the client's "Recent logs". */
         fun recentLogs(): String
+        /** The garage was saved (a robot or an order changed): the background watcher may start. */
+        fun garageChanged() {}
+        /** The BTC explorer of Kilowallet's settings ("" when none). */
+        fun explorer(): String = ""
+        /** The navigation a notification left for the page; "" when none. */
+        fun takeNavigation(): String = ""
     }
 
     private val sockets = ConcurrentHashMap<String, WsClient>()
@@ -92,12 +98,57 @@ class RobloBridge(
             .put("device", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}").toString())
     }
 
-    /** No notification tapped yet in this phase: nothing to open. */
+    /** The order a tapped notification asked to open ({path, robot}), once; "" when none. */
     @JavascriptInterface
-    fun takePendingNavigation(): String = ""
+    fun takePendingNavigation(): String = host.takeNavigation()
 
     @JavascriptInterface
     fun restart() = host.reload()
+
+    // ---------------------------------------------------------------- wallet (native sheets)
+
+    init {
+        RobloWallet.answer = { uuid, ok, value -> if (ok) resolve(uuid, value) else reject(uuid, value) }
+    }
+
+    /** Pay [sats] to [address] from the hot wallet (sheet: coins, fee, fingerprint); resolves the txid. */
+    @JavascriptInterface
+    fun walletPay(uuid: String, address: String, sats: Double, orderRef: String, feeHint: Double) {
+        if (!validUuid(uuid)) return
+        val amount = sats.toLong()
+        RobloWallet.checkPay(address, amount, orderRef)?.let { reject(uuid, it); return }
+        if (!RobloWallet.offer(RobloWallet.Request.Pay(uuid, address.trim(), amount, orderRef, if (feeHint.isFinite()) feeHint else 0.0)))
+            reject(uuid, "busy")
+    }
+
+    /** Lock a hold invoice with the Lightning node; resolves "locked" once its HTLC is out. */
+    @JavascriptInterface
+    fun walletPayInvoice(uuid: String, bolt11: String, orderRef: String) {
+        if (!validUuid(uuid)) return
+        RobloWallet.checkInvoice(bolt11, orderRef)?.let { reject(uuid, it); return }
+        if (!RobloWallet.offer(RobloWallet.Request.PayInvoice(uuid, bolt11.trim(), orderRef))) reject(uuid, "busy")
+    }
+
+    /** An address of the hot wallet, picked in the RECEIVE menu and accepted with its derivation. */
+    @JavascriptInterface
+    fun walletAddress(uuid: String, purpose: String, orderRef: String) {
+        if (!validUuid(uuid)) return
+        RobloWallet.checkAddress(purpose, orderRef)?.let { reject(uuid, it); return }
+        if (!RobloWallet.offer(RobloWallet.Request.Address(uuid, purpose, orderRef))) reject(uuid, "busy")
+    }
+
+    /** An invoice from the Lightning node for the payout. */
+    @JavascriptInterface
+    fun walletInvoice(uuid: String, sats: Double, memo: String) {
+        if (!validUuid(uuid)) return
+        val amount = sats.toLong()
+        if (amount !in 1..RobloWallet.MAX_SATS) { reject(uuid, "bad amount"); return }
+        if (!RobloWallet.offer(RobloWallet.Request.Invoice(uuid, amount, memo.take(100)))) reject(uuid, "busy")
+    }
+
+    /** The explorer Kilowallet uses for BTC (its settings), for the client's links. */
+    @JavascriptInterface
+    fun hostExplorer(): String = host.explorer()
 
     // ---------------------------------------------------------------- storage
 
@@ -114,6 +165,7 @@ class RobloBridge(
         if (!RobloStore.validKey(key.trim())) { reject(uuid, "Invalid input parameters"); return }
         val ok = runCatching { store.set(key.trim(), value.trim()) }.getOrDefault(false)
         if (ok) resolve(uuid, key) else reject(uuid, "Error writing encrypted storage: $key")
+        if (ok && key.trim() == "garage_slots") host.garageChanged()
     }
 
     @JavascriptInterface
@@ -197,7 +249,7 @@ class RobloBridge(
         if (sockets.size >= MAX_SOCKETS) { reject(uuid, "Too many connections"); return }
         Thread({
             var ws: WsClient? = null
-            val client = WsClient(path, net.connector(route),
+            val client = WsClient(path, net.connector(route), pingEveryMs = 20_000, deadAfterMs = 50_000,
                 onText = { m -> if (sockets[path] === ws) onWs("onWSMessage", path, m) },
                 onBinary = { b -> if (sockets[path] === ws) onWs("onWSMessage", path, b.joinToString("") { "%02x".format(it) }) },
                 onClosed = { err ->
@@ -230,9 +282,20 @@ class RobloBridge(
         host.evaluate("window.AndroidRobosats && window.AndroidRobosats.$fn($args)")
     }
 
+    /**
+     * The phone lost its network: every WebSocket ends now with an error, so the page shows
+     * "disconnected" at once and reconnects when the network is back (instead of believing it is
+     * still connected until the ping notices, up to a minute later).
+     */
+    fun dropConnections() {
+        sockets.values.toList().forEach { runCatching { it.abort() } }
+    }
+
     /** The page goes away: every connection closes, nothing more is answered. */
     fun close() {
         closed = true
+        // a sheet still open for this page has nobody to answer any more
+        RobloWallet.request.value?.let { RobloWallet.request.value = null }
         sockets.values.forEach { runCatching { it.close() } }
         sockets.clear()
         pool.shutdownNow()

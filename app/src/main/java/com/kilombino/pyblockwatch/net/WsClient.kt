@@ -145,6 +145,9 @@ class WsClient(
 
     fun sendBinary(data: ByteArray): Boolean = open && runCatching { frame(0x2, data) }.isSuccess
 
+    /** The network went away (the phone said so): ends now with an error, without waiting for the ping. */
+    fun abort(why: String = "network lost") { closing = true; end(java.io.IOException(why)) }
+
     /** Closes from this side: [onClosed] gets no error. */
     fun close() {
         closing = true

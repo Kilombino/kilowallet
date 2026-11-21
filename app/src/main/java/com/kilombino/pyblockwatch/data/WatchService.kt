@@ -53,6 +53,7 @@ class WatchService : Service() {
     }
 
     override fun onDestroy() {
+        if (com.kilombino.pyblockwatch.BuildConfig.ROBLO) runCatching { com.kilombino.pyblockwatch.roblo.RobloWatch.stopLive(this) }
         job?.cancel(); scope.cancel()
         super.onDestroy()
     }
@@ -116,6 +117,9 @@ class WatchService : Service() {
             if (com.kilombino.pyblockwatch.data.SeedVault(this@WatchService).hasSeed() && com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.supported(store)) {
                 runCatching { com.kilombino.pyblockwatch.coinjoin.CoinjoinHub.checkNewPools(this@WatchService) }
             }
+            // Roblosats (ROBLO tab, beta builds): the robots' notices since the last look.
+            if (com.kilombino.pyblockwatch.BuildConfig.ROBLO)
+                runCatching { com.kilombino.pyblockwatch.roblo.RobloWatch.lookOnce(this@WatchService) }
             // A newer release: notified once per version (the app installs it from inside).
             runCatching {
                 val prefs = getSharedPreferences("pyblockwatch", MODE_PRIVATE)
@@ -141,7 +145,9 @@ class WatchService : Service() {
             // and the next one comes sooner; off, and the watcher stops (at the loop's top).
             val since = System.currentTimeMillis()
             while (scope.isActive) {
-                delay(60_000L)
+                // Every 10 s (a minute before ROBLO): a Roblosats order to follow live opens its
+                // subscription within seconds, and this notification says so (no second one).
+                if (com.kilombino.pyblockwatch.BuildConfig.ROBLO) { keepRobloLive(); delay(10_000L) } else delay(60_000L)
                 val every = store.refreshBackgroundMinutes
                 if (every <= 0 || !store.notificationsEnabled) break
                 if (System.currentTimeMillis() - since >= every * 60_000L) break
@@ -149,8 +155,35 @@ class WatchService : Service() {
         }
     }
 
+    @Volatile private var shownLive: String? = null
+
+    /** Opens or closes the live Roblosats subscription, and puts its line in this notification. */
+    private fun keepRobloLive() {
+        // A Roblosats hold invoice still held by this node: the node up, the payment followed.
+        runCatching {
+            if (com.kilombino.pyblockwatch.roblo.RobloLn.live(this)) {
+                com.kilombino.pyblockwatch.ln.Lightning.resume(this)
+                com.kilombino.pyblockwatch.roblo.RobloLn.resume(this)
+            }
+        }
+        val text = runCatching { com.kilombino.pyblockwatch.roblo.RobloWatch.keepLive(this) }.getOrNull()
+        if (text != shownLive) {
+            shownLive = text
+            runCatching { getSystemService(android.app.NotificationManager::class.java).notify(ONGOING_ID, ongoingNotification()) }
+        }
+    }
+
     private fun ongoingNotification(): Notification {
         Notifier(this).ensureChannels()
+        shownLive?.let { live ->
+            return Notification.Builder(this, Notifier.CHANNEL_ONGOING)
+                .setSmallIcon(android.R.drawable.stat_notify_sync)
+                .setContentTitle(live)
+                .setContentText(com.kilombino.pyblockwatch.ui.i18n.I18n.tr("Watching your balances"))
+                .setOngoing(true)
+                .setContentIntent(openApp())
+                .build()
+        }
         return Notification.Builder(this, Notifier.CHANNEL_ONGOING)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle(com.kilombino.pyblockwatch.ui.i18n.I18n.tr("Watching your balances"))

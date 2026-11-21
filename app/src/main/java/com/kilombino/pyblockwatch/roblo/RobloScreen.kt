@@ -62,6 +62,8 @@ fun RobloScreen(state: UiState, vm: WalletViewModel) {
             RobloWeb.offScreen()
         }
     }
+    // What the page asked of the wallet: its native sheet (pay, receive, Lightning).
+    RobloWalletSheets(state, vm)
     // Edge to edge: the page's bottom bar (OFFERS · + · GARAGE) above the system's navigation bar.
     Column(Modifier.fillMaxSize().navigationBarsPadding().imePadding()) {
         Spacer(Modifier.height(28.dp))

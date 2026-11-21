@@ -962,6 +962,13 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(robloView = true, sendPhase = SendPhase.Editing) }
     }
 
+    /** The hot wallet under ROBLO (a Roblosats payment from it): call only after the fingerprint. */
+    fun viewAsHotInRoblo() {
+        if (!seedVault.hasSeed()) return
+        if (!_state.value.isHot || _state.value.jamView) switchTo(Store.HOT)
+        _state.update { it.copy(robloView = true) }
+    }
+
     /** Leaves ROBLO for the wallet that was on screen before it (no fingerprint: it was open). */
     fun leaveRoblo() {
         _state.update { it.copy(robloView = false) }

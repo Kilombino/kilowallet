@@ -61,6 +61,9 @@ object RobloWeb {
         web?.let { w -> ctxWrapper?.baseContext = act; (w.parent as? ViewGroup)?.removeView(w); return w }
         val app = act.applicationContext
         val store = RobloStore.of(app)
+        // Debug builds against the regtest lab only (adb: run-as … touch files/roblo-lab-regtest).
+        RobloWallet.labRegtest = BuildConfig.DEBUG && java.io.File(app.filesDir, "roblo-lab-regtest").exists()
+        runCatching { RobloLn.resume(app) }
         if (!store.clearnet()) Tor.acquire(app, TOR_OWNER)
         val wrapper = MutableContextWrapper(act).also { ctxWrapper = it }
         val w = WebView(wrapper)
@@ -79,8 +82,24 @@ object RobloWeb {
         w.addJavascriptInterface(b, "AndroidAppRobosats")
         w.loadUrl(BASE + "index.html")
         web = w
+        watchNetwork(app)
         log("client loaded")
         return w
+    }
+
+    private var netCallback: android.net.ConnectivityManager.NetworkCallback? = null
+
+    /** A lost network ends the page's WebSockets at once (see [RobloBridge.dropConnections]). */
+    private fun watchNetwork(app: Context) {
+        if (netCallback != null) return
+        val cm = app.getSystemService(android.net.ConnectivityManager::class.java) ?: return
+        val cb = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onLost(network: android.net.Network) {
+                // only when no other network took over (wifi → mobile data keeps going)
+                if (cm.activeNetwork == null || cm.activeNetwork == network) { log("network lost"); bridge?.dropConnections() }
+            }
+        }
+        runCatching { cm.registerDefaultNetworkCallback(cb); netCallback = cb }
     }
 
     /** The tab is showing the page (set by the screen). */
@@ -130,6 +149,14 @@ object RobloWeb {
         activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         ctxWrapper?.baseContext?.applicationContext?.let { Tor.release(it, TOR_OWNER) }
         ctxWrapper = null
+    }
+
+    /**
+     * A notification asked to open an order ([RobloLinks.pending]) while the page is up: the page
+     * takes it now (a page still loading takes it itself once its garage is read).
+     */
+    fun navigateNow() = main.post {
+        web?.evaluateJavascript("window.AndroidRobosats && window.AndroidRobosats.onNavigationIntent && window.AndroidRobosats.onNavigationIntent()", null)
     }
 
     /** Reload from the start (after Tor/clearnet changes in the client's settings). */
@@ -247,5 +274,8 @@ object RobloWeb {
         }
         override fun appVersion(): String = BuildConfig.VERSION_NAME
         override fun recentLogs(): String = logText()
+        override fun garageChanged() { RobloWatch.kick(app) }
+        override fun takeNavigation(): String = RobloLinks.take()
+        override fun explorer(): String = runCatching { com.kilombino.pyblockwatch.data.Store(app).explorer(com.kilombino.pyblockwatch.chain.Chain.BLAKE2B) }.getOrDefault("")
     }
 }
