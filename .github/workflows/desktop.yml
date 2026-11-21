@@ -172,7 +172,7 @@ jobs:
           msiexec //a "$(cygpath -w "$msi")" //qn TARGETDIR="$(cygpath -w "$PWD/msi-x")"
           rt=$(dirname "$(find msi-x -name jcef.dll | head -1)")
           ls -la "$rt/jcef.dll" "$rt/libcef.dll" "$rt/jcef_helper.exe"
-          ls "$(dirname "$rt")/lib/app"/*.jar
+          find msi-x -name "desktop*.jar" | head -3
           exe=$(find msi-x -name Kilowallet.exe | head -1); echo "launching $exe"
           ( "$exe" > launch.log 2>&1 & ); sleep 45
           tasklist | grep -i kilowallet && echo "STILL RUNNING after 45 s" || { echo "NOT RUNNING"; cat launch.log; }
