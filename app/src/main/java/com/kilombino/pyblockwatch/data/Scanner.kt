@@ -222,7 +222,8 @@ class Scanner(
                 val a = amounts[id]
                 TxConf(id, if (h <= 0) 0 else height - h + 1, pending = h <= 0, amount = a, spv = spv[id])
             }.sortedWith(compareBy({ !it.pending }, { it.confirmations }))
-            android.util.Log.i("Kilowallet", "scan timing: connect+walk ${t1 - t0} ms, amounts ${t2 - t1} ms, spv ${System.currentTimeMillis() - t2} ms")
+            // (Not on a plain JVM, where a look runs in the tests against a regtest node.)
+            runCatching { android.util.Log.i("Kilowallet", "scan timing: connect+walk ${t1 - t0} ms, amounts ${t2 - t1} ms, spv ${System.currentTimeMillis() - t2} ms") }
             saveDisk()
             emit(ScanEvent.Done(rows, height, txs))
         } catch (e: Exception) {

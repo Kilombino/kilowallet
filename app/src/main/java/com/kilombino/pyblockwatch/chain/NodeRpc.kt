@@ -60,8 +60,27 @@ data class RpcConn(val url: String, val user: String, val pass: String, val pin:
     }
 }
 
-/** Reading the chain from the user's own node by RPC: its connections and the wallet's account key. */
-data class RpcNode(val conns: List<RpcConn>, val accountKey: String, val type: ScriptType)
+/**
+ * One public descriptor for the node's watch-only wallet, without its checksum: ranged (a final `*` step,
+ * imported 0–999) or a single script (`addr(…)`). [internal]: a change branch.
+ */
+data class WatchDescriptor(val desc: String, val internal: Boolean = false) {
+    val ranged: Boolean get() = desc.contains("/*")
+}
+
+/**
+ * Reading the chain from the user's own node by RPC: its connections and what to watch. The BTC
+ * wallet gives one account key and its address type (receive and change branches). [descriptors],
+ * when given, are watched instead: a set of public descriptors (the JoinMarket wallet's jars and
+ * bonds), its node wallet named [namePrefix] plus a hash of the whole set.
+ */
+data class RpcNode(
+    val conns: List<RpcConn>,
+    val accountKey: String,
+    val type: ScriptType,
+    val descriptors: List<WatchDescriptor>? = null,
+    val namePrefix: String = "kilowallet",
+)
 
 /**
  * The Electrum questions the wallet asks (per-address history, balance, coins), answered by the
@@ -71,15 +90,21 @@ data class RpcNode(val conns: List<RpcConn>, val accountKey: String, val type: S
  */
 class NodeRpcBackend(private val node: RpcNode) {
     private var conn: RpcConn? = null
-    private val descKey by lazy { toVersion(node.accountKey, 0x0488B21E) }
+    private val descKey by lazy { toVersion(node.accountKey, XPUB) }
     /**
      * One node wallet per key AND address type: the descriptors are imported only when the wallet
      * is made, so a key first read as bc1q and then switched to Taproot used to keep the bc1q
      * wallet, and every bc1p address looked unused. Native SegWit keeps its old name.
      */
     val walletName by lazy {
+        node.descriptors?.let { return@lazy setName(node.namePrefix, it) }
         val tag = if (node.type == ScriptType.P2WPKH) "" else ":" + node.type.name
         "kilowallet-" + Hashes.sha256((descKey + tag).toByteArray()).toHex().take(10)
+    }
+
+    /** What the node's wallet tracks: the account's receive and change, or the set given. */
+    val watched: List<WatchDescriptor> by lazy {
+        node.descriptors ?: listOf(WatchDescriptor(desc(0)), WatchDescriptor(desc(1), internal = true))
     }
 
     private val history = HashMap<String, MutableSet<Pair<String, Int>>>()
@@ -248,10 +273,10 @@ class NodeRpcBackend(private val node: RpcNode) {
         val since = autoSince()
         call("createwallet", walletName, true, true, "", false, true, true)
         val req = JSONArray()
-        for (b in 0..1) {
-            val d = (call("getdescriptorinfo", desc(b)) as JSONObject).getString("descriptor")
-            req.put(JSONObject().put("desc", d).put("range", JSONArray().put(0).put(999))
-                .put("timestamp", since ?: "now").put("internal", b == 1).put("active", false))
+        for (w in watched) {
+            val d = (call("getdescriptorinfo", w.desc) as JSONObject).getString("descriptor")
+            req.put(JSONObject().put("desc", d).apply { if (w.ranged) put("range", JSONArray().put(0).put(999)) }
+                .put("timestamp", since ?: "now").put("internal", w.internal).put("active", false))
         }
         progress("the node is reading this wallet's history")
         call("importdescriptors", req, wallet = walletName, timeoutMs = 3_600_000)
@@ -260,7 +285,7 @@ class NodeRpcBackend(private val node: RpcNode) {
     /** Where the history starts: the oldest coin still held, never before what a pruned node keeps. */
     private fun autoSince(): Long? {
         val desc = JSONArray()
-        for (b in 0..1) desc.put(JSONObject().put("desc", desc(b)).put("range", 999))
+        for (w in watched) desc.put(JSONObject().put("desc", w.desc).apply { if (w.ranged) put("range", 999) })
         val r = call("scantxoutset", "start", desc, timeoutMs = 1_800_000) as JSONObject
         val u = r.getJSONArray("unspents")
         val minH = (0 until u.length()).map { u.getJSONObject(it).getInt("height") }.filter { it > 0 }.minOrNull() ?: return null
@@ -357,6 +382,10 @@ class NodeRpcBackend(private val node: RpcNode) {
 
     fun blockHeight(): Int = tip()
 
+    /** Block [height]'s header (hex, as the node serializes it: 164 bytes from BLAKE2b on), for its time. */
+    fun blockHeader(height: Int): String =
+        call("getblockheader", call("getblockhash", height), false) as? String ?: throw NodeException("no header for block $height")
+
     fun balance(sh: String): ScriptHashBalance {
         val u = utxos[sh].orEmpty()
         return ScriptHashBalance(u.filter { it.height > 0 }.sumOf { it.value }, u.filter { it.height <= 0 }.sumOf { it.value })
@@ -414,6 +443,18 @@ class NodeRpcBackend(private val node: RpcNode) {
 
         private val txCache = ConcurrentHashMap<String, JSONObject>()
         private val notOurs: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+        /**
+         * The node wallet's name for a set of descriptors: [prefix] and a hash of the whole set (in
+         * any order), so watching more (a new fidelity bond) makes a new wallet on the node, whose
+         * import then reads the history of everything in it.
+         */
+        fun setName(prefix: String, set: List<WatchDescriptor>): String =
+            "$prefix-" + Hashes.sha256(set.map { (if (it.internal) "1:" else "0:") + it.desc }.sorted().joinToString("\n").toByteArray()).toHex().take(10)
+
+        /** BIP-32 version bytes a node reads public keys with: xpub on mainnet, tpub on every test network. */
+        const val XPUB = 0x0488B21E
+        const val TPUB = 0x043587CF
 
         fun toVersion(key: String, v: Int): String {
             val raw = Base58.decodeChecked(key)

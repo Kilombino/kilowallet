@@ -409,11 +409,16 @@ class I18nTest {
         I18n.lang.value = I18n.ES
     }
 
-    /** The JoinMarket tab's node (CHANGE THE NODE from the error and the settings): every text in every language. */
+    /** The JoinMarket tab's node (CHANGE THE NODE from the error and the settings, Electrum or RPC): every text in every language. */
     @Test fun jamNodeTexts() {
         val keys = listOf("JoinMarket node",
             "The JoinMarket wallet reads BTC through an Electrum server (Fulcrum, Frigate…). It is the same node setting as the BTC wallet's: changing it here changes it there too.",
-            "Your node by RPC is for the BTC wallet only: the JoinMarket wallet needs an Electrum server.",
+            "The JoinMarket wallet reads BTC from your own node by RPC, like the BTC wallet: the node keeps a watch-only wallet with " +
+                "the jars' public keys and the bonds' addresses (no private key). The first time it looks for their coins, which can " +
+                "take a few minutes. It is the app's node setting: changing it here changes it for the BTC wallet too.",
+            "Read from your own node by RPC, like the BTC wallet: the node watches the jars' public keys and the bonds' addresses, " +
+                "no private key. Its connections are the app's, also in the BTC wallet's settings.",
+            "your node (RPC)", "retry",
             "Now: {0}", "Now: {0} (the default server)", "REMOVE MY NODE", "SAVE AND RETRY",
             "Read through your Electrum server {0}.", "Read through the default server {0}. One person, one node: put your own here.",
             "CHANGE THE NODE", "change the node", "Type the server's host name or IP.",
@@ -426,5 +431,11 @@ class I18nTest {
         assertEquals("Ahora: mi.nodo.lan:50002", I18n.tr("Now: mi.nodo.lan:50002"))
         assertEquals("Ahora: fulcrum.example:17717 (el servidor por defecto)", I18n.tr("Now: fulcrum.example:17717 (the default server)"))
         assertEquals("Se lee a través de tu servidor Electrum 10.0.0.2:50001.", I18n.tr("Read through your Electrum server 10.0.0.2:50001."))
+        // Reading by RPC: the node as the status line names it, and the dialog's button.
+        assertEquals("Ahora: tu nodo (RPC)", I18n.tr("Now: your node (RPC)"))
+        assertEquals("REINTENTAR", I18n.tr("RETRY"))
+        I18n.lang.value = I18n.ZH
+        assertEquals("当前：你的节点（RPC）", I18n.tr("Now: your node (RPC)"))
+        I18n.lang.value = I18n.ES
     }
 }

@@ -42,7 +42,7 @@ class Store(context: Context, private val profile: String = HOT) {
         get() = Chain.entries.firstOrNull { it.id == prefs.getString(KEY_CHAIN, null) } ?: Chain.BLAKE2B
         set(v) = prefs.edit().putString(KEY_CHAIN, v.id).apply()
 
-    /** The user's own node by RPC (BTC only), in the order to try them; shared by both wallets. */
+    /** The user's own node by RPC (BTC only), in the order to try them; shared by every wallet. */
     // Kept sealed with [SecretBox] (they carry the node's RPC password). A plain list, from an
     // older version or a restored backup, is sealed the first time it is read.
     var rpcConns: List<com.kilombino.pyblockwatch.chain.RpcConn>
@@ -69,9 +69,12 @@ class Store(context: Context, private val profile: String = HOT) {
     fun endpoint(chain: Chain): NodeEndpoint {
         if (chain == Chain.BLAKE2B && useRpc) {
             val conns = rpcConns
-            val key = xpub
-            if (conns.isNotEmpty() && key != null)
-                return NodeEndpoint("node", 0, isCustom = true, rpc = com.kilombino.pyblockwatch.chain.RpcNode(conns, key, scriptType))
+            if (conns.isNotEmpty()) {
+                // The JoinMarket wallet has no account key of its own: the node watches its jars and bonds.
+                val rpc = if (profile == JM) JamWatch.export(this)?.let { JamWatch.rpcNode(it, conns) }
+                    else xpub?.let { com.kilombino.pyblockwatch.chain.RpcNode(conns, it, scriptType) }
+                if (rpc != null) return NodeEndpoint("node", 0, isCustom = true, rpc = rpc)
+            }
         }
         if (!chain.allowsCustomNode) return NodeEndpoint.default(chain)
         val host = prefs.getString(keyHost(chain), null) ?: return NodeEndpoint.default(chain)

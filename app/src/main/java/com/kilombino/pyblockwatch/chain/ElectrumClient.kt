@@ -587,7 +587,7 @@ class ElectrumClient(
 
     /** The raw header (hex) of block [height]. */
     fun blockHeader(height: Int): String =
-        call("blockchain.block.header", JSONArray().put(height))?.toString()
+        node?.blockHeader(height) ?: call("blockchain.block.header", JSONArray().put(height))?.toString()
             ?: throw ElectrumException("no header for block $height")
 
     /** Broadcast a raw (hex) transaction. Returns the txid, or throws with the server's reason. */

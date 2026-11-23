@@ -72,6 +72,7 @@ fun JamScreen(vm: WalletViewModel, jvm: JamViewModel, onToggleNotifications: (Bo
     var remindNode by remember { mutableStateOf(!mayRead) }
     if (remindNode) OwnNodeReminder(vm) { remindNode = false }
     // A wrong node is fixed from here: the error and the settings open it with the current one filled in.
+    // onRemoved: the node changed under it (Electrum removed, RPC turned on or off): look again, or ask.
     var editNode by remember { mutableStateOf(false) }
     if (editNode) JamNodeDialog(vm, jvm, accent,
         onRemoved = { editNode = false; if (!jvm.hasOwnServer() && !vm.btcConsented()) remindNode = true else jvm.scan() },
@@ -138,8 +139,12 @@ fun JamScreen(vm: WalletViewModel, jvm: JamViewModel, onToggleNotifications: (Bo
                 SectionLabel("Node", accent)
                 Spacer(Modifier.height(6.dp))
                 val node = jvm.endpoint()
-                Explain(if (node.isCustom) "Read through your Electrum server ${node.host}:${node.port}."
-                    else "Read through the default server ${node.host}:${node.port}. One person, one node: put your own here.")
+                Explain(when {
+                    node.rpc != null -> "Read from your own node by RPC, like the BTC wallet: the node watches the jars' public keys " +
+                        "and the bonds' addresses, no private key. Its connections are the app's, also in the BTC wallet's settings."
+                    node.isCustom -> "Read through your Electrum server ${node.host}:${node.port}."
+                    else -> "Read through the default server ${node.host}:${node.port}. One person, one node: put your own here."
+                })
                 TextButton(onClick = { editNode = true }) { Text("CHANGE THE NODE", color = accent) }
                 Explain("Notifications: movements like the watch-only wallet, plus a warning 7 days before a bond " +
                     "unlocks, when it unlocks and when it no longer counts. They follow the app's notification settings.")

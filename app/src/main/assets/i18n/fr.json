@@ -2568,7 +2568,6 @@
 "Exact coin on its way: waiting for its first confirmation. Then it joins the pool by itself; follow it in IN PROGRESS.": "Pièce exacte en route : en attente de sa première confirmation. Ensuite elle rejoint le pool toute seule ; suis-la dans EN COURS.",
 "JoinMarket node": "Nœud du JoinMarket",
 "The JoinMarket wallet reads BTC through an Electrum server (Fulcrum, Frigate…). It is the same node setting as the BTC wallet's: changing it here changes it there too.": "Le portefeuille JoinMarket lit BTC via un serveur Electrum (Fulcrum, Frigate…). C'est le même réglage de nœud que celui du portefeuille BTC : le changer ici le change aussi là-bas.",
-"Your node by RPC is for the BTC wallet only: the JoinMarket wallet needs an Electrum server.": "Ton nœud par RPC ne sert qu'au portefeuille BTC : le portefeuille JoinMarket a besoin d'un serveur Electrum.",
 "Now: {0}": "Actuel : {0}",
 "Now: {0} (the default server)": "Actuel : {0} (le serveur par défaut)",
 "REMOVE MY NODE": "RETIRER MON NŒUD",
@@ -2578,5 +2577,7 @@
 "Read through the default server {0}. One person, one node: put your own here.": "Lu via le serveur par défaut {0}. Une personne, un nœud : mets le tien ici.",
 "CHANGE THE NODE": "CHANGER LE NŒUD",
 "change the node": "changer le nœud",
-"server: {0}": "serveur : {0}"
+"server: {0}": "serveur : {0}",
+"The JoinMarket wallet reads BTC from your own node by RPC, like the BTC wallet: the node keeps a watch-only wallet with the jars' public keys and the bonds' addresses (no private key). The first time it looks for their coins, which can take a few minutes. It is the app's node setting: changing it here changes it for the BTC wallet too.": "Le portefeuille JoinMarket lit BTC depuis ton propre nœud par RPC, comme le portefeuille BTC : le nœud garde un portefeuille en lecture seule avec les clés publiques des bocaux et les adresses des fidelity bonds (aucune clé privée). La première fois, il cherche leurs pièces, ce qui peut prendre quelques minutes. C'est le réglage de nœud de l'app : le changer ici le change aussi pour le portefeuille BTC.",
+"Read from your own node by RPC, like the BTC wallet: the node watches the jars' public keys and the bonds' addresses, no private key. Its connections are the app's, also in the BTC wallet's settings.": "Lu depuis ton propre nœud par RPC, comme le portefeuille BTC : le nœud surveille les clés publiques des bocaux et les adresses des fidelity bonds, aucune clé privée. Ses connexions sont celles de l'app, aussi dans les réglages du portefeuille BTC."
 }

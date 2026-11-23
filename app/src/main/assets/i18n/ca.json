@@ -2568,7 +2568,6 @@
 "Exact coin on its way: waiting for its first confirmation. Then it joins the pool by itself; follow it in IN PROGRESS.": "Moneda exacta en camí: esperant la seva primera confirmació. Llavors entra sola al pool; segueix-la a EN CURS.",
 "JoinMarket node": "Node del JoinMarket",
 "The JoinMarket wallet reads BTC through an Electrum server (Fulcrum, Frigate…). It is the same node setting as the BTC wallet's: changing it here changes it there too.": "El moneder JoinMarket llegeix BTC a través d'un servidor Electrum (Fulcrum, Frigate…). És el mateix ajust de node que el del moneder BTC: si el canvies aquí, també canvia allà.",
-"Your node by RPC is for the BTC wallet only: the JoinMarket wallet needs an Electrum server.": "El teu node per RPC només serveix per al moneder BTC: el moneder JoinMarket necessita un servidor Electrum.",
 "Now: {0}": "Ara: {0}",
 "Now: {0} (the default server)": "Ara: {0} (el servidor per defecte)",
 "REMOVE MY NODE": "TREU EL MEU NODE",
@@ -2578,5 +2577,7 @@
 "Read through the default server {0}. One person, one node: put your own here.": "Es llegeix a través del servidor per defecte {0}. Una persona, un node: posa-hi el teu.",
 "CHANGE THE NODE": "CANVIA EL NODE",
 "change the node": "canvia el node",
-"server: {0}": "servidor: {0}"
+"server: {0}": "servidor: {0}",
+"The JoinMarket wallet reads BTC from your own node by RPC, like the BTC wallet: the node keeps a watch-only wallet with the jars' public keys and the bonds' addresses (no private key). The first time it looks for their coins, which can take a few minutes. It is the app's node setting: changing it here changes it for the BTC wallet too.": "El moneder JoinMarket llegeix BTC del teu propi node per RPC, com el moneder BTC: el node guarda un moneder només de lectura amb les claus públiques dels pots i les adreces dels fidelity bonds (cap clau privada). La primera vegada en busca les monedes, cosa que pot trigar uns minuts. És l'ajust de node de l'app: si el canvies aquí, també canvia per al moneder BTC.",
+"Read from your own node by RPC, like the BTC wallet: the node watches the jars' public keys and the bonds' addresses, no private key. Its connections are the app's, also in the BTC wallet's settings.": "Es llegeix del teu propi node per RPC, com el moneder BTC: el node vigila les claus públiques dels pots i les adreces dels fidelity bonds, cap clau privada. Les seves connexions són les de l'app, també als ajustos del moneder BTC."
 }
