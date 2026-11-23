@@ -2553,5 +2553,18 @@
 "In each CoinJoin where you were a maker: what came back to you over what you put in (the maker's fee less your part of the mining fee). Each one counts in the jar its coins came from.": "在你作为做市方参与的每次 CoinJoin 中：返还给你的金额超出你投入的部分（做市方手续费减去你分摊的矿工费）。每次都计入其币所来自的罐子。",
 "Movements": "变动记录",
 "Exact coin on its way: waiting for its first confirmation. Then your pool opens by itself; follow it in IN PROGRESS.": "精确币已发出：正在等待第一次确认。之后你的池会自动开启；在 进行中 查看。",
-"Exact coin on its way: waiting for its first confirmation. Then it joins the pool by itself; follow it in IN PROGRESS.": "精确币已发出：正在等待第一次确认。之后它会自动加入该池；在 进行中 查看。"
+"Exact coin on its way: waiting for its first confirmation. Then it joins the pool by itself; follow it in IN PROGRESS.": "精确币已发出：正在等待第一次确认。之后它会自动加入该池；在 进行中 查看。",
+"JoinMarket node": "JoinMarket 节点",
+"The JoinMarket wallet reads BTC through an Electrum server (Fulcrum, Frigate…). It is the same node setting as the BTC wallet's: changing it here changes it there too.": "JoinMarket 钱包通过 Electrum 服务器（Fulcrum、Frigate…）读取 BTC。它与 BTC 钱包使用同一个节点设置：在这里修改，那里也会改变。",
+"Your node by RPC is for the BTC wallet only: the JoinMarket wallet needs an Electrum server.": "通过 RPC 连接的节点只用于 BTC 钱包：JoinMarket 钱包需要 Electrum 服务器。",
+"Now: {0}": "当前：{0}",
+"Now: {0} (the default server)": "当前：{0}（默认服务器）",
+"REMOVE MY NODE": "移除我的节点",
+"SAVE AND RETRY": "保存并重试",
+"Node": "节点",
+"Read through your Electrum server {0}.": "通过你的 Electrum 服务器 {0} 读取。",
+"Read through the default server {0}. One person, one node: put your own here.": "通过默认服务器 {0} 读取。一人一节点：在这里填入你自己的。",
+"CHANGE THE NODE": "更改节点",
+"change the node": "更改节点",
+"server: {0}": "服务器：{0}"
 }

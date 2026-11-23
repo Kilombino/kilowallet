@@ -71,6 +71,11 @@ fun JamScreen(vm: WalletViewModel, jvm: JamViewModel, onToggleNotifications: (Bo
     val mayRead = jvm.hasOwnServer() || vm.btcConsented()
     var remindNode by remember { mutableStateOf(!mayRead) }
     if (remindNode) OwnNodeReminder(vm) { remindNode = false }
+    // A wrong node is fixed from here: the error and the settings open it with the current one filled in.
+    var editNode by remember { mutableStateOf(false) }
+    if (editNode) JamNodeDialog(vm, jvm, accent,
+        onRemoved = { editNode = false; if (!jvm.hasOwnServer() && !vm.btcConsented()) remindNode = true else jvm.scan() },
+        onClose = { editNode = false })
     LaunchedEffect(mayRead, js.export) { if (mayRead && js.export != null) jvm.refresh() }
     // While on screen, refresh like the other wallets.
     LaunchedEffect(mayRead, state.refreshOpenSeconds) {
@@ -129,6 +134,13 @@ fun JamScreen(vm: WalletViewModel, jvm: JamViewModel, onToggleNotifications: (Bo
                     "Created a new bond? In Jam open Settings › View in Kilowallet (read-only) again and import it here: " +
                     "it replaces this import with the full current set.")
                 TextButton(onClick = { reimport = true }) { Text("IMPORT AGAIN FROM JAM", color = accent) }
+                Spacer(Modifier.height(10.dp))
+                SectionLabel("Node", accent)
+                Spacer(Modifier.height(6.dp))
+                val node = jvm.endpoint()
+                Explain(if (node.isCustom) "Read through your Electrum server ${node.host}:${node.port}."
+                    else "Read through the default server ${node.host}:${node.port}. One person, one node: put your own here.")
+                TextButton(onClick = { editNode = true }) { Text("CHANGE THE NODE", color = accent) }
                 Explain("Notifications: movements like the watch-only wallet, plus a warning 7 days before a bond " +
                     "unlocks, when it unlocks and when it no longer counts. They follow the app's notification settings.")
                 TextButton(onClick = { askForget = true }) { Text("FORGET THE JOINMARKET WALLET", color = Bad) }
@@ -150,8 +162,9 @@ fun JamScreen(vm: WalletViewModel, jvm: JamViewModel, onToggleNotifications: (Bo
         }
 
         ScanStatus(ChainState(phase = js.phase, rows = js.rows, height = js.height, fingerprint = js.fingerprint,
-            fingerprintChanged = js.fingerprintChanged, stale = js.stale,
-            refreshing = if (js.refreshing) "the jars and the bonds" else null), accent, onRetry = { jvm.scan() })
+            fingerprintChanged = js.fingerprintChanged, stale = js.stale, server = jvm.endpoint().toString(),
+            refreshing = if (js.refreshing) "the jars and the bonds" else null), accent, onRetry = { jvm.scan() },
+            onChangeNode = { editNode = true })
 
         Panel(accent = accent) {
             Row(verticalAlignment = Alignment.CenterVertically) {

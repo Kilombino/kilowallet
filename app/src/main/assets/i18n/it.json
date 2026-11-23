@@ -2564,5 +2564,18 @@
 "In each CoinJoin where you were a maker: what came back to you over what you put in (the maker's fee less your part of the mining fee). Each one counts in the jar its coins came from.": "In ogni coinjoin in cui eri maker: quanto ti è tornato oltre a quanto hai messo (la commissione del maker meno la tua parte della commissione di mining). Ognuno conta nel barattolo da cui sono uscite le sue monete.",
 "Movements": "Movimenti",
 "Exact coin on its way: waiting for its first confirmation. Then your pool opens by itself; follow it in IN PROGRESS.": "Moneta esatta in arrivo: in attesa della prima conferma. Poi il tuo pool si apre da solo; seguilo in IN CORSO.",
-"Exact coin on its way: waiting for its first confirmation. Then it joins the pool by itself; follow it in IN PROGRESS.": "Moneta esatta in arrivo: in attesa della prima conferma. Poi entra nel pool da sola; seguila in IN CORSO."
+"Exact coin on its way: waiting for its first confirmation. Then it joins the pool by itself; follow it in IN PROGRESS.": "Moneta esatta in arrivo: in attesa della prima conferma. Poi entra nel pool da sola; seguila in IN CORSO.",
+"JoinMarket node": "Nodo del JoinMarket",
+"The JoinMarket wallet reads BTC through an Electrum server (Fulcrum, Frigate…). It is the same node setting as the BTC wallet's: changing it here changes it there too.": "Il portafoglio JoinMarket legge BTC tramite un server Electrum (Fulcrum, Frigate…). È la stessa impostazione del nodo del portafoglio BTC: se la cambi qui, cambia anche lì.",
+"Your node by RPC is for the BTC wallet only: the JoinMarket wallet needs an Electrum server.": "Il tuo nodo via RPC vale solo per il portafoglio BTC: il portafoglio JoinMarket ha bisogno di un server Electrum.",
+"Now: {0}": "Ora: {0}",
+"Now: {0} (the default server)": "Ora: {0} (il server predefinito)",
+"REMOVE MY NODE": "RIMUOVI IL MIO NODO",
+"SAVE AND RETRY": "SALVA E RIPROVA",
+"Node": "Nodo",
+"Read through your Electrum server {0}.": "Letto tramite il tuo server Electrum {0}.",
+"Read through the default server {0}. One person, one node: put your own here.": "Letto tramite il server predefinito {0}. Una persona, un nodo: metti qui il tuo.",
+"CHANGE THE NODE": "CAMBIA IL NODO",
+"change the node": "cambia il nodo",
+"server: {0}": "server: {0}"
 }

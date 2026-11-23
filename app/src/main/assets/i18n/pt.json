@@ -2565,5 +2565,18 @@
 "In each CoinJoin where you were a maker: what came back to you over what you put in (the maker's fee less your part of the mining fee). Each one counts in the jar its coins came from.": "Em cada coinjoin em que foi maker: o que lhe voltou acima do que pôs (a taxa do maker menos a sua parte da taxa de mineração). Cada um conta no pote de onde saíram as suas moedas.",
 "Movements": "Movimentos",
 "Exact coin on its way: waiting for its first confirmation. Then your pool opens by itself; follow it in IN PROGRESS.": "Moeda exata a caminho: à espera da primeira confirmação. Depois o teu pool abre-se sozinho; acompanha-o em EM ANDAMENTO.",
-"Exact coin on its way: waiting for its first confirmation. Then it joins the pool by itself; follow it in IN PROGRESS.": "Moeda exata a caminho: à espera da primeira confirmação. Depois entra no pool sozinha; acompanha-a em EM ANDAMENTO."
+"Exact coin on its way: waiting for its first confirmation. Then it joins the pool by itself; follow it in IN PROGRESS.": "Moeda exata a caminho: à espera da primeira confirmação. Depois entra no pool sozinha; acompanha-a em EM ANDAMENTO.",
+"JoinMarket node": "Nó do JoinMarket",
+"The JoinMarket wallet reads BTC through an Electrum server (Fulcrum, Frigate…). It is the same node setting as the BTC wallet's: changing it here changes it there too.": "A carteira JoinMarket lê BTC através de um servidor Electrum (Fulcrum, Frigate…). É a mesma configuração de nó da carteira BTC: alterá-la aqui altera-a também lá.",
+"Your node by RPC is for the BTC wallet only: the JoinMarket wallet needs an Electrum server.": "O teu nó por RPC só serve para a carteira BTC: a carteira JoinMarket precisa de um servidor Electrum.",
+"Now: {0}": "Agora: {0}",
+"Now: {0} (the default server)": "Agora: {0} (o servidor por omissão)",
+"REMOVE MY NODE": "REMOVER O MEU NÓ",
+"SAVE AND RETRY": "GUARDAR E TENTAR DE NOVO",
+"Node": "Nó",
+"Read through your Electrum server {0}.": "Lido através do teu servidor Electrum {0}.",
+"Read through the default server {0}. One person, one node: put your own here.": "Lido através do servidor por omissão {0}. Uma pessoa, um nó: põe aqui o teu.",
+"CHANGE THE NODE": "MUDAR O NÓ",
+"change the node": "mudar o nó",
+"server: {0}": "servidor: {0}"
 }

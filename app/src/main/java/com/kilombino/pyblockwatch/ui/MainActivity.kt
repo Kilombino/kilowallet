@@ -898,7 +898,7 @@ private fun BalanceCard(
 }
 
 @Composable
-internal fun ScanStatus(cs: ChainState, accent: Color, onRetry: () -> Unit) {
+internal fun ScanStatus(cs: ChainState, accent: Color, onRetry: () -> Unit, onChangeNode: (() -> Unit)? = null) {
     Panel(accent = accent) {
         AnimatedContent(
             targetState = cs.phase,
@@ -958,8 +958,14 @@ internal fun ScanStatus(cs: ChainState, accent: Color, onRetry: () -> Unit) {
                     Text("could not complete", style = MaterialTheme.typography.bodyMedium, color = Bad)
                     Spacer(Modifier.height(4.dp))
                     Explain(phase.message)
-                    TextButton(onClick = onRetry) {
-                        Text("retry", color = accent, style = MaterialTheme.typography.bodySmall)
+                    Row {
+                        TextButton(onClick = onRetry) {
+                            Text("retry", color = accent, style = MaterialTheme.typography.bodySmall)
+                        }
+                        // Retrying a mistyped node fails forever: let it be changed from here.
+                        if (onChangeNode != null) TextButton(onClick = onChangeNode) {
+                            Text("change the node", color = accent, style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                 }
             }

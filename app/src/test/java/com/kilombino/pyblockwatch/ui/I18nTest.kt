@@ -408,4 +408,23 @@ class I18nTest {
         assertEquals("Cancelado: el pool llegó a su hora final. Tu moneda no se ha movido.", I18n.tr("Cancelled: the pool reached its final time. Your coin did not move."))
         I18n.lang.value = I18n.ES
     }
+
+    /** The JoinMarket tab's node (CHANGE THE NODE from the error and the settings): every text in every language. */
+    @Test fun jamNodeTexts() {
+        val keys = listOf("JoinMarket node",
+            "The JoinMarket wallet reads BTC through an Electrum server (Fulcrum, Frigate…). It is the same node setting as the BTC wallet's: changing it here changes it there too.",
+            "Your node by RPC is for the BTC wallet only: the JoinMarket wallet needs an Electrum server.",
+            "Now: {0}", "Now: {0} (the default server)", "REMOVE MY NODE", "SAVE AND RETRY",
+            "Read through your Electrum server {0}.", "Read through the default server {0}. One person, one node: put your own here.",
+            "CHANGE THE NODE", "change the node", "Type the server's host name or IP.",
+            "Port 1 to 65535 (Fulcrum: 50002 with TLS, 50001 plain on your own network).")
+        for (l in I18n.LANGUAGES.map { it.first }.filter { it != I18n.EN }) {
+            val o = JSONObject(File(dir, "$l.json").readText())
+            keys.forEach { k -> assertTrue("$l lacks \"$k\"", o.has(k) && o.getString(k) != k) }
+        }
+        I18n.lang.value = I18n.ES
+        assertEquals("Ahora: mi.nodo.lan:50002", I18n.tr("Now: mi.nodo.lan:50002"))
+        assertEquals("Ahora: fulcrum.example:17717 (el servidor por defecto)", I18n.tr("Now: fulcrum.example:17717 (the default server)"))
+        assertEquals("Se lee a través de tu servidor Electrum 10.0.0.2:50001.", I18n.tr("Read through your Electrum server 10.0.0.2:50001."))
+    }
 }

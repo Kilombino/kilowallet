@@ -141,6 +141,16 @@ class JamViewModel(app: Application) : AndroidViewModel(app) {
     /** May read BTC: the user's own Electrum server for it, or they agreed to the default one. */
     fun hasOwnServer(): Boolean = store.endpoint(Chain.BLAKE2B).isCustom
 
+    /**
+     * Where this wallet reads BTC: the user's Electrum server, or the default one. The node
+     * setting is the app's (the BTC wallet's too); reading by RPC is the BTC wallet's alone,
+     * since the node would need the jars' keys, so this wallet stays on Electrum.
+     */
+    fun endpoint(): com.kilombino.pyblockwatch.chain.NodeEndpoint = store.endpoint(Chain.BLAKE2B)
+
+    /** The BTC wallet reads the node by RPC (which this wallet can't use). */
+    fun btcUsesRpc(): Boolean = store.useRpc && store.rpcConns.isNotEmpty()
+
     /** A full look: every jar walked with the gap limit, then the bonds. */
     fun scan() {
         val e = _state.value.export ?: return

@@ -2564,5 +2564,18 @@
 "In each CoinJoin where you were a maker: what came back to you over what you put in (the maker's fee less your part of the mining fee). Each one counts in the jar its coins came from.": "In jedem Coinjoin, in dem du Maker warst: was mehr zurückkam, als du eingesetzt hast (die Maker-Gebühr abzüglich deines Anteils an der Mining-Gebühr). Jeder zählt in dem Topf, aus dem seine Münzen kamen.",
 "Movements": "Bewegungen",
 "Exact coin on its way: waiting for its first confirmation. Then your pool opens by itself; follow it in IN PROGRESS.": "Exakte Münze unterwegs: wartet auf ihre erste Bestätigung. Dann öffnet sich dein Pool von selbst; verfolge ihn unter LAUFEND.",
-"Exact coin on its way: waiting for its first confirmation. Then it joins the pool by itself; follow it in IN PROGRESS.": "Exakte Münze unterwegs: wartet auf ihre erste Bestätigung. Dann tritt sie dem Pool von selbst bei; verfolge sie unter LAUFEND."
+"Exact coin on its way: waiting for its first confirmation. Then it joins the pool by itself; follow it in IN PROGRESS.": "Exakte Münze unterwegs: wartet auf ihre erste Bestätigung. Dann tritt sie dem Pool von selbst bei; verfolge sie unter LAUFEND.",
+"JoinMarket node": "JoinMarket-Node",
+"The JoinMarket wallet reads BTC through an Electrum server (Fulcrum, Frigate…). It is the same node setting as the BTC wallet's: changing it here changes it there too.": "Die JoinMarket-Wallet liest BTC über einen Electrum-Server (Fulcrum, Frigate…). Es ist dieselbe Node-Einstellung wie bei der BTC-Wallet: Änderst du sie hier, ändert sie sich auch dort.",
+"Your node by RPC is for the BTC wallet only: the JoinMarket wallet needs an Electrum server.": "Dein Node per RPC gilt nur für die BTC-Wallet: Die JoinMarket-Wallet braucht einen Electrum-Server.",
+"Now: {0}": "Jetzt: {0}",
+"Now: {0} (the default server)": "Jetzt: {0} (der Standardserver)",
+"REMOVE MY NODE": "MEINEN NODE ENTFERNEN",
+"SAVE AND RETRY": "SPEICHERN UND ERNEUT VERSUCHEN",
+"Node": "Node",
+"Read through your Electrum server {0}.": "Gelesen über deinen Electrum-Server {0}.",
+"Read through the default server {0}. One person, one node: put your own here.": "Gelesen über den Standardserver {0}. Eine Person, ein Node: Trag hier deinen eigenen ein.",
+"CHANGE THE NODE": "NODE ÄNDERN",
+"change the node": "Node ändern",
+"server: {0}": "Server: {0}"
 }
