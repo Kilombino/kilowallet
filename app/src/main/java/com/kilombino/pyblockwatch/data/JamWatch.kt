@@ -23,6 +23,29 @@ object JamWatch {
         Scanner.Fixed(it.address, it.scriptHash, it.path, JoinMarket.BOND_BRANCH, it.bond.timenumber, jar = 0)
     }
 
+    /**
+     * What the user's own node watches to answer for this wallet by RPC, public only: each jar's
+     * receive and change branches (wpkh, its account key as the node reads keys: xpub on mainnet,
+     * tpub on a test network) and each fidelity bond's address. No private key reaches the node.
+     */
+    fun rpcDescriptors(e: JoinMarket.Export): List<com.kilombino.pyblockwatch.chain.WatchDescriptor> {
+        val version = if (e.network == JoinMarket.MAINNET) com.kilombino.pyblockwatch.chain.NodeRpcBackend.XPUB
+            else com.kilombino.pyblockwatch.chain.NodeRpcBackend.TPUB
+        val jars = e.xpubs.flatMap { x ->
+            val k = com.kilombino.pyblockwatch.chain.NodeRpcBackend.toVersion(x.trim(), version)
+            listOf(com.kilombino.pyblockwatch.chain.WatchDescriptor("wpkh($k/0/*)"),
+                com.kilombino.pyblockwatch.chain.WatchDescriptor("wpkh($k/1/*)", internal = true))
+        }
+        return jars + JoinMarket.bondScripts(e).map { com.kilombino.pyblockwatch.chain.WatchDescriptor("addr(${it.address})") }
+    }
+
+    /**
+     * This wallet read from the user's node by RPC ([conns]): its own watch-only wallet there
+     * ("kilowallet-jm-…", named after the whole set, so an import with a new bond makes a new one).
+     */
+    fun rpcNode(e: JoinMarket.Export, conns: List<com.kilombino.pyblockwatch.chain.RpcConn>) =
+        com.kilombino.pyblockwatch.chain.RpcNode(conns, "", ScriptType.P2WPKH, rpcDescriptors(e), namePrefix = "kilowallet-jm")
+
     /** The key as the scanner reads it (a test network's vpub as a zpub; mainnet keys unchanged). */
     private fun normalized(x: String): String = if (x.startsWith("zpub") || x.startsWith("xpub")) x else
         com.kilombino.pyblockwatch.crypto.Base58.encodeChecked(

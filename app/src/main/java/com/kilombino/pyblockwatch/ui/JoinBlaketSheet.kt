@@ -86,6 +86,14 @@ fun JoinBlaketSheet(accent: Color, explorer: String) {
                     TextButton(onClick = { JoinBlaketPay.sheetVisible.value = false }) { Text("HIDE", color = TextFaint, style = small) }
                 }
             }
+            // The round's diagnostics (steps, makers, reasons; no keys or addresses) to paste in a message.
+            val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+            var logCopied by remember { mutableStateOf(false) }
+            TextButton(onClick = {
+                clipboard.setText(androidx.compose.ui.text.AnnotatedString(JoinBlaketPay.logText())); logCopied = true
+            }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (logCopied) "LOG COPIED ✓" else "📋 COPY LOG", color = TextFaint, style = small)
+            }
         }
     }
 }

@@ -31,11 +31,25 @@ enum class JbNetwork(val wire: String, val hrp: String) {
     }
 }
 
-/** Where JoinBlaket lives on mainnet: start10's directory, as an onion, with nick authentication. */
+/** One JoinBlaket directory: an onion, with the nick-auth id it signs challenges with (its own lowercase `host:port`). */
+data class DirectoryEndpoint(val host: String, val port: Int = 5222) {
+    val id: String get() = "$host:$port"
+}
+
+/**
+ * Where JoinBlaket lives on mainnet: start10's directory ([HOST]) and two run by trusted
+ * operators, all onions with nick authentication. The taker uses them all ([DirectoryPool]):
+ * a maker is found on whichever of them it announces, and one being down is no problem.
+ */
 object JoinBlaketDirectory {
     const val HOST = "f3tfzgk5ilwfapx427yx5ckeh7ptuvskfxnfnicfo747jyq5mgzdtvad.onion"
     const val PORT = 5222
     /** The nick-auth identity the directory signs challenges with: its own lowercase `host:port`. */
     const val ID = "$HOST:$PORT"
     val NETWORK = JbNetwork.MAINNET
+    val ALL = listOf(
+        DirectoryEndpoint(HOST, PORT),
+        DirectoryEndpoint("xgn4ctdotf6w5tnnqg6revvfyzgxkthbzy25zqxyowhv2cmtuqegwuyd.onion"),
+        DirectoryEndpoint("ftow7ou2tnxuiowxtva4elpuebzk2vq5cbvj4gqdnbzx6wy2x7awekid.onion"),
+    )
 }

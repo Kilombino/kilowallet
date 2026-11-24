@@ -10,8 +10,10 @@ import com.kilombino.pyblockwatch.data.Scanner
 import com.kilombino.pyblockwatch.data.Store
 import com.kilombino.pyblockwatch.joinblaket.ChainLookup
 import com.kilombino.pyblockwatch.joinblaket.CommitmentStore
+import com.kilombino.pyblockwatch.joinblaket.Directory
 import com.kilombino.pyblockwatch.joinblaket.DirectoryClient
 import com.kilombino.pyblockwatch.joinblaket.DirectoryException
+import com.kilombino.pyblockwatch.joinblaket.DirectoryPool
 import com.kilombino.pyblockwatch.joinblaket.ElectrumChainLookup
 import com.kilombino.pyblockwatch.joinblaket.FileCommitmentStore
 import com.kilombino.pyblockwatch.joinblaket.IoauthCheck
@@ -49,6 +51,8 @@ object JoinBlaketPay {
     class Request(
         val recipient: String, val amount: Long, val feeRate: Double,
         val coins: List<TakerCoin>, val changeAddress: String, val changeScript: ByteArray,
+        /** At most this many makers: SEND's JoinBlaket MAX was computed for them ([com.kilombino.pyblockwatch.joinblaket.TakerBudget]). */
+        val makers: Int = DEFAULT_MAKERS,
     )
 
     /** The round as the sheet shows it. */
@@ -74,6 +78,24 @@ object JoinBlaketPay {
     @Volatile private var job: Job? = null
     @Volatile private var answer: CompletableDeferred<Boolean>? = null
 
+    /**
+     * The last round's diagnostics, for COPY LOG on the sheet: steps, makers' short-lived nicks,
+     * counts and reasons; never a key, a seed or a full address (the amount and the recipient
+     * are on the sheet already). Kept in memory only, at most [LOG_LINES] lines.
+     */
+    private val logLines = ArrayDeque<String>()
+
+    fun log(line: String) {
+        val t = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT).format(java.util.Date())
+        synchronized(logLines) {
+            logLines.addLast("$t $line")
+            while (logLines.size > LOG_LINES) logLines.removeFirst()
+        }
+    }
+
+    /** The round's log as text (empty before the first round). */
+    fun logText(): String = synchronized(logLines) { logLines.joinToString("\n") }
+
     val running: Boolean get() = request != null && _state.value?.finished == false
 
     fun showSheet() { if (_state.value != null) sheetVisible.value = true }
@@ -84,7 +106,9 @@ object JoinBlaketPay {
             if (running) return false
             request = r
             _state.value = View(r.amount, r.recipient)
+            synchronized(logLines) { logLines.clear() }
         }
+        log("round: ${r.coins.size} coin(s) of ${r.coins.sumOf { it.value }} sats, up to ${r.makers} maker(s), ${r.feeRate} sat/vB")
         sheetVisible.value = true
         // No Tor on this phone (Arti ships for arm64 only): the directory is an onion.
         if (!Tor.available) { finish(TakerResult.Failed(NO_TOR)); return true }
@@ -129,6 +153,11 @@ object JoinBlaketPay {
     fun heldChangeScripts(): List<ByteArray> = listOfNotNull(request?.changeScript)
 
     private fun finish(result: TakerResult) {
+        log("end: " + when (result) {
+            is TakerResult.Sent -> "sent, ${result.makers} maker(s), maker fees ${result.makerFees}, mining fee ${result.txFee}, txid ${result.txid.take(8)}…"
+            is TakerResult.Failed -> "failed: ${result.reason}" + (result.detail?.let { " ($it)" } ?: "")
+            is TakerResult.Cancelled -> "cancelled: ${result.reason}"
+        })
         synchronized(this) {
             val v = _state.value ?: return
             if (v.finished) return
@@ -149,7 +178,7 @@ object JoinBlaketPay {
             val chain = AppChain(app)
             val result = try {
                 val env = Env(app, chain)
-                TakerSession(env).run(TakerRequest(r.recipient, r.amount, r.feeRate, r.coins, r.changeAddress))
+                TakerSession(env).run(TakerRequest(r.recipient, r.amount, r.feeRate, r.coins, r.changeAddress, makers = r.makers))
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -164,6 +193,10 @@ object JoinBlaketPay {
         return j
     }
 
+    /** Makers a round asks for ([TakerRequest]'s default, as Jam's 8-10). */
+    const val DEFAULT_MAKERS = 9
+    private const val LOG_LINES = 500
+
     const val NO_TOR = "Tor can't run on this phone, and the JoinBlaket directory is reached only through Tor."
     const val CHAIN = "Your BTC server could not be reached or its data did not verify. Nothing was sent."
 
@@ -171,11 +204,13 @@ object JoinBlaketPay {
     fun commitmentsFile(ctx: Context) = File(ctx.applicationContext.filesDir, "joinblaket/commitments.json")
 
     private class Env(private val ctx: Context, private val appChain: AppChain) : TakerEnv {
-        override fun directory(identity: NickIdentity): DirectoryClient {
+        override fun directory(identity: NickIdentity): Directory {
             Tor.start(ctx)
             val proxy = Tor.proxy(120_000) ?: throw DirectoryException("Tor did not come up: ${Tor.lastLine}")
-            return DirectoryClient(JoinBlaketDirectory.HOST, JoinBlaketDirectory.PORT, identity, JoinBlaketDirectory.NETWORK.wire,
-                JoinBlaketDirectory.ID, requireVerified = true, proxy = proxy)
+            // Every JoinBlaket directory with the same nick: the round goes on with those that answer.
+            return DirectoryPool(JoinBlaketDirectory.ALL.map { d ->
+                DirectoryClient(d.host, d.port, identity, JoinBlaketDirectory.NETWORK.wire, d.id, requireVerified = true, proxy = proxy)
+            })
         }
         override val chain: ChainLookup = appChain
         override fun broadcast(rawHex: String): String = appChain.broadcast(rawHex)
@@ -190,7 +225,19 @@ object JoinBlaketPay {
             return try { d.await() } finally { _state.value = _state.value?.copy(plan = null) }
         }
 
+        override fun log(line: String) = JoinBlaketPay.log(line)
+
         override fun progress(step: TakerStep) {
+            log("step: " + when (step) {
+                is TakerStep.Confirm -> "confirm ${step.plan.makers.size} maker(s), maker fees ${step.plan.makerFees}, " +
+                    "mining fee at most ${step.plan.miningFeeMax}, ${step.plan.inputs} coin(s)"
+                is TakerStep.Connecting -> "connecting (attempt ${step.attempt})"
+                is TakerStep.CheckingBonds -> "checking ${step.offers} bond(s)"
+                is TakerStep.WaitingForMakers -> "makers ready ${step.ready} of ${step.asked}"
+                is TakerStep.CollectingSignatures -> "collecting signatures from ${step.makers}"
+                TakerStep.ReadingOffers -> "reading offers"
+                TakerStep.Broadcasting -> "broadcasting"
+            })
             _state.value = _state.value?.copy(step = step)
             JoinBlaketService.refresh(ctx)
         }

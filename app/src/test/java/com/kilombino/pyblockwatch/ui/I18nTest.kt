@@ -138,7 +138,7 @@ class I18nTest {
     /** PAY THROUGH JOINBLAKET (send screen, sheet, notification, the round's reasons): every text in every language. */
     @Test fun joinBlaketTakerTexts() {
         val T = com.kilombino.pyblockwatch.joinblaket.TakerText
-        val reasons = listOf(T.DIRECTORY, T.CONNECTION_LOST, T.NO_MAKERS, T.NO_PODLE_COIN, T.NO_FRESH_COMMITMENT, T.NOT_ENOUGH_COINS,
+        val reasons = listOf(T.DIRECTORY, T.CONNECTION_LOST, T.NO_MAKERS, T.NO_PODLE_COIN, T.NO_FRESH_COMMITMENT, T.NOT_ENOUGH_COINS, T.NOT_ENOUGH_COINS_LOWER,
             T.FEE_CAP, T.CANCELLED, T.NOT_CONFIRMED, T.TOO_FEW, T.ABOVE_CEILING, T.BAD_TX, T.NO_SIGNATURE, T.BAD_SIGNATURE,
             T.INPUT_SPENT, T.NOT_BROADCAST, T.INVALID_REQUEST,
             com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.NO_TOR, com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.CHAIN)
@@ -147,7 +147,8 @@ class I18nTest {
             "One recipient only: JoinBlaket pays one address per CoinJoin.", "Only plain bc1q addresses can be paid through JoinBlaket.",
             "JoinBlaket needs a spending wallet with native SegWit (bc1q) addresses.",
             "You confirm the makers' fees and the mining fee before anything is signed. It takes a few minutes, over Tor.",
-            "🔀 Pay through JoinBlaket", "Paying {0} sats to {1}", "CLOSE", "HIDE", "CANCEL", "CONFIRM & SIGN", "Confirm the CoinJoin",
+            "🔀 Pay through JoinBlaket", "Paying {0} sats to {1}", "📋 COPY LOG", "LOG COPIED ✓",
+            "MAX here leaves room for the makers' fees and the CoinJoin's mining fee.", "Your coins don't cover a CoinJoin's fees.", "CLOSE", "HIDE", "CANCEL", "CONFIRM & SIGN", "Confirm the CoinJoin",
             "maker {0}: fee {1} sats", "Makers' fees: {0} sats", "Mining fee: about {0} sats, at most {1} sats ({2} sat/vB)",
             "Total cost: about {0} sats, at most {1} sats", "From {0} coin(s) of yours ({1} sats); the change comes back to this wallet.",
             "Nothing about your coins has left the phone yet. If a maker drops out, another may take its place within these fees.",
@@ -407,6 +408,36 @@ class I18nTest {
         assertEquals("Esperando a que respondan los demás, hasta las 14:05. Puedes cerrar la app. Si alguien no responde, sale del pool y se pregunta otra vez a los demás: nunca se cierra con menos gente sin preguntar.",
             I18n.tr("Waiting for the others to answer, until 14:05. You can close the app. If someone doesn't answer, they leave the pool and the rest are asked again: it never closes with fewer people without asking."))
         assertEquals("Cancelado: el pool llegó a su hora final. Tu moneda no se ha movido.", I18n.tr("Cancelled: the pool reached its final time. Your coin did not move."))
+        I18n.lang.value = I18n.ES
+    }
+
+    /** The JoinMarket tab's node (CHANGE THE NODE from the error and the settings, Electrum or RPC): every text in every language. */
+    @Test fun jamNodeTexts() {
+        val keys = listOf("JoinMarket node",
+            "The JoinMarket wallet reads BTC through an Electrum server (Fulcrum, Frigate…). It is the same node setting as the BTC wallet's: changing it here changes it there too.",
+            "The JoinMarket wallet reads BTC from your own node by RPC, like the BTC wallet: the node keeps a watch-only wallet with " +
+                "the jars' public keys and the bonds' addresses (no private key). The first time it looks for their coins, which can " +
+                "take a few minutes. It is the app's node setting: changing it here changes it for the BTC wallet too.",
+            "Read from your own node by RPC, like the BTC wallet: the node watches the jars' public keys and the bonds' addresses, " +
+                "no private key. Its connections are the app's, also in the BTC wallet's settings.",
+            "your node (RPC)", "retry",
+            "Now: {0}", "Now: {0} (the default server)", "REMOVE MY NODE", "SAVE AND RETRY",
+            "Read through your Electrum server {0}.", "Read through the default server {0}. One person, one node: put your own here.",
+            "CHANGE THE NODE", "change the node", "Type the server's host name or IP.",
+            "Port 1 to 65535 (Fulcrum: 50002 with TLS, 50001 plain on your own network).")
+        for (l in I18n.LANGUAGES.map { it.first }.filter { it != I18n.EN }) {
+            val o = JSONObject(File(dir, "$l.json").readText())
+            keys.forEach { k -> assertTrue("$l lacks \"$k\"", o.has(k) && o.getString(k) != k) }
+        }
+        I18n.lang.value = I18n.ES
+        assertEquals("Ahora: mi.nodo.lan:50002", I18n.tr("Now: mi.nodo.lan:50002"))
+        assertEquals("Ahora: fulcrum.example:17717 (el servidor por defecto)", I18n.tr("Now: fulcrum.example:17717 (the default server)"))
+        assertEquals("Se lee a través de tu servidor Electrum 10.0.0.2:50001.", I18n.tr("Read through your Electrum server 10.0.0.2:50001."))
+        // Reading by RPC: the node as the status line names it, and the dialog's button.
+        assertEquals("Ahora: tu nodo (RPC)", I18n.tr("Now: your node (RPC)"))
+        assertEquals("REINTENTAR", I18n.tr("RETRY"))
+        I18n.lang.value = I18n.ZH
+        assertEquals("当前：你的节点（RPC）", I18n.tr("Now: your node (RPC)"))
         I18n.lang.value = I18n.ES
     }
 }
