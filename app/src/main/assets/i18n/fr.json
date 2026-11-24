@@ -2579,5 +2579,10 @@
 "change the node": "changer le nœud",
 "server: {0}": "serveur : {0}",
 "The JoinMarket wallet reads BTC from your own node by RPC, like the BTC wallet: the node keeps a watch-only wallet with the jars' public keys and the bonds' addresses (no private key). The first time it looks for their coins, which can take a few minutes. It is the app's node setting: changing it here changes it for the BTC wallet too.": "Le portefeuille JoinMarket lit BTC depuis ton propre nœud par RPC, comme le portefeuille BTC : le nœud garde un portefeuille en lecture seule avec les clés publiques des bocaux et les adresses des fidelity bonds (aucune clé privée). La première fois, il cherche leurs pièces, ce qui peut prendre quelques minutes. C'est le réglage de nœud de l'app : le changer ici le change aussi pour le portefeuille BTC.",
-"Read from your own node by RPC, like the BTC wallet: the node watches the jars' public keys and the bonds' addresses, no private key. Its connections are the app's, also in the BTC wallet's settings.": "Lu depuis ton propre nœud par RPC, comme le portefeuille BTC : le nœud surveille les clés publiques des bocaux et les adresses des fidelity bonds, aucune clé privée. Ses connexions sont celles de l'app, aussi dans les réglages du portefeuille BTC."
+"Read from your own node by RPC, like the BTC wallet: the node watches the jars' public keys and the bonds' addresses, no private key. Its connections are the app's, also in the BTC wallet's settings.": "Lu depuis ton propre nœud par RPC, comme le portefeuille BTC : le nœud surveille les clés publiques des bocaux et les adresses des fidelity bonds, aucune clé privée. Ses connexions sont celles de l'app, aussi dans les réglages du portefeuille BTC.",
+"Not enough coins: this CoinJoin needs up to {0} sats and your coins add up to {1} sats. Lower the amount to {2} sats or tick another coin.": "Pas assez de pièces : ce CoinJoin demande jusqu'à {0} sats et vos pièces totalisent {1} sats. Baissez le montant à {2} sats ou cochez une autre pièce.",
+"MAX here leaves room for the makers' fees and the CoinJoin's mining fee.": "Ce MAX laisse de la place pour les frais des makers et les frais de minage du CoinJoin.",
+"Your coins don't cover a CoinJoin's fees.": "Vos pièces ne couvrent pas les frais d'un CoinJoin.",
+"📋 COPY LOG": "📋 COPIER LE JOURNAL",
+"LOG COPIED ✓": "JOURNAL COPIÉ ✓"
 }

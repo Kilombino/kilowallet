@@ -929,6 +929,9 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                     var jbMarket by remember { mutableStateOf<com.kilombino.pyblockwatch.coinjoin.JoinBlaketMarket.Market?>(null) }
                     var jbFailed by remember { mutableStateOf(false) }
                     var jbError by remember { mutableStateOf<String?>(null) }
+                    // The amount JoinBlaket's MAX filled in and the makers it was computed for: paying that
+                    // amount asks for no more makers than that, so the round reserves what MAX left room for.
+                    var jbMax by remember { mutableStateOf<Pair<String, Int>?>(null) }
                     val jbScope = androidx.compose.runtime.rememberCoroutineScope()
                     // Read again every 30 s while the screen is open (the summary itself refreshes every 30 s):
                     // makers come and go, and one read at opening could keep showing a market that changed.
@@ -969,6 +972,22 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                             }
                             if (m.makers == 1) Text("With a single maker, that maker can link your coin to your payment.",
                                 color = Warn, style = small)
+                            // MAX for a CoinJoin: what's left after the makers' fees and the bigger mining fee
+                            // the round reserves (SEND's MAX only takes off a plain transaction's fee).
+                            if (extraTo.isEmpty() && state.isHot) Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("MAX here leaves room for the makers' fees and the CoinJoin's mining fee.",
+                                    color = TextFaint, style = small, modifier = Modifier.weight(1f))
+                                TextButton(onClick = {
+                                    val ticked = if (coinControl) (state.utxos ?: emptyList()).filter { "${it.txid}:${it.vout}" in selectedOutpoints } else emptyList()
+                                    val makers = m.makers.coerceIn(1, com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.DEFAULT_MAKERS)
+                                    val rate = feeRate.toDoubleOrNull() ?: 1.0
+                                    jbScope.launch {
+                                        val max = runCatching { vm.joinBlaketMax(ticked, rate, makers) }.getOrDefault(0L)
+                                        if (max > 0) { amount = max.toString(); jbMax = amount to makers; jbError = null }
+                                        else jbError = "Your coins don't cover a CoinJoin's fees."
+                                    }
+                                }) { Text("MAX", color = accent, style = MaterialTheme.typography.bodyMedium) }
+                            }
                         }
                     }
                     // One recipient, a bc1q address (the CoinJoin's equal outputs are all native SegWit), an amount the
@@ -1022,7 +1041,9 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                                 onSuccess = { authed ->
                                     jbScope.launch {
                                         runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                                            vm.joinBlaketRequest(authed, coins, jbTo, jbAmount, rate)
+                                            vm.joinBlaketRequest(authed, coins, jbTo, jbAmount, rate,
+                                                jbMax?.takeIf { it.first == jbAmount.toString() }?.second
+                                                    ?: com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.DEFAULT_MAKERS)
                                         } }.onSuccess { req ->
                                             if (com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.start(context, req)) { vm.resetSend(); onClose() }
                                             else jbError = "Another JoinBlaket payment is going: wait for it to end."

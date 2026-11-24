@@ -65,13 +65,13 @@ class TakerSessionTest {
         .put("accepted", true).put("nick", "J5DirectoryOOOOO").put("network", net.wire).toString())
 
     /** Plays the directory and every maker until the taker hangs up; [pushed] collects `!push`ed txs. */
-    private fun directory(chain: FakeChain, makers: List<FakeMaker>, pushed: MutableList<String>) = FakeDirectory {
+    private fun directory(chain: FakeChain, makers: List<FakeMaker>, pushed: MutableList<String>, cjfee: String = "0.0002") = FakeDirectory {
         val taker = JSONObject(Wire.parse(expect()).line).getString("nick")
         send(handshakeReply())
         assertEquals(Wire.GETPEERLIST, Wire.parse(expect()).type)
         send(Wire.envelope(Wire.PEERLIST, makers.joinToString(",") { "${it.id.nick};NOT-SERVING-ONION;F:neutrino_compat+peerlist_features+ping" }))
         assertEquals("$taker!PUBLIC!orderbook", Wire.parse(expect()).line)
-        for (m in makers) send(offerFrame(m.id, taker, "sw0reloffer 0 27300 100000000 0 0.0002!tbond ${proofFor(m.id.nick, taker, m.bondTxid)}"))
+        for (m in makers) send(offerFrame(m.id, taker, "sw0reloffer 0 27300 100000000 0 $cjfee!tbond ${proofFor(m.id.nick, taker, m.bondTxid)}"))
         val byNick = makers.associateBy { it.id.nick }
         var unsigned: TakerTx.Unsigned? = null
         while (true) {
@@ -129,15 +129,16 @@ class TakerSessionTest {
 
     private class Run(val result: TakerResult, val env: Env, val pushed: List<String>, val store: FileCommitmentStore, val coin: TakerCoin)
 
-    private fun run(chain: FakeChain, makers: List<FakeMaker>, n: Int, minimum: Int): Run {
+    private fun run(chain: FakeChain, makers: List<FakeMaker>, n: Int, minimum: Int,
+                    coinValue: Long = 50_000_000, amount: Long = 10_000_000, cjfee: String = "0.0002"): Run {
         val k = key()
-        val coin = TakerCoin(txid(), 1, 50_000_000, k, tip - 9)
+        val coin = TakerCoin(txid(), 1, coinValue, k, tip - 9)
         chain.utxos[coin.outpoint] = IoauthCheck.ChainUtxo(coin.value, coin.scriptPubKey, 10)
         val pushed = Collections.synchronizedList(ArrayList<String>())
         val store = FileCommitmentStore(File.createTempFile("cmt", ".json").apply { delete(); deleteOnExit() })
-        directory(chain, makers, pushed).use { dir ->
+        directory(chain, makers, pushed, cjfee).use { dir ->
             val env = Env(chain, dir.port, store)
-            val r = runBlocking { TakerSession(env, config).run(TakerRequest(address(), 10_000_000, 2.0, listOf(coin), address(), n, minimum)) }
+            val r = runBlocking { TakerSession(env, config).run(TakerRequest(address(), amount, 2.0, listOf(coin), address(), n, minimum)) }
             dir.finish()
             return Run(r, env, pushed, store, coin)
         }
@@ -218,6 +219,33 @@ class TakerSessionTest {
         assertTrue("nothing through our own backend", r.env.broadcasts.isEmpty())
         assertEquals(4000L, sent.makerFees)
         assertEquals(r.coin.value - 10_000_000 - 4000 - sent.txFee, sent.change)
+    }
+
+    /**
+     * SEND's JoinBlaket MAX ([TakerBudget.maxAmount]) goes through even with every maker at the
+     * highest fee the taker accepts (0.1 %), whatever rate the round draws; a bit more than the
+     * coins cover fails before anything leaves the phone and says how far to lower: to that MAX.
+     */
+    @Test fun maxPaysAndTooMuchSaysHowFarToLower() {
+        val coins = 1_000_000L
+        val max = TakerBudget.maxAmount(coins, 1, 2, 2.0, config)
+        assertTrue(max in 990_000 until coins)
+        repeat(3) {
+            val chain = FakeChain()
+            val r = run(chain, listOf(FakeMaker(chain, 100_000), FakeMaker(chain, 100_000)), n = 2, minimum = 1,
+                coinValue = coins, amount = max, cjfee = "0.001")
+            val sent = r.result as TakerResult.Sent
+            assertEquals(2, sent.makers)
+            assertTrue("the makers took their 0.1 %", sent.makerFees >= 2 * Fees.relativeFee(max, "0.001"))
+        }
+        val chain = FakeChain()
+        val r = run(chain, listOf(FakeMaker(chain, 100_000), FakeMaker(chain, 100_000)), n = 2, minimum = 1,
+            coinValue = coins, amount = coins - 100, cjfee = "0.001")
+        val reason = (r.result as TakerResult.Failed).reason
+        assertTrue(reason, reason.startsWith("Not enough coins: this CoinJoin needs up to "))
+        assertTrue(reason, reason.endsWith(TakerText.fill("Lower the amount to {0} sats or tick another coin.", max)))
+        assertTrue(r.pushed.isEmpty() && r.env.broadcasts.isEmpty())
+        assertFalse("nothing went to the makers", "Confirm" in r.env.steps)
     }
 
     /** Fewer makers than asked for are fine down to the minimum, and below it nothing is sent. */

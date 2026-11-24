@@ -137,7 +137,7 @@ class I18nTest {
     /** PAY THROUGH JOINBLAKET (send screen, sheet, notification, the round's reasons): every text in every language. */
     @Test fun joinBlaketTakerTexts() {
         val T = com.kilombino.pyblockwatch.joinblaket.TakerText
-        val reasons = listOf(T.DIRECTORY, T.CONNECTION_LOST, T.NO_MAKERS, T.NO_PODLE_COIN, T.NO_FRESH_COMMITMENT, T.NOT_ENOUGH_COINS,
+        val reasons = listOf(T.DIRECTORY, T.CONNECTION_LOST, T.NO_MAKERS, T.NO_PODLE_COIN, T.NO_FRESH_COMMITMENT, T.NOT_ENOUGH_COINS, T.NOT_ENOUGH_COINS_LOWER,
             T.FEE_CAP, T.CANCELLED, T.NOT_CONFIRMED, T.TOO_FEW, T.ABOVE_CEILING, T.BAD_TX, T.NO_SIGNATURE, T.BAD_SIGNATURE,
             T.INPUT_SPENT, T.NOT_BROADCAST, T.INVALID_REQUEST,
             com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.NO_TOR, com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.CHAIN)
@@ -146,7 +146,8 @@ class I18nTest {
             "One recipient only: JoinBlaket pays one address per CoinJoin.", "Only plain bc1q addresses can be paid through JoinBlaket.",
             "JoinBlaket needs a spending wallet with native SegWit (bc1q) addresses.",
             "You confirm the makers' fees and the mining fee before anything is signed. It takes a few minutes, over Tor.",
-            "🔀 Pay through JoinBlaket", "Paying {0} sats to {1}", "CLOSE", "HIDE", "CANCEL", "CONFIRM & SIGN", "Confirm the CoinJoin",
+            "🔀 Pay through JoinBlaket", "Paying {0} sats to {1}", "📋 COPY LOG", "LOG COPIED ✓",
+            "MAX here leaves room for the makers' fees and the CoinJoin's mining fee.", "Your coins don't cover a CoinJoin's fees.", "CLOSE", "HIDE", "CANCEL", "CONFIRM & SIGN", "Confirm the CoinJoin",
             "maker {0}: fee {1} sats", "Makers' fees: {0} sats", "Mining fee: about {0} sats, at most {1} sats ({2} sat/vB)",
             "Total cost: about {0} sats, at most {1} sats", "From {0} coin(s) of yours ({1} sats); the change comes back to this wallet.",
             "Nothing about your coins has left the phone yet. If a maker drops out, another may take its place within these fees.",

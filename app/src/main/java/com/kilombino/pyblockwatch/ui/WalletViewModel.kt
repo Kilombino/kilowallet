@@ -2338,7 +2338,8 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
      * must be a bc1q address: the CoinJoin's equal outputs are all native SegWit.
      */
     fun joinBlaketRequest(decryptCipher: javax.crypto.Cipher, coins: List<Scanner.SpendableUtxo>, recipient: String, amount: Long,
-                          feeRate: Double): com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.Request {
+                          feeRate: Double,
+                          makers: Int = com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.DEFAULT_MAKERS): com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.Request {
         require(coins.isNotEmpty()) { "No confirmed bc1q coins to pay from." }
         val to = com.kilombino.pyblockwatch.crypto.Address.decodeToScriptPubKey(recipient.trim())
         val pick = coinjoinPick(decryptCipher, coins, 1, listOf(to))
@@ -2351,7 +2352,18 @@ class WalletViewModel(app: Application) : AndroidViewModel(app) {
         }
         val change = pick.changeScript
         return com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.Request(recipient.trim(), amount, feeRate, takerCoins,
-            com.kilombino.pyblockwatch.joinblaket.JbNetwork.MAINNET.p2wpkhAddress(change), change)
+            com.kilombino.pyblockwatch.joinblaket.JbNetwork.MAINNET.p2wpkhAddress(change), change, makers)
+    }
+
+    /**
+     * MAX for PAY THROUGH JOINBLAKET: the most the round can pay from the coins it would use
+     * ([joinBlaketCoins]: the ticked ones, or every coin a pool could take) with up to [makers]
+     * makers at about [feeRate], after the makers' fees and the CoinJoin's mining fee as the
+     * round reserves them ([com.kilombino.pyblockwatch.joinblaket.TakerBudget]). 0 if they can't.
+     */
+    suspend fun joinBlaketMax(ticked: List<Scanner.SpendableUtxo>, feeRate: Double, makers: Int): Long {
+        val coins = joinBlaketCoins(ticked)
+        return com.kilombino.pyblockwatch.joinblaket.TakerBudget.maxAmount(coins.sumOf { it.value }, coins.size, makers, feeRate)
     }
 
     /** Can this wallet take part: a spending wallet with native SegWit (bc1q) addresses. */

@@ -2567,5 +2567,10 @@
 "change the node": "更改节点",
 "server: {0}": "服务器：{0}",
 "The JoinMarket wallet reads BTC from your own node by RPC, like the BTC wallet: the node keeps a watch-only wallet with the jars' public keys and the bonds' addresses (no private key). The first time it looks for their coins, which can take a few minutes. It is the app's node setting: changing it here changes it for the BTC wallet too.": "JoinMarket 钱包像 BTC 钱包一样，通过 RPC 从你自己的节点读取 BTC：节点保存一个只读钱包，里面只有各个罐子的公钥和忠诚保证金的地址（没有任何私钥）。第一次会查找它们的币，可能需要几分钟。这是应用的节点设置：在这里修改，BTC 钱包也会随之改变。",
-"Read from your own node by RPC, like the BTC wallet: the node watches the jars' public keys and the bonds' addresses, no private key. Its connections are the app's, also in the BTC wallet's settings.": "像 BTC 钱包一样，通过 RPC 从你自己的节点读取：节点只关注各个罐子的公钥和忠诚保证金的地址，没有任何私钥。它的连接是应用的连接，也可以在 BTC 钱包的设置里修改。"
+"Read from your own node by RPC, like the BTC wallet: the node watches the jars' public keys and the bonds' addresses, no private key. Its connections are the app's, also in the BTC wallet's settings.": "像 BTC 钱包一样，通过 RPC 从你自己的节点读取：节点只关注各个罐子的公钥和忠诚保证金的地址，没有任何私钥。它的连接是应用的连接，也可以在 BTC 钱包的设置里修改。",
+"Not enough coins: this CoinJoin needs up to {0} sats and your coins add up to {1} sats. Lower the amount to {2} sats or tick another coin.": "币不够：这个 CoinJoin 最多需要 {0} sats，你的币合计 {1} sats。把金额降到 {2} sats，或再勾选一个币。",
+"MAX here leaves room for the makers' fees and the CoinJoin's mining fee.": "这里的最大值已留出 maker 手续费和 CoinJoin 的矿工费。",
+"Your coins don't cover a CoinJoin's fees.": "你的币不够支付 CoinJoin 的手续费。",
+"📋 COPY LOG": "📋 复制日志",
+"LOG COPIED ✓": "日志已复制 ✓"
 }

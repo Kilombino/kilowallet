@@ -2579,5 +2579,10 @@
 "change the node": "canvia el node",
 "server: {0}": "servidor: {0}",
 "The JoinMarket wallet reads BTC from your own node by RPC, like the BTC wallet: the node keeps a watch-only wallet with the jars' public keys and the bonds' addresses (no private key). The first time it looks for their coins, which can take a few minutes. It is the app's node setting: changing it here changes it for the BTC wallet too.": "El moneder JoinMarket llegeix BTC del teu propi node per RPC, com el moneder BTC: el node guarda un moneder només de lectura amb les claus públiques dels pots i les adreces dels fidelity bonds (cap clau privada). La primera vegada en busca les monedes, cosa que pot trigar uns minuts. És l'ajust de node de l'app: si el canvies aquí, també canvia per al moneder BTC.",
-"Read from your own node by RPC, like the BTC wallet: the node watches the jars' public keys and the bonds' addresses, no private key. Its connections are the app's, also in the BTC wallet's settings.": "Es llegeix del teu propi node per RPC, com el moneder BTC: el node vigila les claus públiques dels pots i les adreces dels fidelity bonds, cap clau privada. Les seves connexions són les de l'app, també als ajustos del moneder BTC."
+"Read from your own node by RPC, like the BTC wallet: the node watches the jars' public keys and the bonds' addresses, no private key. Its connections are the app's, also in the BTC wallet's settings.": "Es llegeix del teu propi node per RPC, com el moneder BTC: el node vigila les claus públiques dels pots i les adreces dels fidelity bonds, cap clau privada. Les seves connexions són les de l'app, també als ajustos del moneder BTC.",
+"Not enough coins: this CoinJoin needs up to {0} sats and your coins add up to {1} sats. Lower the amount to {2} sats or tick another coin.": "No hi ha prou monedes: aquest CoinJoin necessita fins a {0} sats i les teves monedes sumen {1} sats. Baixa l'import a {2} sats o marca una altra moneda.",
+"MAX here leaves room for the makers' fees and the CoinJoin's mining fee.": "Aquest MÀX deixa lloc per a les comissions dels makers i la comissió de mineria del CoinJoin.",
+"Your coins don't cover a CoinJoin's fees.": "Les teves monedes no cobreixen les comissions d'un CoinJoin.",
+"📋 COPY LOG": "📋 COPIA EL REGISTRE",
+"LOG COPIED ✓": "REGISTRE COPIAT ✓"
 }

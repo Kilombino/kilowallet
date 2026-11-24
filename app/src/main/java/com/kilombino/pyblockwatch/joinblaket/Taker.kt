@@ -141,7 +141,7 @@ interface TakerEnv {
     /** Show [plan] and wait for the user's answer: true to go on. */
     suspend fun confirm(plan: TakerPlan): Boolean
     fun progress(step: TakerStep) {}
-    /** Diagnostics (nicks never go to the app's logs; tests print them). */
+    /** Diagnostics: never to Android's log; the app keeps the last round's lines in memory for COPY LOG, tests print them. */
     fun log(line: String) {}
 }
 
@@ -153,6 +153,7 @@ object TakerText {
     const val NO_PODLE_COIN = "None of your coins can open this CoinJoin: one needs at least {0} confirmations and at least {1} sats (20% of the amount)."
     const val NO_FRESH_COMMITMENT = "Your coins that can open a CoinJoin have each been used for three already. Move one to a fresh address of yours and try again."
     const val NOT_ENOUGH_COINS = "Not enough coins: this CoinJoin needs up to {0} sats and your coins add up to {1} sats."
+    const val NOT_ENOUGH_COINS_LOWER = "Not enough coins: this CoinJoin needs up to {0} sats and your coins add up to {1} sats. Lower the amount to {2} sats or tick another coin."
     const val FEE_CAP = "The mining fee with these makers would be above {0} sat/vB. Nothing was sent."
     const val CANCELLED = "Cancelled. Nothing was sent."
     const val NOT_CONFIRMED = "Not confirmed in time. Nothing was sent."
@@ -169,6 +170,50 @@ object TakerText {
     fun fill(t: String, vararg v: Any): String = v.foldIndexed(t) { i, s, x -> s.replace("{$i}", if (x is Long) group(x) else x.toString()) }
 
     private fun group(n: Long): String = n.toString().reversed().chunked(3).joinToString("\u202F").reversed()
+}
+
+/**
+ * What a round reserves from our coins, shared by the round ([TakerSession]) and SEND's JoinBlaket
+ * MAX so the two can never disagree. The round checks its coins against [need] with the fees of
+ * the makers it chose and the rate it drew; [maxAmount] is the most that passes that check
+ * whatever makers (within [TakerConfig.maxCjFee]) and rate (within the randomization) it gets.
+ */
+object TakerBudget {
+    /** The mining fee the user confirms at most: every maker counted with [TakerConfig.ceilingInputsPerMaker] inputs. */
+    fun ceilingFee(ourInputs: Int, makers: Int, rate: Double, config: TakerConfig = TakerConfig()): Long =
+        Fees.txFee(ourInputs + makers * config.ceilingInputsPerMaker, Fees.outputCount(makers), rate)
+
+    /** What our coins must cover: the amount, the makers' fees and the ceiling mining fee. */
+    fun need(amount: Long, makerFees: Long, ourInputs: Int, makers: Int, rate: Double, config: TakerConfig = TakerConfig()): Long =
+        amount + makerFees + ceilingFee(ourInputs, makers, rate, config)
+
+    /** The highest rate a round can draw for the user's [rate]: clamped, then randomized up by `tx_fee_factor`. */
+    fun rateCap(rate: Double, config: TakerConfig = TakerConfig()): Double {
+        val r = rate.coerceIn(config.minFeeRate, config.maxFeeRate)
+        return maxOf(r, minOf(r * (1 + config.txFeeFactor), config.maxFeeRate))
+    }
+
+    /** The most one maker within [TakerConfig.maxCjFee] can charge for [amount]. */
+    fun makerFeeCap(amount: Long, config: TakerConfig = TakerConfig()): Long =
+        maxOf(config.maxCjFee.absFee, Fees.relativeFee(amount, config.maxCjFee.relFee))
+
+    /** [need] in the worst case: [makers] makers each at [makerFeeCap], at [rateCap]. */
+    fun worstNeed(amount: Long, ourInputs: Int, makers: Int, rate: Double, config: TakerConfig = TakerConfig()): Long =
+        need(amount, makers * makerFeeCap(amount, config), ourInputs, makers, rateCap(rate, config), config)
+
+    /**
+     * The largest amount that [coins] sats in [ourInputs] coins always cover in a round with up
+     * to [makers] makers at about [rate] sat/vB (0 if none).
+     */
+    fun maxAmount(coins: Long, ourInputs: Int, makers: Int, rate: Double, config: TakerConfig = TakerConfig()): Long {
+        if (coins <= 0 || ourInputs <= 0 || makers <= 0 || worstNeed(1, ourInputs, makers, rate, config) > coins) return 0
+        var lo = 1L; var hi = coins
+        while (lo < hi) {
+            val mid = lo + (hi - lo + 1) / 2
+            if (worstNeed(mid, ourInputs, makers, rate, config) <= coins) lo = mid else hi = mid - 1
+        }
+        return lo
+    }
 }
 
 /**
@@ -284,10 +329,10 @@ class TakerSession(
         val first = podleCoins.firstOrNull { c -> freshIndex(c) != null } ?: fail(TakerText.NO_FRESH_COMMITMENT)
         val others = r.coins.filter { it.outpoint != first.outpoint && it.confirmations(tip) >= 1 }.sortedByDescending { it.value }
         val ours = arrayListOf(first)
-        fun ceilingFee(inputs: Int, makers: Int) = Fees.txFee(inputs + makers * config.ceilingInputsPerMaker, Fees.outputCount(makers), rate)
-        fun need() = r.amount + chosen.totalFee + ceilingFee(ours.size, n)
+        fun ceilingFee(inputs: Int, makers: Int) = TakerBudget.ceilingFee(inputs, makers, rate, config)
+        fun need() = TakerBudget.need(r.amount, chosen.totalFee, ours.size, n, rate, config)
         for (c in others) { if (ours.sumOf { it.value } >= need()) break; ours.add(c) }
-        if (ours.sumOf { it.value } < need()) fail(TakerText.fill(TakerText.NOT_ENOUGH_COINS, need(), (listOf(first) + others).sumOf { it.value }))
+        if (ours.sumOf { it.value } < need()) notEnough(need(), ours, n, r)
         preflightFeeHeadroom(ours.size, chosen.offers.map { it.offer }, rate)
 
         val plan = TakerPlan(
@@ -308,6 +353,15 @@ class TakerSession(
     }
 
     private fun minPodleValue(amount: Long): Long = amount * config.utxoAmountPercent / 100
+
+    /** Our coins [ours] don't cover [need]: say so, and how far to lower the amount for them to ([TakerBudget.maxAmount]). */
+    private fun notEnough(need: Long, ours: List<TakerCoin>, makers: Int, r: TakerRequest): Nothing {
+        val coins = ours.sumOf { it.value }
+        val lower = TakerBudget.maxAmount(coins, ours.size, makers, r.feeRate, config)
+        env.log("not enough coins: need $need, coins $coins in ${ours.size}, makers $makers, max $lower")
+        fail(if (lower in 1 until r.amount) TakerText.fill(TakerText.NOT_ENOUGH_COINS_LOWER, need, coins, lower)
+             else TakerText.fill(TakerText.NOT_ENOUGH_COINS, need, coins))
+    }
 
     /** `taker/podle.py:116-148`: enough confirmations and value, best (confirmations, value) first. */
     private fun podleCandidates(r: TakerRequest, tip: Int): List<TakerCoin> =
@@ -488,7 +542,7 @@ class TakerSession(
         if (makerFees > plan.makerFees) fail(TakerText.BAD_TX, "maker fees above the plan")
         val ourUtxos = ours.map { it.utxo }
         val change = Fees.takerChange(ourUtxos.sumOf { it.value }, r.amount, makers.map { it.fee }, txFee)
-        if (change < 0) fail(TakerText.fill(TakerText.NOT_ENOUGH_COINS, r.amount + makerFees + txFee, ourUtxos.sumOf { it.value }))
+        if (change < 0) notEnough(r.amount + makerFees + txFee, ours, makers.size, r)
 
         val unsigned = runCatching {
             TakerTx.build(ourUtxos, r.recipient, r.changeAddress, makers.map { it.part!! }, r.amount, txFee,
