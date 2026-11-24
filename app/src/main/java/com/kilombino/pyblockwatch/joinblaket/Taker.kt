@@ -132,7 +132,7 @@ interface TakerEnv {
      * A new, not yet connected client for [identity] (Tor proxy, directory id and network set).
      * Blocking (it may wait for Tor); throws [DirectoryException] when none can be made.
      */
-    fun directory(identity: NickIdentity): DirectoryClient
+    fun directory(identity: NickIdentity): Directory
     /** Lookups on our own chain view; blocking, called from `Dispatchers.IO`. */
     val chain: ChainLookup
     /** Broadcast [rawHex] through our own backend; returns the txid or throws. Blocking. */
@@ -218,7 +218,7 @@ class TakerSession(
     private class Opening(val coin: TakerCoin, val commitment: Podle.Commitment)
 
     suspend fun run(request: TakerRequest): TakerResult = withContext(Dispatchers.IO) {
-        var client: DirectoryClient? = null
+        var client: Directory? = null
         try {
             validate(request)
             client = connect()
@@ -243,16 +243,16 @@ class TakerSession(
         if (r.coins.map { it.outpoint }.toSet().size != r.coins.size) bad("the same coin twice")
     }
 
-    private suspend fun connect(): DirectoryClient {
+    private suspend fun connect(): Directory {
         var last: Exception? = null
         for (attempt in 1..config.connectAttempts) {
             env.progress(TakerStep.Connecting(attempt))
             // A fresh nick for every attempt and every round: nothing links two rounds.
-            var c: DirectoryClient? = null
+            var c: Directory? = null
             try {
                 c = env.directory(NickIdentity.random())
                 c.connect()
-                env.log("connected as ${c.nick} (nick auth ${c.authenticated})")
+                env.log("connected as ${c.nick} (nick auth ${c.authenticated})" + ((c as? DirectoryPool)?.let { ", ${it.connected} of the directories" } ?: ""))
                 return c
             } catch (e: DirectoryException) {
                 last = e; c?.close()
@@ -262,7 +262,7 @@ class TakerSession(
         fail(TakerText.DIRECTORY, last?.message)
     }
 
-    private suspend fun negotiate(client: DirectoryClient, r: TakerRequest): TakerResult {
+    private suspend fun negotiate(client: Directory, r: TakerRequest): TakerResult {
         env.progress(TakerStep.ReadingOffers)
         val book = Orderbook.fetch(client, config.orderbook)
         env.progress(TakerStep.CheckingBonds(book.offers.size))
@@ -347,7 +347,7 @@ class TakerSession(
     }
 
     /** Receive verified privmsgs from the makers in [waiting] for [timeoutMs]; [handle] removes a nick once done. */
-    private suspend fun collect(client: DirectoryClient, waiting: MutableSet<String>, timeoutMs: Long, handle: (Session.Incoming) -> Unit) {
+    private suspend fun collect(client: Directory, waiting: MutableSet<String>, timeoutMs: Long, handle: (Session.Incoming) -> Unit) {
         val deadline = now() + timeoutMs
         while (waiting.isNotEmpty()) {
             val left = deadline - now()
@@ -364,7 +364,7 @@ class TakerSession(
      * `!ioauth`. Returns them in the order they passed.
      */
     private suspend fun runMakers(
-        client: DirectoryClient, r: TakerRequest, valued: List<ValuedOffer>, chosen: MakerSelection.Result.Chosen,
+        client: Directory, r: TakerRequest, valued: List<ValuedOffer>, chosen: MakerSelection.Result.Chosen,
         ours: List<TakerCoin>,
     ): List<Maker> {
         val tip = env.chain.height()
@@ -471,7 +471,7 @@ class TakerSession(
 
     /** Steps 5 and 6: the transaction, `!tx`, the makers' signatures, ours, the last checks and the broadcast. */
     private suspend fun buildSignBroadcast(
-        client: DirectoryClient, r: TakerRequest, ours: List<TakerCoin>, ready: List<Maker>, rate: Double,
+        client: Directory, r: TakerRequest, ours: List<TakerCoin>, ready: List<Maker>, rate: Double,
         plan: TakerPlan, tip: Int,
     ): TakerResult {
         val makers = ready.toMutableList()
@@ -584,7 +584,7 @@ class TakerSession(
      * random order, each followed by a wait for the txid; then our own backend. Returns
      * (pushed to a maker, seen by our backend).
      */
-    private suspend fun broadcast(client: DirectoryClient, makers: List<Maker>, signed: ByteArray, hex: String, txid: String,
+    private suspend fun broadcast(client: Directory, makers: List<Maker>, signed: ByteArray, hex: String, txid: String,
                                   firstOutput: ByteArray): Pair<Boolean, Boolean> {
         var pushed = false
         if (config.broadcast == BroadcastPolicy.RANDOM_PEER) {

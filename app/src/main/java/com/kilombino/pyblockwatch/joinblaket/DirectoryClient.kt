@@ -62,14 +62,14 @@ class DirectoryClient(
     private val peerlistTimeoutMs: Long = 60_000,
     /** A peerlist answer is complete after this long without a new chunk. */
     private val peerlistQuietMs: Long = 5_000,
-) : Closeable {
+) : Directory {
     /** A peer as the directory lists it: `nick;location[;D][;F:feat+feat]`. */
     data class Peer(val nick: String, val location: String, val features: Set<String>)
 
-    val nick: String get() = identity.nick
+    override val nick: String get() = identity.nick
 
     /** True once the directory accepted our nick proof (807 `ok`). */
-    @Volatile var authenticated = false
+    @Volatile override var authenticated = false
         private set
     @Volatile var motd: String? = null
         private set
@@ -146,7 +146,7 @@ class DirectoryClient(
      * Throws [DirectoryException] on any refusal; the socket is closed then. Cancelling the
      * caller closes the socket at once, so a hanging Tor circuit does not hold the coroutine.
      */
-    suspend fun connect() = coroutineScope {
+    override suspend fun connect() = coroutineScope {
         check(socket == null && !closed) { "connect() once per client" }
         if (requireVerified && directoryId == null) {
             throw DirectoryException("No expected nick authentication directory identity configured for $host:$port")
@@ -249,16 +249,16 @@ class DirectoryClient(
     }
 
     /** `send_public_message`: `<nick>!PUBLIC!<message>`, unsigned. */
-    suspend fun sendPublic(message: String) = send(Wire.envelope(Wire.PUBMSG, "$nick!PUBLIC!$message"))
+    override suspend fun sendPublic(message: String) = send(Wire.envelope(Wire.PUBMSG, "$nick!PUBLIC!$message"))
 
     /** `send_private_message`: `<nick>!<to>!<command> <data> <pubkey> <sig>`, signed over `data + onion-network`. */
-    suspend fun sendPrivate(to: String, command: String, data: String) = send(Session.privmsg(identity, to, command, data))
+    override suspend fun sendPrivate(to: String, command: String, data: String) = send(Session.privmsg(identity, to, command, data))
 
     /**
      * The next PRIVMSG/PUBMSG (or other non-control) frame, or null after [timeoutMs]. PING,
      * PEERLIST and nick-auth frames never come out here. Throws once the connection is gone.
      */
-    suspend fun receive(timeoutMs: Long): Wire.Frame? {
+    override suspend fun receive(timeoutMs: Long): Wire.Frame? {
         val f = try {
             withTimeoutOrNull(timeoutMs) { frames.receive() }
         } catch (e: ClosedReceiveChannelException) {
@@ -279,7 +279,7 @@ class DirectoryClient(
      * then chunks until 5 s pass without one. At most once per 60 s: null when rate-limited or
      * when nothing came. Every PEERLIST also updates [peers].
      */
-    suspend fun getPeerlist(): List<Peer>? {
+    override suspend fun getPeerlist(): List<Peer>? {
         val now = System.currentTimeMillis()
         if (now - lastPeerlistRequest < PEERLIST_MIN_INTERVAL_MS) return null
         lastPeerlistRequest = now

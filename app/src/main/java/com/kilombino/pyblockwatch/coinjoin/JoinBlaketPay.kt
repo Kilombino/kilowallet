@@ -10,8 +10,10 @@ import com.kilombino.pyblockwatch.data.Scanner
 import com.kilombino.pyblockwatch.data.Store
 import com.kilombino.pyblockwatch.joinblaket.ChainLookup
 import com.kilombino.pyblockwatch.joinblaket.CommitmentStore
+import com.kilombino.pyblockwatch.joinblaket.Directory
 import com.kilombino.pyblockwatch.joinblaket.DirectoryClient
 import com.kilombino.pyblockwatch.joinblaket.DirectoryException
+import com.kilombino.pyblockwatch.joinblaket.DirectoryPool
 import com.kilombino.pyblockwatch.joinblaket.ElectrumChainLookup
 import com.kilombino.pyblockwatch.joinblaket.FileCommitmentStore
 import com.kilombino.pyblockwatch.joinblaket.IoauthCheck
@@ -171,11 +173,13 @@ object JoinBlaketPay {
     fun commitmentsFile(ctx: Context) = File(ctx.applicationContext.filesDir, "joinblaket/commitments.json")
 
     private class Env(private val ctx: Context, private val appChain: AppChain) : TakerEnv {
-        override fun directory(identity: NickIdentity): DirectoryClient {
+        override fun directory(identity: NickIdentity): Directory {
             Tor.start(ctx)
             val proxy = Tor.proxy(120_000) ?: throw DirectoryException("Tor did not come up: ${Tor.lastLine}")
-            return DirectoryClient(JoinBlaketDirectory.HOST, JoinBlaketDirectory.PORT, identity, JoinBlaketDirectory.NETWORK.wire,
-                JoinBlaketDirectory.ID, requireVerified = true, proxy = proxy)
+            // Every JoinBlaket directory with the same nick: the round goes on with those that answer.
+            return DirectoryPool(JoinBlaketDirectory.ALL.map { d ->
+                DirectoryClient(d.host, d.port, identity, JoinBlaketDirectory.NETWORK.wire, d.id, requireVerified = true, proxy = proxy)
+            })
         }
         override val chain: ChainLookup = appChain
         override fun broadcast(rawHex: String): String = appChain.broadcast(rawHex)

@@ -36,7 +36,7 @@ object Orderbook {
      * `minWait`, stop after `quiet` without a new offer, never past `maxWait` (both clamped into
      * `maxWait` like Python). This sends nothing else: it is exactly an orderbook watcher's request.
      */
-    suspend fun fetch(client: DirectoryClient, timing: Timing = Timing(), now: () -> Long = System::currentTimeMillis): Result {
+    suspend fun fetch(client: Directory, timing: Timing = Timing(), now: () -> Long = System::currentTimeMillis): Result {
         client.getPeerlist()
         val minWait = minOf(timing.minWaitMs, timing.maxWaitMs)
         val quiet = if (timing.maxWaitMs > minWait) minOf(timing.quietMs, timing.maxWaitMs - minWait) else 0L

@@ -143,6 +143,57 @@ class TakerSessionTest {
         }
     }
 
+    /** A port with nothing listening: a directory that is down. */
+    private fun deadPort(): Int = java.net.ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1")).use { it.localPort }
+
+    private fun pooled(identity: NickIdentity, ports: List<Int>) = DirectoryPool(ports.map { p ->
+        DirectoryClient("127.0.0.1", p, identity, JbNetwork.REGTEST.wire, null,
+            requireVerified = false, connectTimeoutMs = 5_000, peerlistTimeoutMs = 2_000, peerlistQuietMs = 200)
+    })
+
+    /**
+     * Three directories, one down and a maker on each of the other two: the round sees both
+     * makers' offers and every privmsg to a maker goes through the directory that maker is on
+     * (the fake directory fails on a privmsg for a nick it doesn't host).
+     */
+    @Test fun poolReachesMakersOnDifferentDirectories() {
+        val chain = FakeChain()
+        val a = FakeMaker(chain, 100_000); val b = FakeMaker(chain, 100_000)
+        val k = key()
+        val coin = TakerCoin(txid(), 1, 50_000_000, k, tip - 9)
+        chain.utxos[coin.outpoint] = IoauthCheck.ChainUtxo(coin.value, coin.scriptPubKey, 10)
+        val pushed = Collections.synchronizedList(ArrayList<String>())
+        val store = FileCommitmentStore(File.createTempFile("cmt", ".json").apply { delete(); deleteOnExit() })
+        val dead = deadPort()
+        directory(chain, listOf(a), pushed).use { da ->
+            directory(chain, listOf(b), pushed).use { db ->
+                val env = object : TakerEnv {
+                    override val chain: ChainLookup = chain
+                    override val commitments: CommitmentStore = store
+                    override fun directory(identity: NickIdentity) = pooled(identity, listOf(dead, da.port, db.port))
+                    override fun broadcast(rawHex: String): String = ""
+                    override suspend fun confirm(plan: TakerPlan) = true
+                }
+                val r = runBlocking { TakerSession(env, config).run(TakerRequest(address(), 10_000_000, 2.0, listOf(coin), address(), 2, 2)) }
+                da.finish(); db.finish()
+                val sent = r as TakerResult.Sent
+                assertEquals(2, sent.makers)
+                val inputs = TxParse.parse(sent.rawHex).inputs.map { it.txid to it.vout.toLong() }.toSet()
+                assertEquals(setOf(coin.outpoint, a.coin.outpoint, b.coin.outpoint), inputs)
+                assertEquals(1, a.fills.size); assertEquals(1, b.fills.size)
+                assertEquals(1, pushed.size)
+            }
+        }
+    }
+
+    /** No directory answers: connecting fails (and the round reports it), nothing hangs. */
+    @Test fun poolWithEveryDirectoryDownFails() {
+        val pool = pooled(NickIdentity.random(), listOf(deadPort(), deadPort()))
+        val e = runCatching { runBlocking { pool.connect() } }.exceptionOrNull()
+        assertTrue(e is DirectoryException)
+        pool.close()
+    }
+
     /** A chosen maker that never answers `!fill` is replaced from the remaining offers with a fresh commitment. */
     @Test fun silentMakerIsReplaced() {
         val chain = FakeChain()
