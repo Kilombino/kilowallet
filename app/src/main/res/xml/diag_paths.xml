@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only the folder the exported diagnostic log is written to: nothing else of the app's. -->
+<paths>
+    <cache-path name="diag" path="diag-export/" />
+</paths>

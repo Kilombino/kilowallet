@@ -136,9 +136,11 @@ object Lightning {
             val r = runCatching { pay() }
             synchronized(_paying) { _paying.value = _paying.value.filterNot { it.key == key } }
             val n = com.kilombino.pyblockwatch.data.Notifier(app)
-            r.onSuccess { _payResult.value = Triple("", sats, true); n.lightningPaid(sats, key) }
+            r.onSuccess { _payResult.value = Triple("", sats, true); n.lightningPaid(sats, key)
+                    com.kilombino.pyblockwatch.data.DiagLog.i("ln-pay", "paid $sats sats") }
                 .onFailure { e ->
                     val why = Lnd.payError(e)
+                    com.kilombino.pyblockwatch.data.DiagLog.w("ln-pay", "payment of $sats sats failed: $why")
                     _payResult.value = Triple(why, sats, false)
                     n.lightningNotPaid(sats, why, key)
                 }

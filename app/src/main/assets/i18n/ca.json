@@ -2584,5 +2584,15 @@
 "MAX here leaves room for the makers' fees and the CoinJoin's mining fee.": "Aquest MÀX deixa lloc per a les comissions dels makers i la comissió de mineria del CoinJoin.",
 "Your coins don't cover a CoinJoin's fees.": "Les teves monedes no cobreixen les comissions d'un CoinJoin.",
 "📋 COPY LOG": "📋 COPIA EL REGISTRE",
-"LOG COPIED ✓": "REGISTRE COPIAT ✓"
+"LOG COPIED ✓": "REGISTRE COPIAT ✓",
+"Diagnostics": "Diagnòstic",
+"A log of what the wallet did lately (CoinJoin rounds, your node or server, Lightning, Ark, Tor, updates and crashes), kept on this phone for a few days. It never holds your words, keys, invoices or whole addresses. Copy or share it when you ask for help.": "Un registre del que ha fet el moneder darrerament (rondes de CoinJoin, el teu node o servidor, Lightning, Ark, Tor, actualitzacions i tancaments inesperats), desat en aquest mòbil uns dies. Mai no desa les teves paraules, claus, factures ni adreces completes. Copia'l o comparteix-lo quan demanis ajuda.",
+"COPY LOG": "COPIAR REGISTRE",
+"Log copied": "Registre copiat",
+"SHARE LOG": "COMPARTIR REGISTRE",
+"Share the log": "Compartir el registre",
+"CLEAR LOG": "ESBORRAR REGISTRE",
+"Clear the log?": "Esborrar el registre?",
+"Everything in the diagnostic log goes. Your wallet is not touched.": "S'esborra tot el registre de diagnòstic. El teu moneder no es toca.",
+"calculating…": "calculant…"
 }

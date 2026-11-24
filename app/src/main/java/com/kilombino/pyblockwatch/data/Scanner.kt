@@ -11,6 +11,7 @@ import com.kilombino.pyblockwatch.crypto.TxParse
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 
@@ -98,7 +99,7 @@ class Scanner(
         // The main account, then (for a hot wallet with Taproot on) its BIP-86 account.
         listOf(Account(xpub, scriptType)) + listOfNotNull(extra?.let { Account(it.xpub, it.type, it.type) }),
         emptyList(), endpoint, pinnedFingerprint, gap, quick,
-    )
+    ).onEach { NodeDiag.note(chain, endpoint, it) }
 
     /**
      * Walks every account in [accounts] (receive then change, each to [gap] empty addresses),
@@ -718,3 +719,26 @@ class Scanner(
         }
     }
 }
+
+/**
+ * How the wallet's server or node answers, in the diagnostic log: only when that changes
+ * (reachable, failing, failing for another reason), not on every 30-second look.
+ */
+internal object NodeDiag {
+    private val last = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    fun note(chain: com.kilombino.pyblockwatch.chain.Chain, endpoint: com.kilombino.pyblockwatch.chain.NodeEndpoint, ev: ScanEvent) {
+        val via = if (endpoint.rpc != null) "own node by RPC" else "${endpoint.host}:${endpoint.port}${if (endpoint.isCustom) " (own server)" else ""}"
+        val status = when (ev) {
+            is ScanEvent.Connected -> "ok"
+            is ScanEvent.Failed -> "failed: ${ev.message}"
+            is ScanEvent.CertificateChanged -> "certificate changed"
+            else -> return
+        }
+        val key = "${chain.name}|$via"
+        if (last.put(key, status) == status) return
+        if (status == "ok") DiagLog.i("node", "${chain.name}: reachable via $via (height ${(ev as ScanEvent.Connected).height})")
+        else DiagLog.w("node", "${chain.name}: $status (via $via)")
+    }
+}
+

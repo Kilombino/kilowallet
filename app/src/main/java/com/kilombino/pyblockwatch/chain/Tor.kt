@@ -52,6 +52,7 @@ object Tor {
                 .apply { environment()["HOME"] = dir.path }
                 .start()
             proc = p
+            com.kilombino.pyblockwatch.data.DiagLog.i("tor", "starting Arti")
             Thread {
                 runCatching {
                     java.io.FileWriter(log, true).use { out ->
@@ -61,11 +62,13 @@ object Tor {
                             if (line.isNotBlank()) lastLine = line.substringAfter(" INFO ").substringAfter(" WARN ").substringAfter(" ERROR ").trim().take(160)
                             // Arti says this once it can carry traffic: from then on the SOCKS port works.
                             if ("Sufficiently bootstrapped" in line || "SOCKS now functional" in line) {
+                                if (!ready) com.kilombino.pyblockwatch.data.DiagLog.i("tor", "bootstrapped, SOCKS ready")
                                 ready = true; synchronized(lock) { lock.notifyAll() }
                             }
                         }
                     }
                 }
+                com.kilombino.pyblockwatch.data.DiagLog.w("tor", "Arti stopped (exit ${runCatching { p.waitFor() }.getOrNull()}): ${lastLine ?: "no output"}")
                 ready = false; synchronized(lock) { lock.notifyAll() }
             }.apply { isDaemon = true; name = "arti" }.start()
         }

@@ -59,6 +59,8 @@ class KilowalletApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashLog.install(this)
+        DiagLog.init(this)
+        DiagLog.i("app", "process start")
         com.kilombino.pyblockwatch.ui.i18n.I18n.init(this)
         CrashLog.captureNativeErrors(this)
         // Electrum over Tor (a .onion server, or every server when chosen) from any part of the app.

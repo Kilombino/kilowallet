@@ -2583,5 +2583,15 @@
 "MAX here leaves room for the makers' fees and the CoinJoin's mining fee.": "Questo MAX lascia spazio alle commissioni dei maker e alla commissione di mining del CoinJoin.",
 "Your coins don't cover a CoinJoin's fees.": "Le tue monete non coprono le commissioni di un CoinJoin.",
 "📋 COPY LOG": "📋 COPIA REGISTRO",
-"LOG COPIED ✓": "REGISTRO COPIATO ✓"
+"LOG COPIED ✓": "REGISTRO COPIATO ✓",
+"Diagnostics": "Diagnostica",
+"A log of what the wallet did lately (CoinJoin rounds, your node or server, Lightning, Ark, Tor, updates and crashes), kept on this phone for a few days. It never holds your words, keys, invoices or whole addresses. Copy or share it when you ask for help.": "Un registro di ciò che il portafoglio ha fatto di recente (round di CoinJoin, il tuo nodo o server, Lightning, Ark, Tor, aggiornamenti e arresti anomali), conservato su questo telefono per qualche giorno. Non contiene mai le tue parole, chiavi, fatture né indirizzi completi. Copialo o condividilo quando chiedi aiuto.",
+"COPY LOG": "COPIA REGISTRO",
+"Log copied": "Registro copiato",
+"SHARE LOG": "CONDIVIDI REGISTRO",
+"Share the log": "Condividi il registro",
+"CLEAR LOG": "CANCELLA REGISTRO",
+"Clear the log?": "Cancellare il registro?",
+"Everything in the diagnostic log goes. Your wallet is not touched.": "Tutto il registro di diagnostica viene cancellato. Il tuo portafoglio non viene toccato.",
+"calculating…": "calcolo…"
 }

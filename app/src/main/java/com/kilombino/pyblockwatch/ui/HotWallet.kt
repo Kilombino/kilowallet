@@ -932,6 +932,7 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                     // The amount JoinBlaket's MAX filled in and the makers it was computed for: paying that
                     // amount asks for no more makers than that, so the round reserves what MAX left room for.
                     var jbMax by remember { mutableStateOf<Pair<String, Int>?>(null) }
+                    var jbMaxBusy by remember { mutableStateOf(false) }
                     val jbScope = androidx.compose.runtime.rememberCoroutineScope()
                     // Read again every 30 s while the screen is open (the summary itself refreshes every 30 s):
                     // makers come and go, and one read at opening could keep showing a market that changed.
@@ -977,16 +978,21 @@ fun SendSheet(vm: WalletViewModel, accent: Color, onClose: () -> Unit) {
                             if (extraTo.isEmpty() && state.isHot) Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text("MAX here leaves room for the makers' fees and the CoinJoin's mining fee.",
                                     color = TextFaint, style = small, modifier = Modifier.weight(1f))
-                                TextButton(onClick = {
+                                // It reads the coins from the server first, which can take a moment: say so meanwhile.
+                                TextButton(enabled = !jbMaxBusy, onClick = {
                                     val ticked = if (coinControl) (state.utxos ?: emptyList()).filter { "${it.txid}:${it.vout}" in selectedOutpoints } else emptyList()
                                     val makers = m.makers.coerceIn(1, com.kilombino.pyblockwatch.coinjoin.JoinBlaketPay.DEFAULT_MAKERS)
                                     val rate = feeRate.toDoubleOrNull() ?: 1.0
+                                    jbMaxBusy = true
                                     jbScope.launch {
-                                        val max = runCatching { vm.joinBlaketMax(ticked, rate, makers) }.getOrDefault(0L)
-                                        if (max > 0) { amount = max.toString(); jbMax = amount to makers; jbError = null }
-                                        else jbError = "Your coins don't cover a CoinJoin's fees."
+                                        try {
+                                            val max = runCatching { vm.joinBlaketMax(ticked, rate, makers) }.getOrDefault(0L)
+                                            if (max > 0) { amount = max.toString(); jbMax = amount to makers; jbError = null }
+                                            else jbError = "Your coins don't cover a CoinJoin's fees."
+                                        } finally { jbMaxBusy = false }
                                     }
-                                }) { Text("MAX", color = accent, style = MaterialTheme.typography.bodyMedium) }
+                                }) { Text(if (jbMaxBusy) "calculating…" else "MAX", color = if (jbMaxBusy) TextFaint else accent,
+                                        style = MaterialTheme.typography.bodyMedium) }
                             }
                         }
                     }

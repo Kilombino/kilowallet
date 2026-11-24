@@ -43,7 +43,15 @@ object UpdateCheck {
     fun check(current: String): Release? = (outcome(current) as? Outcome.Newer)?.release
 
     /** Like [check], telling "nothing newer" from "GitHub did not answer". Blocking. */
-    fun outcome(current: String): Outcome = runCatching<Outcome> {
+    fun outcome(current: String): Outcome = outcomeRaw(current).also {
+        DiagLog.i("update", "check from $current: " + when (it) {
+            is Outcome.Newer -> "newer ${it.release.version}${if (it.release.sha256 == null) " (no published hash: page only)" else ""}"
+            Outcome.UpToDate -> "up to date"
+            Outcome.Unreachable -> "GitHub did not answer"
+        })
+    }
+
+    private fun outcomeRaw(current: String): Outcome = runCatching<Outcome> {
         val c = URL(API).openConnection() as HttpURLConnection
         c.connectTimeout = 10_000; c.readTimeout = 10_000
         c.setRequestProperty("Accept", "application/vnd.github+json")

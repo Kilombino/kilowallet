@@ -1451,6 +1451,7 @@ internal fun SettingsPanel(
                     Text("COPY THE LAST CRASH REPORT", color = accent, style = MaterialTheme.typography.bodySmall)
                 }
             }
+            DiagnosticsPanel(activity, accent, vm, state)
             // What protects you right now, for checking: the native crypto and the verified headers.
             val secp = com.kilombino.pyblockwatch.crypto.NativeSecp
             val spvTip = com.kilombino.pyblockwatch.chain.HeaderChain.tip

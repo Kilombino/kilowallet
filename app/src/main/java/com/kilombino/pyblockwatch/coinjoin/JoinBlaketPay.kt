@@ -86,6 +86,7 @@ object JoinBlaketPay {
     private val logLines = ArrayDeque<String>()
 
     fun log(line: String) {
+        com.kilombino.pyblockwatch.data.DiagLog.i("joinblaket", line)
         val t = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT).format(java.util.Date())
         synchronized(logLines) {
             logLines.addLast("$t $line")

@@ -115,16 +115,24 @@ object Lnd {
     suspend fun start(ctx: Context) {
         if (running) return
         val d = dir(ctx)
+        com.kilombino.pyblockwatch.data.DiagLog.i("lnd", "starting")
         suspendCancellableCoroutine<Unit> { cont ->
             Lndmobile.start("--lnddir=${d.absolutePath} --configfile=${File(d, "lnd.conf").absolutePath}", object : Callback {
-                override fun onError(e: Exception) { if (cont.isActive) cont.resumeWithException(e) }
-                override fun onResponse(b: ByteArray?) { running = true; if (cont.isActive) cont.resume(Unit) }
+                override fun onError(e: Exception) { com.kilombino.pyblockwatch.data.DiagLog.e("lnd", "start failed", e); if (cont.isActive) cont.resumeWithException(e) }
+                override fun onResponse(b: ByteArray?) { running = true; com.kilombino.pyblockwatch.data.DiagLog.i("lnd", "started"); if (cont.isActive) cont.resume(Unit) }
             })
         }
     }
 
+    /** [what] and how it ended (its result is a txid or channel point, cut by the log), in the diagnostic log. */
+    private suspend fun <T> diag(what: String, f: suspend () -> T): T = try {
+        f().also { com.kilombino.pyblockwatch.data.DiagLog.i("lnd", "$what: done, $it") }
+    } catch (e: Exception) {
+        com.kilombino.pyblockwatch.data.DiagLog.w("lnd", "$what: failed: ${e.message ?: e.javaClass.simpleName}"); throw e
+    }
+
     /** The node stopped on its own (it logs why): the next [start] starts it again. */
-    fun markStopped() { running = false }
+    fun markStopped() { if (running) com.kilombino.pyblockwatch.data.DiagLog.w("lnd", "stopped on its own"); running = false }
 
     /**
      * How far the chain sync has got while LND does not answer yet (its RPC only opens once
@@ -154,6 +162,7 @@ object Lnd {
         if (!running) return
         runCatching { call { Lndmobile.stopDaemon(ByteArray(0), it) } }
         running = false; stoppedThisRun = true
+        com.kilombino.pyblockwatch.data.DiagLog.i("lnd", "stopped")
     }
 
     /** One unary call: [f] gets the callback to hand to Lndmobile. */
@@ -277,6 +286,9 @@ object Lnd {
 
     /** Starts the splice; returns its transaction id once both nodes have signed it, or throws with why not. */
     suspend fun splice(point: String, out: Boolean, sats: Long?, satPerVbyte: Long, addr: String? = null): String =
+        diag("splice ${if (out) "out" else "in"} ${sats ?: "all"} sats at $satPerVbyte sat/vB on $point") { spliceRaw(point, out, sats, satPerVbyte, addr) }
+
+    private suspend fun spliceRaw(point: String, out: Boolean, sats: Long?, satPerVbyte: Long, addr: String?): String =
         suspendCancellableCoroutine { cont ->
             val req = spliceReq(point, out, sats, satPerVbyte, addr).build()
             stream({ Lndmobile.spliceChannel(req, it) }, onMsg = { u ->
@@ -518,7 +530,11 @@ object Lnd {
      * in a force close). Invoices then carry route hints so the channel can still receive.
      */
     suspend fun openChannel(pubkey: String, sats: Long, satPerVbyte: Long, private: Boolean = true,
-                            coins: List<String> = emptyList()): String {
+                            coins: List<String> = emptyList()): String =
+        diag("open channel of $sats sats to $pubkey at $satPerVbyte sat/vB, ${coins.size} coin(s) chosen") { openChannelRaw(pubkey, sats, satPerVbyte, private, coins) }
+
+    private suspend fun openChannelRaw(pubkey: String, sats: Long, satPerVbyte: Long, private: Boolean,
+                            coins: List<String>): String {
         // Coin control (outpoints, 28): only those coins fund it. With coins and no amount, all
         // of them go in (fund_max, 26), minus the fee.
         val all = coins.isNotEmpty() && sats <= 0
@@ -537,7 +553,10 @@ object Lnd {
      * exactly these coins, LND checks it, the wallet signs, LND publishes). On any failure the
      * pending channel is cancelled and the coins released. Returns the funding txid.
      */
-    suspend fun openChannelAllCoins(pubkey: String, sats: Long, satPerVbyte: Long, coins: List<String>): String {
+    suspend fun openChannelAllCoins(pubkey: String, sats: Long, satPerVbyte: Long, coins: List<String>): String =
+        diag("open channel of $sats sats to $pubkey with all of ${coins.size} coin(s)") { openChannelAllCoinsRaw(pubkey, sats, satPerVbyte, coins) }
+
+    private suspend fun openChannelAllCoinsRaw(pubkey: String, sats: Long, satPerVbyte: Long, coins: List<String>): String {
         val pendingId = ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }
         val leases = java.util.Collections.synchronizedList(ArrayList<PbMsg>())
         val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO)
@@ -689,6 +708,9 @@ object Lnd {
      * closing transaction's id once it is published.
      */
     suspend fun closeChannel(point: String, force: Boolean, delivery: String?, satPerVbyte: Long): String =
+        diag("${if (force) "force " else ""}close of $point at $satPerVbyte sat/vB") { closeChannelRaw(point, force, delivery, satPerVbyte) }
+
+    private suspend fun closeChannelRaw(point: String, force: Boolean, delivery: String?, satPerVbyte: Long): String =
         suspendCancellableCoroutine { cont ->
             val req = Pb().msg(1, Pb().string(2, point.substringBefore(':')).int(3, point.substringAfter(':').toInt()))
                 .bool(2, force)

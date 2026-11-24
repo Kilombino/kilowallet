@@ -470,6 +470,7 @@ object CoinjoinHub {
                 null
             } }.getOrNull()
             override fun save(state: PoolSession.State) {
+                diagPhase(state)
                 // Left on purpose ("not yet", LEAVE): nothing to keep, and the pool goes back
                 // to the open list so the user can join again straight away.
                 if (state.phase == PoolSession.Phase.ABORTED && state.reason == PoolSession.LEFT_BY_CHOICE) {
@@ -484,6 +485,18 @@ object CoinjoinHub {
             override fun event(e: PoolSession.Event) = onEvent(app, st, e)
             override fun ownSeats(poolId: String): Set<String> = ownSeatsIn(poolId)
         }
+    }
+
+    private val diagPhases = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** Each seat's phase changes (joined, voting, signing, sent, confirmed, aborted and why), in the diagnostic log. */
+    private fun diagPhase(st: PoolSession.State) {
+        val now = st.phase.name + (if (st.reason.isNotBlank()) ": ${st.reason}" else "")
+        if (diagPhases.put(st.key, now) == now) return
+        val level = if (st.phase == PoolSession.Phase.ABORTED || st.phase == PoolSession.Phase.REJECTED) com.kilombino.pyblockwatch.data.DiagLog.Level.WARN
+            else com.kilombino.pyblockwatch.data.DiagLog.Level.INFO
+        com.kilombino.pyblockwatch.data.DiagLog.write(level, "kilojoin",
+            "pool ${st.poolId.take(10)} (${amountOf(st.terms)} sats, v${st.terms.version}${kind(st.terms)}) seat ${st.key.take(6)}: $now")
     }
 
     private fun sats(v: Long): String = "%,d".format(v).replace(',', ' ')

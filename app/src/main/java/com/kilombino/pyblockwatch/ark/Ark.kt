@@ -54,10 +54,11 @@ object Ark {
             // A random high port; the token, not the port, is what keeps other apps out.
             val p = Random.nextInt(20_000, 60_000)
             val r = ArkNative.start(dir, p, words, passphrase)
-            if (!r.startsWith("ERR:")) { port = p; token = r; return }
+            if (!r.startsWith("ERR:")) { port = p; token = r; com.kilombino.pyblockwatch.data.DiagLog.i("ark", "engine started"); return }
             lastErr = r.removePrefix("ERR:")
-            if (!lastErr.contains("bind", ignoreCase = true)) throw IllegalStateException(lastErr)
+            if (!lastErr.contains("bind", ignoreCase = true)) { com.kilombino.pyblockwatch.data.DiagLog.e("ark", "engine did not start: $lastErr"); throw IllegalStateException(lastErr) }
         }
+        com.kilombino.pyblockwatch.data.DiagLog.e("ark", "engine did not start: $lastErr")
         throw IllegalStateException(lastErr)
     }
 
@@ -126,6 +127,8 @@ object Ark {
                 ?.bufferedReader()?.use { it.readText() } ?: ""
             if (code !in 200..299) {
                 val msg = runCatching { JSONObject(text).optString("message", text) }.getOrDefault(text)
+                // 422 on /wallet/balance only means "no wallet yet" (hasWallet): not worth a line.
+                if (code != 422) com.kilombino.pyblockwatch.data.DiagLog.w("ark", "$method $path: HTTP $code ${msg.take(300)}")
                 throw ArkError(code, inSats(msg).ifBlank { "HTTP $code" })
             }
             return text
