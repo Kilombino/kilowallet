@@ -2587,6 +2587,7 @@
 "LOG COPIED ✓": "JOURNAL COPIÉ ✓",
 "Diagnostics": "Diagnostic",
 "A log of what the wallet did lately (CoinJoin rounds, your node or server, Lightning, Ark, Tor, updates and crashes), kept on this phone for a few days. It never holds your words, keys, invoices or whole addresses. Copy or share it when you ask for help.": "Un journal de ce que le portefeuille a fait récemment (tours de CoinJoin, ton nœud ou serveur, Lightning, Ark, Tor, mises à jour et plantages), gardé sur ce téléphone quelques jours. Il ne contient jamais tes mots, clés, factures ni adresses complètes. Copie-le ou partage-le quand tu demandes de l'aide.",
+"It does hold amounts, times and shortened transaction ids and addresses: share it only with someone you trust.": "Il contient des montants, des heures et des identifiants de transaction et adresses raccourcis : ne le partage qu'avec quelqu'un de confiance.",
 "COPY LOG": "COPIER LE JOURNAL",
 "Log copied": "Journal copié",
 "SHARE LOG": "PARTAGER LE JOURNAL",

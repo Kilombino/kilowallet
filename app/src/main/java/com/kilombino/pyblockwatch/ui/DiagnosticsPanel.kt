@@ -62,12 +62,21 @@ internal fun DiagnosticsPanel(activity: FragmentActivity, accent: Color, vm: Wal
         Explain("A log of what the wallet did lately (CoinJoin rounds, your node or server, Lightning, Ark, Tor, " +
             "updates and crashes), kept on this phone for a few days. It never holds your words, keys, invoices " +
             "or whole addresses. Copy or share it when you ask for help.")
+        Explain("It does hold amounts, times and shortened transaction ids and addresses: share it only with someone you trust.")
         Row {
             TextButton(onClick = { scope.launch {
-                // A clipboard takes a few hundred KB at most: the newest part of the log.
-                val t = withContext(Dispatchers.IO) { DiagLog.export(activity, diagBackends(vm, state), maxChars = 200_000) }
-                clip.setText(androidx.compose.ui.text.AnnotatedString(t)); copied = true
-                android.widget.Toast.makeText(activity, I18n.tr("Log copied"), android.widget.Toast.LENGTH_SHORT).show()
+                // A clipboard takes a few hundred KB at most: the newest part of the log, marked
+                // sensitive so keyboards and clipboard previews don't show or keep it.
+                val t = withContext(Dispatchers.IO) { DiagLog.export(activity, diagBackends(vm, state), maxChars = 100_000) }
+                val ok = runCatching {
+                    val cm = activity.getSystemService(android.content.ClipboardManager::class.java)
+                    val data = android.content.ClipData.newPlainText("Kilowallet log", t)
+                    if (android.os.Build.VERSION.SDK_INT >= 33) data.description.extras =
+                        android.os.PersistableBundle().apply { putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true) }
+                    if (cm != null) cm.setPrimaryClip(data) else clip.setText(androidx.compose.ui.text.AnnotatedString(t))
+                }.isSuccess
+                copied = ok
+                if (ok) android.widget.Toast.makeText(activity, I18n.tr("Log copied"), android.widget.Toast.LENGTH_SHORT).show()
             } }, contentPadding = PaddingValues(end = 12.dp)) {
                 Text(if (copied) "LOG COPIED ✓" else "COPY LOG", color = if (copied) Good else accent, style = small)
             }

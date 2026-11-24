@@ -493,6 +493,8 @@ object CoinjoinHub {
     private fun diagPhase(st: PoolSession.State) {
         val now = st.phase.name + (if (st.reason.isNotBlank()) ": ${st.reason}" else "")
         if (diagPhases.put(st.key, now) == now) return
+        // Seats come and go: only the newest few hundred are remembered.
+        if (diagPhases.size > 300) diagPhases.keys.take(diagPhases.size - 200).forEach { diagPhases.remove(it) }
         val level = if (st.phase == PoolSession.Phase.ABORTED || st.phase == PoolSession.Phase.REJECTED) com.kilombino.pyblockwatch.data.DiagLog.Level.WARN
             else com.kilombino.pyblockwatch.data.DiagLog.Level.INFO
         com.kilombino.pyblockwatch.data.DiagLog.write(level, "kilojoin",

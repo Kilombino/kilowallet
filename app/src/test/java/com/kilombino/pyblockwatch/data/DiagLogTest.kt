@@ -22,8 +22,8 @@ class DiagLogTest {
 
     @After fun tearDown() { dir.deleteRecursively(); DiagLog.now = { System.currentTimeMillis() } }
 
-    private fun files() = dir.listFiles()!!.filter { it.name.startsWith("diag-") }
-    private fun onDisk() = files().joinToString("\n") { it.readText() }
+    private fun files(): List<File> { DiagLog.flush(); return dir.listFiles()!!.filter { it.name.startsWith("diag-") } }
+    private fun onDisk(): String { DiagLog.flush(); return files().joinToString("\n") { it.readText() } }
 
     // Real-looking secrets, as a careless caller might pass them.
     private val mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
@@ -62,15 +62,62 @@ class DiagLogTest {
         DiagLog.i("t", "sent to $address and $legacy in $txid:1")
         val disk = onDisk()
         assertFalse(disk.contains(address)); assertFalse(disk.contains(legacy)); assertFalse(disk.contains(txid))
-        assertTrue(disk.contains("bc1qar0s…5mdq")); assertTrue(disk.contains("1BvBMSEY…NVN2")); assertTrue(disk.contains("f4184fc5…9e16:1"))
+        assertTrue(disk.contains("bc1qar…dq")); assertTrue(disk.contains("1BvBMS…N2")); assertTrue(disk.contains("f4184f…16:1"))
     }
 
     @Test fun ordinaryTextStaysAsItIs() {
-        val line = "pool 3f2a (4 × 1 000 000 sats, v6) seat ab12cd: SIGNING · node fulcrum.kilombino.com:17717 height 983 400"
+        val line = "pool 3f2a (4 × 1 000 000 sats, v6) seat ab12cd: SIGNING · node height 983 400 · Lnd.kt:479 · java.net.UnknownHostException"
         assertEquals(line, Scrub.clean(line))
-        // Eleven wordlist words are a sentence, not a mnemonic.
-        val eleven = "abandon ability able about above absent absorb abstract absurd abuse access"
-        assertEquals(eleven, Scrub.clean(eleven))
+        // Five wordlist words are a sentence, not a mnemonic.
+        val five = "abandon ability able about above"
+        assertEquals(five, Scrub.clean(five))
+    }
+
+    // Everything the independent review found leaking from 1.6.5-beta1.
+    @Test fun reviewLeaksAreClosed() {
+        val ark = "ark1qq4hfssprtcgnyqkp5m8x6yzlm8fq4y2c8w6s0nqegq2p7rz5n4d0xmvh3jkyl0vxzsw9a4j0ru6ttqzxtxh"
+        val sp = "sp1qqgste7k9hx0qftg6qmwlkqtwuy6cycyavzmzj85c6qdfhjdpdjtdgqjuexzk6murw56suy3e0rd2cgqvycxttddwsvgxe2usfpxumr70xc9pkqwv"
+        val cases = mapOf(
+            "ark address" to "sent to $ark",
+            "sp address" to "pay $sp",
+            "8 words" to "restore: abandon ability able about above absent absorb abstract",
+            "gapped words" to "abandon ability able wrod about above absent absorb abstract absurd abuse access",
+            "json words" to "[\"abandon\",\"ability\",\"able\",\"about\",\"above\",\"absent\"]",
+            "json passphrase" to "{\"mnemonic\":\"x\",\"passphrase\":\"hunter2\"}",
+            "rpcpassword" to "bitcoind rpcpassword=hunter2 rpc_pass=hunter3",
+            "basic auth" to "header Authorization: Basic Ym9iOmh1bnRlcjI= sent",
+            "bearer" to "using Bearer eyJhbGciOiJIUzI1NiJ9.e30.ZRrHA1JJJW8opsbCGfG_HACGpVUMN_a9IV7pAx_Zmeo now",
+            "0x key" to "key 0x" + "1f".repeat(32),
+            "seed_hex" to "seed_" + "ab".repeat(32),
+            "32-hex entropy" to "entropy " + "7f".repeat(16),
+            "glued 32 hex" to "id=" + "c0ffee00".repeat(4) + "!",
+            "descriptor origin" to "wpkh([d34db33f/84h/0h/0h]xpub6CUGRUonZSQ4TWtTMmzXdrXDtypWKiKrhko4egpiMZbpiaQL2jkwSB1icqYh2cfDfVxdx4df189oLKnC5fSwqPfgyP3hooxujYzAu3fDVmz/0/*)",
+            "user:pass url" to "rpc http://bob:hunter2@192.168.1.5:8332/ failed",
+            "ipv4" to "Could not connect to 203.0.113.5:50002",
+            "ipv6" to "peer [2001:db8::8a2e:370:7334]:9735 down",
+            "host" to "Could not resolve casa.duckdns.org",
+            "host:port" to "server mynode.example.net:50002 timed out",
+            "onion" to "via abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuvw.onion:50002",
+            "lightning address" to "paying alice@getalby.com",
+        )
+        val secrets = listOf(ark, sp, "abandon ability able", "able about above", "hunter2", "hunter3", "Ym9iOmh1bnRlcjI",
+            "eyJhbGciOiJIUzI1NiJ9", "1f".repeat(32), "ab".repeat(32), "7f".repeat(16), "c0ffee00".repeat(4),
+            "d34db33f", "84h/0h/0h", "bob", "192.168.1.5", "203.0.113.5", "2001:db8", "casa.duckdns", "mynode.example",
+            "abcdefghijklmnop", "alice@", "getalby")
+        for (msg in cases.values) DiagLog.i("t", msg)
+        val disk = onDisk()
+        for (s in secrets) assertFalse("leaked: $s\n$disk", disk.contains(s))
+        for (p in listOf("<address>", "<words>", "[<origin>]", "<onion>", "<lnaddress>", "<host>", "<ip>", "<url>"))
+            assertTrue("missing $p\n$disk", disk.contains(p))
+    }
+
+    @Test fun byteCapCountsMultiByteCharacters() {
+        // "⏎" and "…" are three bytes each in UTF-8: the cap is on bytes, not characters.
+        val chunk = "⏎…".repeat(400)
+        repeat(1_000) { DiagLog.i("t", "$it $chunk") }
+        val f = files()
+        assertTrue(f.size <= 2)
+        assertTrue(f.all { it.length() <= DiagLog.MAX_FILE })
     }
 
     @Test fun oneLinePerCallWithTimeLevelAndTag() {

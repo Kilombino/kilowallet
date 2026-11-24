@@ -728,7 +728,12 @@ internal object NodeDiag {
     private val last = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     fun note(chain: com.kilombino.pyblockwatch.chain.Chain, endpoint: com.kilombino.pyblockwatch.chain.NodeEndpoint, ev: ScanEvent) {
-        val via = if (endpoint.rpc != null) "own node by RPC" else "${endpoint.host}:${endpoint.port}${if (endpoint.isCustom) " (own server)" else ""}"
+        // Never the host: the user's own node or server is theirs to keep (the log is shared).
+        val via = when {
+            endpoint.rpc != null -> "own node by RPC"
+            endpoint.isCustom -> "own server" + if (endpoint.host.endsWith(".onion")) " (onion)" else ""
+            else -> "default server"
+        }
         val status = when (ev) {
             is ScanEvent.Connected -> "ok"
             is ScanEvent.Failed -> "failed: ${ev.message}"
@@ -737,6 +742,7 @@ internal object NodeDiag {
         }
         val key = "${chain.name}|$via"
         if (last.put(key, status) == status) return
+        if (last.size > 50) last.keys.take(last.size - 20).forEach { if (it != key) last.remove(it) }
         if (status == "ok") DiagLog.i("node", "${chain.name}: reachable via $via (height ${(ev as ScanEvent.Connected).height})")
         else DiagLog.w("node", "${chain.name}: $status (via $via)")
     }
